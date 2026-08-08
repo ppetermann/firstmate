@@ -1549,6 +1549,7 @@ test_inject_wedge_alarm_throttles_when_marker_cannot_be_written() {
   escalate_add "$state" "needs-decision: pick A"
   chmod u-w "$state"
   WEDGE_ALARM_LAST_EPOCH=0
+  WEDGE_ALARM_LAST_LOG_EPOCH=0
   LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
     FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
     inject_wedge_alarm "$state" 30600
@@ -1557,11 +1558,135 @@ test_inject_wedge_alarm_throttles_when_marker_cannot_be_written() {
     inject_wedge_alarm "$state" 30615
   chmod u+w "$state"
   [ ! -e "$state/.subsuper-inject-wedged" ] || fail "wedge marker unexpectedly persisted in an unwritable state directory"
+  # The outbound alert is throttled to one by the in-process epoch backstop
+  # (the durable marker, the usual episode signal, cannot persist here).
   alerts=$(grep -c 'osascript' "$log" 2>/dev/null || true)
   [ "$alerts" -eq 1 ] || fail "unwritable marker emitted $alerts active alerts instead of one"
+  # The durable ERROR log is throttled to once per max-defer window by the same
+  # backstop: housekeeping re-detects every tick when the marker is missing, so
+  # an unthrottled log would spam every ~15s instead of once per window.
   errors=$(grep -c 'ERROR: away-mode escalation undelivered' "$daemon_log" 2>/dev/null || true)
-  [ "$errors" -eq 1 ] || fail "unwritable marker logged $errors wedge errors instead of one"
-  pass "in-process wedge throttle prevents alert spam when the marker cannot persist"
+  [ "$errors" -eq 1 ] || fail "unwritable marker logged $errors wedge errors instead of one per max-defer window"
+  pass "in-process epoch backstop throttles outbound alerts and the ERROR log to once per max-defer window when the marker cannot persist"
+}
+
+test_inject_wedge_alarm_throttles_log_when_marker_exists_but_unwritable() {
+  # Mid-episode failure mode: the marker was written but can no longer be
+  # rewritten (read-only remount, wrong permissions), so its mtime freezes and
+  # housekeeping's marker-age gate re-detects every tick. The ERROR log must
+  # throttle to once per max-defer window instead of spamming every call, while
+  # the frozen marker survives as the durable record and the outbound alert
+  # stays once-per-episode.
+  local dir state log daemon_log marker alerts errors
+  dir=$(make_wedge_case wedge-frozen-marker)
+  state="$dir/state"; log="$dir/alert.log"; daemon_log="$dir/daemon.log"
+  marker="$state/.subsuper-inject-wedged"
+  escalate_add "$state" "needs-decision: pick A"
+  WEDGE_ALARM_LAST_EPOCH=0
+  WEDGE_ALARM_LAST_LOG_EPOCH=0
+  LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 600
+  [ -s "$marker" ] || fail "the first window did not write the durable marker"
+  chmod u-w "$marker"
+  LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 1200
+  LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 1215
+  chmod u+w "$marker"
+  [ -s "$marker" ] || fail "the frozen marker did not survive the failed rewrites"
+  alerts=$(grep -c 'osascript' "$log" 2>/dev/null || true)
+  [ "$alerts" -eq 1 ] || fail "a frozen marker emitted $alerts outbound alerts instead of one per episode"
+  errors=$(grep -c 'ERROR: away-mode escalation undelivered' "$daemon_log" 2>/dev/null || true)
+  [ "$errors" -eq 1 ] || fail "a frozen unwritable marker logged $errors wedge errors instead of once per max-defer window"
+  pass "an existing-but-unwritable marker throttles the ERROR log to once per max-defer window while the marker persists"
+}
+
+test_inject_wedge_alarm_fires_once_per_episode_across_windows() {
+  # The core fix: a persistent wedge (many max-defer windows) produces exactly
+  # ONE outbound active alert per episode, while the durable marker and ERROR log
+  # keep updating every window so the current age/state stays recoverable.
+  # Windows are driven as repeated inject_wedge_alarm calls; the marker's
+  # presence is the episode signal, so no time mock is needed.
+  local dir state log daemon_log marker alerts errors
+  dir=$(make_wedge_case wedge-once-per-episode)
+  state="$dir/state"; log="$dir/alert.log"; daemon_log="$dir/daemon.log"
+  marker="$state/.subsuper-inject-wedged"
+  escalate_add "$state" "needs-decision: pick A"
+  WEDGE_ALARM_LAST_EPOCH=0
+  FM_WEDGE_ALARM_LOG="$log" LOG="$daemon_log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 300
+  [ -e "$marker" ] || fail "first window did not write the durable marker"
+  grep -F '300s' "$marker" >/dev/null || fail "marker did not record the first window age"
+  # Subsequent windows: the marker persists, so the episode continues and the
+  # outbound alert stays silent, but the durable record keeps updating.
+  FM_WEDGE_ALARM_LOG="$log" LOG="$daemon_log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 600
+  FM_WEDGE_ALARM_LOG="$log" LOG="$daemon_log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 900
+  alerts=$(grep -c 'osascript' "$log" 2>/dev/null || true)
+  [ "$alerts" -eq 1 ] || fail "a persistent wedge emitted $alerts outbound alerts across three windows instead of one"
+  grep -F '900s' "$marker" >/dev/null || fail "the durable marker did not update to the latest window age"
+  errors=$(grep -c 'ERROR: away-mode escalation undelivered' "$daemon_log" 2>/dev/null || true)
+  [ "$errors" -eq 3 ] || fail "the durable ERROR log recorded $errors detections across three windows instead of one per window"
+  pass "a persistent wedge fires one outbound alert per episode while the marker and ERROR log update every window"
+}
+
+test_inject_wedge_alarm_repeat_secs_controls_re_fire() {
+  # FM_WEDGE_ALARM_REPEAT_SECS re-fires the outbound alert on its cadence during a
+  # persistent episode; unset/0 keeps the default once-per-episode silence.
+  local dir state log marker alerts
+  # (a) repeat > 0 and the last fire is older than the cadence -> re-fire.
+  dir=$(make_wedge_case wedge-repeat-refire)
+  state="$dir/state"; log="$dir/alert.log"; marker="$state/.subsuper-inject-wedged"
+  escalate_add "$state" "needs-decision: pick A"
+  printf 'fm away-mode inject WEDGED: prior window\n' > "$marker"
+  WEDGE_ALARM_LAST_EPOCH=$(( $(_now) - 1000 ))
+  FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 FM_WEDGE_ALARM_REPEAT_SECS=500 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 1200
+  alerts=$(grep -c 'osascript' "$log" 2>/dev/null || true)
+  [ "$alerts" -eq 1 ] || fail "FM_WEDGE_ALARM_REPEAT_SECS=500 did not re-fire after 1000s elapsed (got $alerts alerts)"
+  # (b) repeat unset and the last fire is far in the past -> still silent.
+  dir=$(make_wedge_case wedge-repeat-off)
+  state="$dir/state"; log="$dir/alert.log"; marker="$state/.subsuper-inject-wedged"
+  escalate_add "$state" "needs-decision: pick A"
+  printf 'fm away-mode inject WEDGED: prior window\n' > "$marker"
+  WEDGE_ALARM_LAST_EPOCH=$(( $(_now) - 9999 ))
+  FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 1200
+  alerts=$(grep -c 'osascript' "$log" 2>/dev/null || true)
+  [ "$alerts" -eq 0 ] || fail "with repeat unset, the outbound alert re-fired $alerts times instead of staying once-per-episode"
+  pass "FM_WEDGE_ALARM_REPEAT_SECS re-fires the alert on cadence; unset/0 stays once per episode"
+}
+
+test_inject_wedge_alarm_fresh_episode_notifies_again() {
+  # Clearing the marker (a flush success, an away-mode return, or a fresh launch)
+  # ends the episode, so the next wedge notifies once again.
+  local dir state log marker alerts
+  dir=$(make_wedge_case wedge-fresh-episode)
+  state="$dir/state"; log="$dir/alert.log"; marker="$state/.subsuper-inject-wedged"
+  escalate_add "$state" "needs-decision: pick A"
+  WEDGE_ALARM_LAST_EPOCH=0
+  FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 300
+  alerts=$(grep -c 'osascript' "$log" 2>/dev/null || true)
+  [ "$alerts" -eq 1 ] || fail "the first episode did not fire an outbound alert"
+  # The episode clears (marker removed), then a new wedge begins.
+  rm -f "$marker"
+  FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 600
+  alerts=$(grep -c 'osascript' "$log" 2>/dev/null || true)
+  [ "$alerts" -eq 2 ] || fail "a fresh episode (marker cleared) did not fire a second outbound alert (got $alerts)"
+  pass "clearing the wedge marker starts a fresh episode that notifies once again"
 }
 
 test_fm_send_exits_nonzero_on_confirmed_swallow() {
@@ -1911,6 +2036,10 @@ test_wedge_alarm_hung_override_times_out_and_falls_through
 test_wedge_alarm_shutdown_stops_active_notifier_group
 test_inject_wedge_alarm_fires_active_alert_on_non_tmux_backend
 test_inject_wedge_alarm_throttles_when_marker_cannot_be_written
+test_inject_wedge_alarm_throttles_log_when_marker_exists_but_unwritable
+test_inject_wedge_alarm_fires_once_per_episode_across_windows
+test_inject_wedge_alarm_repeat_secs_controls_re_fire
+test_inject_wedge_alarm_fresh_episode_notifies_again
 test_fm_send_exits_nonzero_on_confirmed_swallow
 test_fm_send_exits_nonzero_on_initial_send_failure
 test_fm_send_exits_nonzero_on_unproven_submit

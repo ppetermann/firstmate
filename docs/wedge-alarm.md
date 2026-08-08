@@ -1,7 +1,7 @@
 # Away-mode injection wedge alarm
 
 The away-mode sub-supervisor (`bin/fm-supervise-daemon.sh`) buffers escalations and injects them into Firstmate's own pane.
-When injection cannot confirm a submit past `FM_MAX_DEFER_SECS`, `inject_wedge_alarm` raises a loud, rate-limited alarm so the stall never stays invisible.
+When injection cannot confirm a submit past `FM_MAX_DEFER_SECS`, `inject_wedge_alarm` raises a loud alarm so the stall never stays invisible.
 The active alert is pane-independent because a tmux status-line flash has no cross-backend equivalent and cannot reach an unattended captain reliably.
 The durable marker and tmux flash remain as additional signals.
 
@@ -19,7 +19,13 @@ It lists channel directives, one per non-empty, non-comment line, and every list
 - `command:<cmd>` runs `<cmd>` through `sh -c` with the alarm summary as `$1` and on stdin, allowing delivery to a phone or pager service.
 
 An absent `config/wedge-alarm` behaves as `auto`, which is default-on on macOS.
-This is deliberate because the alarm fires only after a genuine max-defer wedge and is rate-limited to at most once per max-defer window.
+This is deliberate because the alarm fires only after a genuine max-defer wedge.
+
+The outbound active alert fires once per wedge episode, then stays silent while the episode persists.
+An episode begins when the durable marker is absent and ends when it clears: a flush success, an away-mode return, or a fresh away-mode launch all remove the marker.
+The durable marker and the daemon ERROR log keep updating every max-defer window throughout the episode, so the current age and state stay recoverable; only the outbound notification is suppressed after the first fire.
+Set `FM_WEDGE_ALARM_REPEAT_SECS` to a value greater than zero to re-fire the outbound alert at most once per that many seconds during a long episode, for operators who want periodic re-nagging instead of a single fire.
+The default of zero leaves it once per episode.
 
 Each channel is best-effort.
 A missing binary or non-zero exit logs a warning and continues to the next channel without crashing the daemon loop.
@@ -35,5 +41,5 @@ When the daemon is sourced as a library, that seam defaults to `discard`, so a t
 `tests/wake-helpers.sh` replaces it with a recorder when a suite needs to assert channel selection and summary propagation.
 Production leaves the seam unset and uses the configured real channels.
 
-`tests/fm-daemon.test.sh` covers directive parsing, rate limiting, timeout and process-group cleanup, argv-safe dispatch, channel fallback, and safe `command:` summary delivery.
+`tests/fm-daemon.test.sh` covers directive parsing, the once-per-episode notification cadence with its `FM_WEDGE_ALARM_REPEAT_SECS` re-fire knob, timeout and process-group cleanup, argv-safe dispatch, channel fallback, and safe `command:` summary delivery.
 [`verification/supervision.md`](verification/supervision.md#wedge-alarm-channels) records the bounded manual macOS and Herdr channel proof.
