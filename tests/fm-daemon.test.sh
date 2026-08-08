@@ -1561,11 +1561,12 @@ test_inject_wedge_alarm_throttles_when_marker_cannot_be_written() {
   # (the durable marker, the usual episode signal, cannot persist here).
   alerts=$(grep -c 'osascript' "$log" 2>/dev/null || true)
   [ "$alerts" -eq 1 ] || fail "unwritable marker emitted $alerts active alerts instead of one"
-  # The durable ERROR log still records every detection even when the marker
-  # cannot persist, so a write failure cannot turn into a silent wedge.
+  # The durable ERROR log is throttled to once per max-defer window by the same
+  # backstop: housekeeping re-detects every tick when the marker is missing, so
+  # an unthrottled log would spam every ~15s instead of once per window.
   errors=$(grep -c 'ERROR: away-mode escalation undelivered' "$daemon_log" 2>/dev/null || true)
-  [ "$errors" -eq 2 ] || fail "unwritable marker logged $errors wedge errors instead of one per detection"
-  pass "in-process epoch backstop throttles outbound alerts when the marker cannot persist, while the ERROR log records every detection"
+  [ "$errors" -eq 1 ] || fail "unwritable marker logged $errors wedge errors instead of one per max-defer window"
+  pass "in-process epoch backstop throttles outbound alerts and the ERROR log to once per max-defer window when the marker cannot persist"
 }
 
 test_inject_wedge_alarm_fires_once_per_episode_across_windows() {

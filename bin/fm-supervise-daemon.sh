@@ -924,21 +924,23 @@ inject_wedge_alarm() {  # <state> <age-seconds>
      && { [ "$WEDGE_ALARM_LAST_EPOCH" -eq 0 ] || [ $((now - WEDGE_ALARM_LAST_EPOCH)) -ge "$repeat" ]; }; then
     notify=1
   fi
-  log "ERROR: away-mode escalation undelivered ${age}s; inject could not confirm a submit (supervisor pane busy or wedged). Buffer + wake-queue preserved; alarm marker written."
   {
     printf 'fm away-mode inject WEDGED: %ss undelivered as of %s\n' "$age" "$(date '+%Y-%m-%dT%H:%M:%S%z')"
     printf 'The supervisor pane could not accept an escalation. Buffered items:\n'
     cat "$state/.subsuper-escalations" 2>/dev/null
   } 2>/dev/null > "$marker" || true
   # When the marker cannot persist (an unwritable state directory), its absence no
-  # longer reliably marks a fresh episode, so the in-process epoch backstops the
-  # once-per-episode guarantee: throttle the outbound alert to once per max-defer
-  # window so a write failure cannot turn into notification spam. A marker that
-  # was legitimately cleared (a flush success, a return, a fresh launch) writes
-  # fresh and still notifies, because this backstop only fires on a failed write.
-  if [ "$notify" -eq 1 ] && [ ! -e "$marker" ] \
+  # longer reliably marks a fresh episode - housekeeping's marker-age gate passes
+  # on every tick - so the in-process epoch backstops the cadence: throttle the
+  # outbound alert AND the ERROR log to once per max-defer window so a write
+  # failure cannot turn into notification or log spam. A marker that was
+  # legitimately cleared (a flush success, a return, a fresh launch) writes fresh
+  # and still notifies, because this backstop only fires on a failed write.
+  if [ ! -e "$marker" ] \
      && [ "$WEDGE_ALARM_LAST_EPOCH" -gt 0 ] && [ $((now - WEDGE_ALARM_LAST_EPOCH)) -lt "$max_defer" ]; then
     notify=0
+  else
+    log "ERROR: away-mode escalation undelivered ${age}s; inject could not confirm a submit (supervisor pane busy or wedged). Buffer + wake-queue preserved; alarm marker written."
   fi
   if [ "$notify" -eq 1 ]; then
     WEDGE_ALARM_LAST_EPOCH=$now
