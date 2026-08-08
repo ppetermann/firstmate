@@ -41,5 +41,5 @@ When the daemon is sourced as a library, that seam defaults to `discard`, so a t
 `tests/wake-helpers.sh` replaces it with a recorder when a suite needs to assert channel selection and summary propagation.
 Production leaves the seam unset and uses the configured real channels.
 
-`tests/fm-daemon.test.sh` covers directive parsing, rate limiting, timeout and process-group cleanup, argv-safe dispatch, channel fallback, and safe `command:` summary delivery.
+`tests/fm-daemon.test.sh` covers directive parsing, the once-per-episode notification cadence with its `FM_WEDGE_ALARM_REPEAT_SECS` re-fire knob, timeout and process-group cleanup, argv-safe dispatch, channel fallback, and safe `command:` summary delivery.
 [`verification/supervision.md`](verification/supervision.md#wedge-alarm-channels) records the bounded manual macOS and Herdr channel proof.
