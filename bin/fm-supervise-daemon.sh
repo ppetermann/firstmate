@@ -112,6 +112,13 @@
 #                                   an OS-level notification, so the alarm is
 #                                   never silent. See wedge_alarm_notify below
 #                                   and docs/configuration.md.
+#          FM_WEDGE_ALARM_REPEAT_SECS re-fire cadence for the outbound active
+#                                   alert during a persistent wedge. Default 0
+#                                   fires it once per wedge episode only; a value
+#                                   greater than 0 re-fires it at most once per
+#                                   that many seconds for operators who want
+#                                   periodic re-nagging. The durable marker and
+#                                   ERROR log still update every max-defer window.
 #          FM_WEDGE_ALARM_EXEC      notifier seam: when set, every notifier
 #                                   channel routes through this command as
 #                                   `<cmd> <channel> <summary>` instead of
@@ -884,34 +891,58 @@ wedge_alarm_notify() {  # <summary> <marker>
   return 0
 }
 
-# Raise a loud, rate-limited alarm when escalations cannot be delivered after
-# max-defer (the supervisor pane is genuinely busy/wedged, or the submit's Enter
-# is swallowed). The daemon must NEVER silently wedge: this logs
-# an ERROR, drops a durable marker firstmate/recovery can surface, flashes
-# the tmux supervisor client's status line when applicable, and attempts a
-# configurable backend-independent active alert (wedge_alarm_notify). Nothing
-# is lost - the buffer and the
-# wake-queue both survive - but the stall stops being invisible.
+# Raise a loud alarm when escalations cannot be delivered after max-defer (the
+# supervisor pane is genuinely busy/wedged, or the submit's Enter is swallowed).
+# The daemon must NEVER silently wedge: this logs an ERROR, drops a durable
+# marker firstmate/recovery can surface, flashes the tmux supervisor client's
+# status line when applicable, and attempts a configurable backend-independent
+# active alert (wedge_alarm_notify). The outbound active alert fires ONCE per
+# wedge episode - the marker's absence marks a fresh episode - then stays silent
+# until that episode clears (a flush success, an away-mode return, or a fresh
+# away-mode launch all remove the marker); FM_WEDGE_ALARM_REPEAT_SECS re-fires it on
+# a cadence for operators who want periodic re-nagging. The durable marker and
+# ERROR log keep updating every window regardless, so the current age/state stays
+# recoverable. Nothing is lost - the buffer and the wake-queue both survive - but
+# the stall stops being invisible.
 inject_wedge_alarm() {  # <state> <age-seconds>
-  local state=$1 age=$2 marker target backend max_defer now notify=1
+  local state=$1 age=$2 marker target backend max_defer now notify=1 repeat
   marker="$state/.subsuper-inject-wedged"
   max_defer="${FM_MAX_DEFER_SECS:-$MAX_DEFER_SECS_DEFAULT}"
-  # Re-alarm at most once per max-defer window so a long wedge does not spam.
-  if [ "$(_file_age "$marker")" -lt "$max_defer" ]; then
-    return 0
-  fi
   now=$(_now)
-  if [ "$WEDGE_ALARM_LAST_EPOCH" -gt 0 ] && [ $((now - WEDGE_ALARM_LAST_EPOCH)) -lt "$max_defer" ]; then
+  repeat="${FM_WEDGE_ALARM_REPEAT_SECS:-0}"
+  case "$repeat" in ''|*[!0-9]*) repeat=0 ;; esac
+  # Fire the outbound active alert once when a wedge episode begins (the durable
+  # marker is absent), then stay silent while the episode persists. The durable
+  # marker and ERROR log below always update every window regardless.
+  if [ -e "$marker" ]; then
     notify=0
-  else
-    WEDGE_ALARM_LAST_EPOCH=$now
-    log "ERROR: away-mode escalation undelivered ${age}s; inject could not confirm a submit (supervisor pane busy or wedged). Buffer + wake-queue preserved; alarm marker written."
   fi
+  # Optional escape hatch: re-fire the outbound alert at most once per
+  # FM_WEDGE_ALARM_REPEAT_SECS during a persistent wedge, for operators who want
+  # periodic re-nagging instead of a single once-per-episode fire.
+  if [ "$notify" -eq 0 ] && [ "$repeat" -gt 0 ] \
+     && { [ "$WEDGE_ALARM_LAST_EPOCH" -eq 0 ] || [ $((now - WEDGE_ALARM_LAST_EPOCH)) -ge "$repeat" ]; }; then
+    notify=1
+  fi
+  log "ERROR: away-mode escalation undelivered ${age}s; inject could not confirm a submit (supervisor pane busy or wedged). Buffer + wake-queue preserved; alarm marker written."
   {
     printf 'fm away-mode inject WEDGED: %ss undelivered as of %s\n' "$age" "$(date '+%Y-%m-%dT%H:%M:%S%z')"
     printf 'The supervisor pane could not accept an escalation. Buffered items:\n'
     cat "$state/.subsuper-escalations" 2>/dev/null
   } 2>/dev/null > "$marker" || true
+  # When the marker cannot persist (an unwritable state directory), its absence no
+  # longer reliably marks a fresh episode, so the in-process epoch backstops the
+  # once-per-episode guarantee: throttle the outbound alert to once per max-defer
+  # window so a write failure cannot turn into notification spam. A marker that
+  # was legitimately cleared (a flush success, a return, a fresh launch) writes
+  # fresh and still notifies, because this backstop only fires on a failed write.
+  if [ "$notify" -eq 1 ] && [ ! -e "$marker" ] \
+     && [ "$WEDGE_ALARM_LAST_EPOCH" -gt 0 ] && [ $((now - WEDGE_ALARM_LAST_EPOCH)) -lt "$max_defer" ]; then
+    notify=0
+  fi
+  if [ "$notify" -eq 1 ]; then
+    WEDGE_ALARM_LAST_EPOCH=$now
+  fi
   target="${FM_SUPERVISOR_TARGET:-$FM_SUPERVISOR_TARGET_DEFAULT}"
   backend="${FM_SUPERVISOR_BACKEND:-$FM_SUPERVISOR_BACKEND_DEFAULT}"
   # Best-effort status-line flash. tmux's display-message is a client-side OSD
@@ -977,9 +1008,10 @@ housekeeping() {  # <state>
   max_defer=${FM_MAX_DEFER_SECS:-$MAX_DEFER_SECS_DEFAULT}
   if afk_active "$state" && [ "$max_defer" -gt 0 ] && [ -s "$state/.subsuper-escalations" ]; then
     oldest=$(_oldest_line_age "$state/.subsuper-escalations")
-    # Throttle the alarm to once per max-defer window (the wedge marker doubles
-    # as the throttle). A successful flush clears the buffer; a failed one alarms
-    # and waits.
+    # Gate the wedge handler to once per max-defer window (the marker doubles as
+    # the gate). A successful flush clears the buffer and the marker; a failed
+    # one rewrites the marker and logs. The outbound alert's once-per-episode
+    # cadence and FM_WEDGE_ALARM_REPEAT_SECS live inside inject_wedge_alarm.
     if [ "$oldest" -ge "$max_defer" ] \
        && [ "$(_file_age "$state/.subsuper-inject-wedged")" -ge "$max_defer" ]; then
       if escalate_flush "$state"; then
