@@ -1549,6 +1549,7 @@ test_inject_wedge_alarm_throttles_when_marker_cannot_be_written() {
   escalate_add "$state" "needs-decision: pick A"
   chmod u-w "$state"
   WEDGE_ALARM_LAST_EPOCH=0
+  WEDGE_ALARM_LAST_LOG_EPOCH=0
   LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
     FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
     inject_wedge_alarm "$state" 30600
@@ -1567,6 +1568,40 @@ test_inject_wedge_alarm_throttles_when_marker_cannot_be_written() {
   errors=$(grep -c 'ERROR: away-mode escalation undelivered' "$daemon_log" 2>/dev/null || true)
   [ "$errors" -eq 1 ] || fail "unwritable marker logged $errors wedge errors instead of one per max-defer window"
   pass "in-process epoch backstop throttles outbound alerts and the ERROR log to once per max-defer window when the marker cannot persist"
+}
+
+test_inject_wedge_alarm_throttles_log_when_marker_exists_but_unwritable() {
+  # Mid-episode failure mode: the marker was written but can no longer be
+  # rewritten (read-only remount, wrong permissions), so its mtime freezes and
+  # housekeeping's marker-age gate re-detects every tick. The ERROR log must
+  # throttle to once per max-defer window instead of spamming every call, while
+  # the frozen marker survives as the durable record and the outbound alert
+  # stays once-per-episode.
+  local dir state log daemon_log marker alerts errors
+  dir=$(make_wedge_case wedge-frozen-marker)
+  state="$dir/state"; log="$dir/alert.log"; daemon_log="$dir/daemon.log"
+  marker="$state/.subsuper-inject-wedged"
+  escalate_add "$state" "needs-decision: pick A"
+  WEDGE_ALARM_LAST_EPOCH=0
+  WEDGE_ALARM_LAST_LOG_EPOCH=0
+  LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 600
+  [ -s "$marker" ] || fail "the first window did not write the durable marker"
+  chmod u-w "$marker"
+  LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 1200
+  LOG="$daemon_log" FM_WEDGE_ALARM_LOG="$log" FM_MAX_DEFER_SECS=600 \
+    FM_WEDGE_ALARM_CHANNEL=osascript FM_SUPERVISOR_BACKEND=herdr \
+    inject_wedge_alarm "$state" 1215
+  chmod u+w "$marker"
+  [ -s "$marker" ] || fail "the frozen marker did not survive the failed rewrites"
+  alerts=$(grep -c 'osascript' "$log" 2>/dev/null || true)
+  [ "$alerts" -eq 1 ] || fail "a frozen marker emitted $alerts outbound alerts instead of one per episode"
+  errors=$(grep -c 'ERROR: away-mode escalation undelivered' "$daemon_log" 2>/dev/null || true)
+  [ "$errors" -eq 1 ] || fail "a frozen unwritable marker logged $errors wedge errors instead of once per max-defer window"
+  pass "an existing-but-unwritable marker throttles the ERROR log to once per max-defer window while the marker persists"
 }
 
 test_inject_wedge_alarm_fires_once_per_episode_across_windows() {
@@ -2001,6 +2036,7 @@ test_wedge_alarm_hung_override_times_out_and_falls_through
 test_wedge_alarm_shutdown_stops_active_notifier_group
 test_inject_wedge_alarm_fires_active_alert_on_non_tmux_backend
 test_inject_wedge_alarm_throttles_when_marker_cannot_be_written
+test_inject_wedge_alarm_throttles_log_when_marker_exists_but_unwritable
 test_inject_wedge_alarm_fires_once_per_episode_across_windows
 test_inject_wedge_alarm_repeat_secs_controls_re_fire
 test_inject_wedge_alarm_fresh_episode_notifies_again

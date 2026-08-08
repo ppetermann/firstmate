@@ -207,6 +207,7 @@ HOUSEKEEPING_TICK_DEFAULT=15
 MAX_DEFER_SECS_DEFAULT=300
 WEDGE_ALARM_TIMEOUT_SECS_DEFAULT=10
 WEDGE_ALARM_LAST_EPOCH=0
+WEDGE_ALARM_LAST_LOG_EPOCH=0
 WEDGE_ALARM_NOTIFIER_PID=
 # The captain-relevant verb set and the status classifiers (last_status_line,
 # status_is_captain_relevant, window_to_task, scan_captain_relevant_statuses) now
@@ -905,7 +906,7 @@ wedge_alarm_notify() {  # <summary> <marker>
 # recoverable. Nothing is lost - the buffer and the wake-queue both survive - but
 # the stall stops being invisible.
 inject_wedge_alarm() {  # <state> <age-seconds>
-  local state=$1 age=$2 marker target backend max_defer now notify=1 repeat
+  local state=$1 age=$2 marker target backend max_defer now notify=1 repeat wrote=1
   marker="$state/.subsuper-inject-wedged"
   max_defer="${FM_MAX_DEFER_SECS:-$MAX_DEFER_SECS_DEFAULT}"
   now=$(_now)
@@ -928,19 +929,29 @@ inject_wedge_alarm() {  # <state> <age-seconds>
     printf 'fm away-mode inject WEDGED: %ss undelivered as of %s\n' "$age" "$(date '+%Y-%m-%dT%H:%M:%S%z')"
     printf 'The supervisor pane could not accept an escalation. Buffered items:\n'
     cat "$state/.subsuper-escalations" 2>/dev/null
-  } 2>/dev/null > "$marker" || true
+  } 2>/dev/null > "$marker" || wrote=0
   # When the marker cannot persist (an unwritable state directory), its absence no
   # longer reliably marks a fresh episode - housekeeping's marker-age gate passes
-  # on every tick - so the in-process epoch backstops the cadence: throttle the
-  # outbound alert AND the ERROR log to once per max-defer window so a write
-  # failure cannot turn into notification or log spam. A marker that was
+  # on every tick - so the in-process epoch backstops the once-per-episode
+  # guarantee: throttle the outbound alert to once per max-defer window so a
+  # write failure cannot turn into notification spam. A marker that was
   # legitimately cleared (a flush success, a return, a fresh launch) writes fresh
   # and still notifies, because this backstop only fires on a failed write.
   if [ ! -e "$marker" ] \
      && [ "$WEDGE_ALARM_LAST_EPOCH" -gt 0 ] && [ $((now - WEDGE_ALARM_LAST_EPOCH)) -lt "$max_defer" ]; then
     notify=0
-  else
+  fi
+  # The ERROR log is the durable record's other half. When the marker rewrite
+  # fails - whether the marker is missing (unwritable directory) or exists but
+  # cannot be rewritten (read-only remount, wrong permissions) - housekeeping's
+  # marker-age gate stops advancing and re-detects every tick, so a dedicated
+  # time gate throttles the log to once per max-defer window on any failed
+  # write. A successful rewrite logs every call: housekeeping already paces
+  # those to once per window via the marker's fresh mtime.
+  if [ "$wrote" -eq 1 ] || [ "$WEDGE_ALARM_LAST_LOG_EPOCH" -eq 0 ] \
+     || [ $((now - WEDGE_ALARM_LAST_LOG_EPOCH)) -ge "$max_defer" ]; then
     log "ERROR: away-mode escalation undelivered ${age}s; inject could not confirm a submit (supervisor pane busy or wedged). Buffer + wake-queue preserved; alarm marker written."
+    WEDGE_ALARM_LAST_LOG_EPOCH=$now
   fi
   if [ "$notify" -eq 1 ]; then
     WEDGE_ALARM_LAST_EPOCH=$now
