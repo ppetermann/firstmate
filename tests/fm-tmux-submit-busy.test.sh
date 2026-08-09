@@ -134,9 +134,39 @@ test_busy_pane_unknown_stays_unknown() {
   PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$composer" FM_FAKE_PANE_BUSY=1 \
     FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 \
     fm_tmux_submit_enter_core "win" 3 0.05 > "$vfile" 2>/dev/null
-  [ "$(cat "$vfile")" = unknown ] \
+  [ "$(cat "$vfile")" = unknown-but-turn-started ] \
     || fail "a busy pane must not convert an unsafe composer to empty, got '$(cat "$vfile")'"
   pass "fm_tmux_submit_enter_core: busy conversion is limited to proven pending input"
+}
+
+# The two unreadable-composer verdicts must stay DIFFERENT strings and both stay
+# non-empty. Collapsing them back into one `unknown` is what left a caller unable
+# to tell "the endpoint started a turn, do not resend" from "nothing was
+# delivered", which is how one false negative became a double-delivered steer.
+test_unknown_verdict_names_the_busy_side() {
+  local dir fakebin composer busy_verdict idle_verdict
+  dir="$TMP_ROOT/unknown-sides"
+  fakebin=$(make_submit_mock "$dir")
+  composer="$dir/composer"
+  busy_verdict="$dir/busy"
+  idle_verdict="$dir/idle"
+  printf '│ > unbounded\n' > "$composer"
+  touch "$dir/.swallow"
+  PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$composer" FM_FAKE_PANE_BUSY=1 \
+    FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 \
+    fm_tmux_submit_enter_core "win" 3 0.05 > "$busy_verdict" 2>/dev/null
+  PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$composer" FM_FAKE_PANE_BUSY=0 \
+    FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 \
+    fm_tmux_submit_enter_core "win" 3 0.05 > "$idle_verdict" 2>/dev/null
+  [ "$(cat "$busy_verdict")" = unknown-but-turn-started ] \
+    || fail "a busy unreadable composer should name the started turn, got '$(cat "$busy_verdict")'"
+  [ "$(cat "$idle_verdict")" = unknown-idle-no-delivery ] \
+    || fail "an idle unreadable composer should name the absent delivery, got '$(cat "$idle_verdict")'"
+  [ "$(cat "$busy_verdict")" != "$(cat "$idle_verdict")" ] \
+    || fail "the two unreadable-composer verdicts collapsed into one string"
+  [ "$(cat "$busy_verdict")" != empty ] && [ "$(cat "$idle_verdict")" != empty ] \
+    || fail "an unreadable composer must never report a confirmed submit"
+  pass "fm_tmux_submit_enter_core: unreadable composer distinguishes turn-started from no-delivery"
 }
 
 test_busy_pane_ambiguous_pending_retries_without_conversion() {
@@ -262,6 +292,7 @@ test_idle_pane_pending_returns_pending
 test_busy_pane_composer_clears_first_try
 test_idle_pane_composer_clears_first_try
 test_busy_pane_unknown_stays_unknown
+test_unknown_verdict_names_the_busy_side
 test_busy_pane_ambiguous_pending_retries_without_conversion
 test_unrecognized_state_skips_busy_conversion
 test_claude_busy_signature_uses_real_capture_shapes

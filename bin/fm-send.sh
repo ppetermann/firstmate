@@ -14,7 +14,10 @@
 # retried (Enter only, never retyped) until the target backend confirms a
 # submit or reports an inconclusive send. If a swallowed Enter is positively
 # confirmed, fm-send exits NON-ZERO so the caller knows the steer did not land
-# instead of silently leaving an unsubmitted instruction.
+# instead of silently leaving an unsubmitted instruction. Only an exact `empty`
+# verdict succeeds; every other verdict is reported verbatim with a plain-English
+# clause saying whether the endpoint showed a turn starting, so an unconfirmed
+# send is never blindly resent into an endpoint that already received it.
 # Submission dispatches through the target's recorded backend; the tmux adapter
 # shares its composer/submit core with the away-mode daemon via bin/fm-tmux-lib.sh.
 # Tune with FM_SEND_RETRIES (default 3) / FM_SEND_SLEEP (0.4).
@@ -504,7 +507,19 @@ else
       if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
         fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
       fi
-      echo "error: text not submitted to $T (delivery unconfirmed; verdict=${verdict:-unknown}; tried $RESOLUTION_TRIED)" >&2
+      # An unconfirmed verdict is not one undifferentiated failure: say whether
+      # the endpoint showed a turn starting, so a resend cannot silently
+      # double-deliver a steer that actually landed.
+      case "$verdict" in
+        *-turn-started)
+          verdict_hint=" The endpoint started a turn, so the text may well have landed; inspect it before resending." ;;
+        *-no-delivery)
+          verdict_hint=" The endpoint is idle and shows no delivery, so resending is safe." ;;
+        pending|pending-unproven)
+          verdict_hint=" The text is still sitting unsubmitted in the composer; clear it before resending." ;;
+        *) verdict_hint= ;;
+      esac
+      echo "error: text not submitted to $T (delivery unconfirmed; verdict=${verdict:-unknown}; tried $RESOLUTION_TRIED)$verdict_hint" >&2
       exit 1
       ;;
   esac

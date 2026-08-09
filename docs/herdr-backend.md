@@ -311,6 +311,8 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 - Mid-session secondmate liveness is not implemented.
 - OpenCode 1.18.4 can accept Enter while busy without clearing the composer.
   The tmux backend has a busy-queue fallback, but Herdr still reports this case as submit pending and needs a separate adapter fix.
+- OpenCode draws a left-rail composer with no right border and no corner rows.
+  The tmux reader recognizes that container, but Herdr's structural scan still matches only paired borders and bare agent prompt glyphs, so an OpenCode composer under Herdr stays unknown and its submits stay unconfirmed.
 - Only tmux and Herdr can host the away-mode supervisor terminal.
 
 ## Regression entry points

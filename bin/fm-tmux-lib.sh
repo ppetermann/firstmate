@@ -7,13 +7,24 @@
 # logic cannot drift between the two.
 #
 # Why this exists (incident afk-invx-i5): the daemon's old composer check only
-# recognized a BARE prompt glyph ("> ") as an empty composer. claude draws its
-# input box with box-drawing borders ("│ > … │"), so every idle claude pane read
-# as "pending input" and the away-mode daemon deferred 100% of escalations for
-# 9.5 hours with no escape. The detector below strips the box borders before
+# recognized a BARE prompt glyph ("> ") as an empty composer. claude then drew
+# its input box with box-drawing borders ("│ > … │"), so every idle claude pane
+# read as "pending input" and the away-mode daemon deferred 100% of escalations
+# for 9.5 hours with no escape. The detector below strips the box borders before
 # deciding, so a bordered-but-empty composer is correctly seen as empty. The same
 # corrected detector backs the submit acknowledgement (a submit "landed" iff the
 # composer is empty afterward), fixing the parallel false "Enter swallowed".
+#
+# COMPOSER SHAPES ARE VENDOR-CONTROLLED and this is the lesson that keeps
+# repeating (task fm-send-delivery-false-negative): claude 2.1.226 no longer
+# draws that bordered box at all - its composer is a bare "❯" row between two
+# full-width rules, padded with U+00A0 - and opencode has never drawn a closed
+# box, only a left rail. Both shapes made the reader answer a question it could
+# not actually see, so fm-send reported landed steers as unconfirmed and could
+# not detect a real swallow either. The structural readers below therefore
+# recognize a complete box, a left rail, and a bare row, and the CURRENT
+# per-harness shapes live in docs/verification/runtime-backends.md with the
+# opt-in guard that refreshes them (tests/fm-composer-drift-live-e2e.test.sh).
 #
 # Ghost text (incident composer-robust): claude renders a predicted-next-prompt
 # "suggestion" as dim/faint text inside an otherwise-empty composer. A plain
@@ -139,6 +150,13 @@ fm_tmux_composer_row_state() {  # <raw-row> [bordered] [allow-busy] -> empty|pen
     '┃'*'┃') stripped=${stripped#┃}; stripped=${stripped%┃} ;;
     '║'*'║') stripped=${stripped#║}; stripped=${stripped%║} ;;
     '|'*'|') stripped=${stripped#|}; stripped=${stripped%|} ;;
+    # Leading-only rail edge, stripped ONLY when the caller already proved this
+    # row sits inside a genuine composer container (bordered=1, which the
+    # left-rail scan below establishes structurally). A bare row that merely
+    # starts with a bar glyph never reaches here as bordered.
+    '│'*|'┃'*|'║'*)
+      if [ "$bordered" = 1 ]; then stripped=${stripped#?}; fi
+      ;;
   esac
   stripped="${stripped#"${stripped%%[![:space:]]*}"}"
   stripped="${stripped%"${stripped##*[![:space:]]}"}"
@@ -166,6 +184,11 @@ fm_tmux_row_has_composer_edge() {  # <plain-row>
 
 fm_tmux_composer_geometry_spaces() {  # <content-inner> -> spaces
   local content=$1 probe
+  # Unicode blank padding occupies one column each and must count as blank
+  # width, exactly as it counts as blank content (bin/fm-composer-lib.sh).
+  # Left un-normalized it survives the printable-ASCII blanking below and makes
+  # an ordinary padded composer read as ambiguous geometry, which is `unknown`.
+  content=$(fm_composer_normalize_blanks "$content")
   probe="${content#"${content%%[![:space:]]*}"}"
   case "$probe" in
     '>'*) content=${content/>/ } ;;
@@ -302,12 +325,73 @@ EOF
   return 1
 }
 
+# fm_tmux_find_composer_rail: print the zero-based top row of the LEFT-RAIL
+# composer that contains the cursor, or fail.
+#
+# Not every harness closes its composer in a box. OpenCode (verified 1.18.4 and
+# 1.18.15) draws a left rail only - consecutive rows whose first non-blank
+# character is the same heavy vertical bar, with no right border, no corner
+# rows, and a half-block cap underneath. The complete-box scan above can never
+# match that, and the bare-row fallback rejects it because the row carries a
+# composer edge, so every OpenCode read returned `unknown`: fm-send could not
+# confirm a landed submit and could not detect a swallowed Enter either.
+#
+# A rail is proven only when the cursor row's first non-blank character is a
+# BOX-DRAWING vertical bar that is not also its last, and an immediately
+# adjacent row repeats that exact glyph at the exact same indent. ASCII `|` is
+# deliberately excluded: pipes and table borders are ordinary shell output, and
+# a dead shell misread as an agent composer is the failure mode
+# bin/fm-composer-lib.sh exists to prevent. Two aligned box-drawing rails are a
+# drawn container; a login shell never renders one.
+fm_tmux_find_composer_rail() {  # <cursor-y> <plain-visible-pane> -> "<top-row>"
+  local cy=$1 pane=$2 line indent trimmed glyph row=0
+  local run_glyph='' run_indent='' run_top=-1 run_len=0
+  local cursor_top=-1 cursor_len=0 found=0
+  while IFS= read -r line; do
+    indent=${line%%[![:space:]]*}
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    glyph=
+    case "$trimmed" in
+      '│'*'│'|'┃'*'┃'|'║'*'║') ;;  # a closed box row belongs to the box scan
+      '│'*) glyph='│' ;;
+      '┃'*) glyph='┃' ;;
+      '║'*) glyph='║' ;;
+    esac
+    if [ -n "$glyph" ] && [ "$glyph" = "$run_glyph" ] && [ "$indent" = "$run_indent" ]; then
+      run_len=$((run_len + 1))
+    elif [ -n "$glyph" ]; then
+      run_glyph=$glyph; run_indent=$indent; run_top=$row; run_len=1
+    else
+      run_glyph=''; run_indent=''; run_top=-1; run_len=0
+    fi
+    if [ "$row" -eq "$cy" ]; then
+      if [ -n "$glyph" ]; then found=1; cursor_top=$run_top; cursor_len=$run_len; fi
+    elif [ "$row" -gt "$cy" ]; then
+      # Exactly one row past the cursor: it extends the same rail only when the
+      # run never reset, which is what proves a neighbour below.
+      if [ "$found" = 1 ] && [ -n "$glyph" ] && [ "$run_top" = "$cursor_top" ]; then
+        cursor_len=$((cursor_len + 1))
+      fi
+      break
+    fi
+    row=$((row + 1))
+  done <<EOF
+$pane
+EOF
+  [ "$found" = 1 ] || return 1
+  # One aligned neighbour is the minimum proof of a drawn rail.
+  [ "$cursor_len" -ge 2 ] || return 1
+  printf '%s' "$cursor_top"
+}
+
 # fm_tmux_composer_state classification contract:
 # A row is structural only when its first or last non-whitespace character is a
 # composer edge. A complete box has matching border families and bounded top and
-# bottom rows. The proof-carrying verdict is empty for proven emptiness, pending
-# for proven text in established structure, pending-unproven for text in
-# ambiguous structure, and unknown for unreadable state. Consumers that can
+# bottom rows; a left rail has aligned repeated box-drawing bars and is read from
+# its top through the cursor row. The proof-carrying verdict is empty for proven
+# emptiness, pending for proven text in established structure, pending-unproven
+# for text in ambiguous structure, and unknown for unreadable state. Consumers that can
 # overwrite input or confirm delivery must accept only the exact positive proof
 # they require, so unrecognized future verdicts fail safe by default. Empty
 # requires positive proof: a genuinely empty composer, an all-empty unambiguous
@@ -315,7 +399,7 @@ EOF
 # busy-queued Enter conversion.
 fm_tmux_composer_state() {  # <target> -> empty|pending|pending-unproven|unknown
   local target=$1 cy raw pane plain box box_status top bottom geometry_ambiguous
-  local row row_raw state unknown_seen=0
+  local row row_raw state unknown_seen=0 rail_top
   cy=$(tmux display-message -p -t "$target" '#{cursor_y}' 2>/dev/null) || { printf 'unknown'; return 0; }
   case "$cy" in ''|*[!0-9]*) printf 'unknown'; return 0 ;; esac
   pane=$(tmux capture-pane -e -p -t "$target" -S 0 -E - 2>/dev/null) || { printf 'unknown'; return 0; }
@@ -350,6 +434,26 @@ fm_tmux_composer_state() {  # <target> -> empty|pending|pending-unproven|unknown
     return 0
   else
     box_status=$?
+    # No complete box: a left-rail composer is the other proven container.
+    # Its rows are read from the rail top DOWN TO THE CURSOR ROW inclusive, not
+    # to the rail's end: OpenCode draws its model/mode status line as the last
+    # rail row, which is decoration rather than input, while every row that can
+    # hold unsubmitted text is at or above the cursor. Reading past the cursor
+    # would classify that status line as pending input forever.
+    if rail_top=$(fm_tmux_find_composer_rail "$cy" "$plain"); then
+      row=$rail_top
+      while [ "$row" -le "$cy" ]; do
+        row_raw=$(printf '%s\n' "$pane" | sed -n "$((row + 1))p")
+        state=$(fm_tmux_composer_row_state "$row_raw" 1 0)
+        case "$state" in
+          pending) printf 'pending'; return 0 ;;
+          unknown) unknown_seen=1 ;;
+        esac
+        row=$((row + 1))
+      done
+      if [ "$unknown_seen" = 1 ]; then printf 'unknown'; else printf 'empty'; fi
+      return 0
+    fi
     if [ "$box_status" -eq 2 ]; then
       printf 'unknown'
       return 0
@@ -392,6 +496,10 @@ fm_pane_is_busy() {  # <target> [harness]
 # `empty` so the caller does not re-send), while an idle pane keeps `pending` as
 # a genuine swallow. Pending-unproven receives the same Enter retry budget but
 # never reaches this exception.
+# An unreadable composer is reported as `unknown-but-turn-started` or
+# `unknown-idle-no-delivery` so a caller can tell "probably landed, do not
+# resend" from "no evidence of delivery". Both remain non-empty and therefore
+# still fail every consumer's confirmation check.
 fm_tmux_submit_enter_core() {  # <target> <retries> <enter-sleep>
   local target=$1 retries=$2 sleep_s=$3 i=0 state
   while :; do
@@ -400,15 +508,30 @@ fm_tmux_submit_enter_core() {  # <target> <retries> <enter-sleep>
     state=$(fm_tmux_composer_state "$target")
     case "$state" in
       pending|pending-unproven) ;;
-      *) printf '%s' "$state"; return 0 ;;
+      *) break ;;
     esac
     i=$((i + 1))
     [ "$i" -lt "$retries" ] || break
   done
-  if [ "$state" != pending ]; then
-    printf '%s' "$state"
-    return 0
-  fi
+  case "$state" in
+    pending) ;;  # fall through to the busy-queued Enter exception below
+    unknown)
+      # The composer could not be read at all, so neither delivery nor a
+      # swallow is proven. Name which side the pane fell on instead of
+      # collapsing both into one verdict: a mid-turn pane means the text most
+      # likely landed and MUST NOT be blindly resent (a resend after this
+      # verdict is what double-delivered a steer), while an idle pane carries
+      # no evidence of delivery at all. Both stay non-empty, so every caller's
+      # loud refusal and the away-mode injector's strict guard are unchanged.
+      if fm_pane_is_busy "$target"; then
+        printf 'unknown-but-turn-started'
+      else
+        printf 'unknown-idle-no-delivery'
+      fi
+      return 0
+      ;;
+    *) printf '%s' "$state"; return 0 ;;
+  esac
   # Retries exhausted, composer still shows proven pending.
   # If the pane is busy (agent mid-turn), the harness accepted the Enter
   # and queued the message for processing when the current turn ends.
