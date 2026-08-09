@@ -346,10 +346,27 @@ EOF
 # a dead shell misread as an agent composer is the failure mode
 # bin/fm-composer-lib.sh exists to prevent. Two aligned box-drawing rails are a
 # drawn container; a login shell never renders one.
+
+# fm_tmux_row_is_box_structure: does <trimmed-row> belong to a drawn BOX of the
+# same border family as <rail-glyph>, at the caller's indent? A corner row (top
+# or bottom) or a paired side row is positive evidence of a box rather than a
+# rail, and OpenCode's verified rail draws none of the three: no corner rows, no
+# right border, and therefore no paired side rows.
+fm_tmux_row_is_box_structure() {  # <trimmed-row> <rail-glyph>
+  local row=$1 glyph=$2
+  case "$glyph" in
+    '│') case "$row" in '╭'*'╮'|'┌'*'┐'|'╰'*'╯'|'└'*'┘'|'│'*'│') return 0 ;; esac ;;
+    '┃') case "$row" in '┏'*'┓'|'┗'*'┛'|'┃'*'┃') return 0 ;; esac ;;
+    '║') case "$row" in '╔'*'╗'|'╚'*'╝'|'║'*'║') return 0 ;; esac ;;
+  esac
+  return 1
+}
+
 fm_tmux_find_composer_rail() {  # <cursor-y> <plain-visible-pane> -> "<top-row>"
   local cy=$1 pane=$2 line indent trimmed glyph row=0
   local run_glyph='' run_indent='' run_top=-1 run_len=0 run_capped=0
   local cursor_top=-1 cursor_len=0 cursor_capped=0 found=0
+  local cursor_glyph='' cursor_indent=''
   local prev_trimmed='' prev_indent=''
   while IFS= read -r line; do
     indent=${line%%[![:space:]]*}
@@ -366,27 +383,33 @@ fm_tmux_find_composer_rail() {  # <cursor-y> <plain-visible-pane> -> "<top-row>"
       run_len=$((run_len + 1))
     elif [ -n "$glyph" ]; then
       run_glyph=$glyph; run_indent=$indent; run_top=$row; run_len=1
-      # A box TOP border immediately above the run, at the same indent, is
-      # positive evidence of a BOX whose bottom is missing or clipped, not of a
-      # rail: OpenCode's rail draws no corner rows at all. Such a shape must keep
-      # the box scan's fail-closed `unknown`, never be promoted to `empty`.
+      # Box structure immediately above the run, at the same indent, is positive
+      # evidence of a BOX whose bottom is missing or clipped, not of a rail. Such
+      # a shape must keep the box scan's fail-closed `unknown`, never be promoted
+      # to `empty`.
       run_capped=0
-      case "$prev_trimmed" in
-        '╭'*'╮'|'┌'*'┐'|'╔'*'╗'|'┏'*'┓')
-          [ "$prev_indent" = "$indent" ] && run_capped=1 ;;
-      esac
+      if [ "$prev_indent" = "$indent" ] \
+         && fm_tmux_row_is_box_structure "$prev_trimmed" "$glyph"; then
+        run_capped=1
+      fi
     else
       run_glyph=''; run_indent=''; run_top=-1; run_len=0; run_capped=0
     fi
     if [ "$row" -eq "$cy" ]; then
       if [ -n "$glyph" ]; then
         found=1; cursor_top=$run_top; cursor_len=$run_len; cursor_capped=$run_capped
+        cursor_glyph=$glyph; cursor_indent=$indent
       fi
     elif [ "$row" -gt "$cy" ]; then
       # Exactly one row past the cursor: it extends the same rail only when the
-      # run never reset, which is what proves a neighbour below.
+      # run never reset, which is what proves a neighbour below. A row that ends
+      # the run instead is checked for box structure, so a run bounded BELOW by a
+      # corner or a paired side row also stays with the box scan's verdict.
       if [ "$found" = 1 ] && [ -n "$glyph" ] && [ "$run_top" = "$cursor_top" ]; then
         cursor_len=$((cursor_len + 1))
+      elif [ "$found" = 1 ] && [ "$indent" = "$cursor_indent" ] \
+           && fm_tmux_row_is_box_structure "$trimmed" "$cursor_glyph"; then
+        cursor_capped=1
       fi
       break
     fi
@@ -397,7 +420,8 @@ fm_tmux_find_composer_rail() {  # <cursor-y> <plain-visible-pane> -> "<top-row>"
 $pane
 EOF
   [ "$found" = 1 ] || return 1
-  # A corner-capped run is a box, so it stays with the box scan's verdict.
+  # A run bounded by box structure is a box, so it stays with the box scan's
+  # verdict rather than being promoted to a rail.
   [ "$cursor_capped" = 0 ] || return 1
   # One aligned neighbour is the minimum proof of a drawn rail.
   [ "$cursor_len" -ge 2 ] || return 1

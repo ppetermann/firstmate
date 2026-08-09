@@ -235,31 +235,47 @@ test_dead_shell_prompt_stays_unknown() {
 # A bordered box the scan cannot bound fails CLOSED as `unknown`, and the rail
 # reader must not reopen it: `empty` is the single verdict that both confirms
 # delivery to fm-send and authorizes the away-mode daemon to type into a pane.
-# A top corner row above unpaired side rows is positive evidence of a clipped
-# BOX - opencode's genuine rail draws no corner rows - so the aligned side bars
-# must not be promoted to a rail.
-test_corner_capped_unpaired_box_stays_unknown() {
-  local target state top
+# Box structure adjacent to a run of aligned bars - a corner row above or below,
+# or a paired side row - is positive evidence of a clipped BOX, and opencode's
+# genuine rail draws none of the three, so those bars must not become a rail.
+# All three shapes below read `unknown` on the pre-rail libs; each is a verdict
+# inversion if the guard misses its direction.
+test_unbounded_box_stays_unknown() {
+  local top bottom capped_state below_state inner_state
   top="$BOX_TL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_TR"
-  target=$(paint clipped-box "$top\\n$BOX_V\\n$BOX_V\\n" 3)
-  state=$(fm_tmux_composer_state "$target")
-  [ "$state" = unknown ] \
-    || fail "a corner-capped box with unpaired side rows must fail closed as unknown, got '$state'"
-  pass "composer shape: an unbounded bordered box still fails closed as unknown"
+  bottom="$BOX_BL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_BR"
+  # (c) side rows capped ABOVE by a top corner.
+  capped_state=$(fm_tmux_composer_state "$(paint clipped-box "$top\\n$BOX_V\\n$BOX_V\\n" 3)")
+  [ "$capped_state" = unknown ] \
+    || fail "a top-corner-capped box with unpaired side rows must fail closed as unknown, got '$capped_state'"
+  # (a) side rows bounded BELOW by a matching bottom corner.
+  below_state=$(fm_tmux_composer_state "$(paint clipped-box-below "$BOX_V\\n$BOX_V\\n$bottom\\n" 2)")
+  [ "$below_state" = unknown ] \
+    || fail "side rows above a bottom corner must fail closed as unknown, got '$below_state'"
+  # (b) unpaired side rows INSIDE a complete box, adjacent to a paired content row.
+  inner_state=$(fm_tmux_composer_state "$(paint clipped-box-inner \
+    "$BOX_TL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_TR\\n$BOX_V > hi   $BOX_V\\n$BOX_V\\n$BOX_V\\n$BOX_BL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_BR\\n" 4)")
+  [ "$inner_state" = unknown ] \
+    || fail "unpaired side rows inside a complete box must fail closed as unknown, got '$inner_state'"
+  pass "composer shape: a bordered box the scan cannot bound fails closed as unknown, above, below, and within"
 }
 
 # A single bar-led row is ordinary output (a pipe, a table), not a rail. Only an
-# aligned repeat of the same box-drawing bar proves a drawn container.
+# aligned repeat of the same box-drawing BOX-DRAWING bar proves a drawn
+# container. Both shapes are painted BLANK on purpose: a bar row carrying text
+# reads non-empty for the trivial reason that it holds text, so it would keep
+# passing with the rule it pins deleted. Blank rows isolate the rule itself -
+# each of these reads `empty` if its rule is removed.
 test_single_bar_row_is_not_a_rail() {
   local target state ascii_target ascii_state
-  target=$(paint lone-bar "some output\\n  $RAIL  not a composer\\nmore output\\n" 2)
+  target=$(paint lone-bar "some output\\n  $RAIL\\nmore output\\n" 2)
   state=$(fm_tmux_composer_state "$target")
   [ "$state" != empty ] \
     || fail "a lone bar-led row must not classify as an empty composer"
-  ascii_target=$(paint ascii-pipe "a | b\\nc | d\\ne | f\\n" 2)
+  ascii_target=$(paint ascii-pipe "|\\n|\\n|\\n" 2)
   ascii_state=$(fm_tmux_composer_state "$ascii_target")
   [ "$ascii_state" != empty ] \
-    || fail "ASCII pipe-separated output must not classify as an empty composer"
+    || fail "ASCII bar rows must not classify as an empty composer"
   pass "composer shape: an unaligned or ASCII bar row is not a composer rail"
 }
 
@@ -288,7 +304,7 @@ test_left_rail_composer
 test_left_rail_composer_in_non_utf8_locale
 test_left_rail_reads_rows_above_the_cursor
 test_dead_shell_prompt_stays_unknown
-test_corner_capped_unpaired_box_stays_unknown
+test_unbounded_box_stays_unknown
 test_single_bar_row_is_not_a_rail
 test_complete_box_still_classifies
 
