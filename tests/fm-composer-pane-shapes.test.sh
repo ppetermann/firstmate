@@ -84,10 +84,16 @@ SH
   chmod +x "$script"
   "$REAL_TMUX" -L "$SOCKET" new-window -d -t "$SESSION:" -n "$name" -c "$LAB/wt" -- "$script" \
     || fail "could not paint shape $name"
-  # Wait for the paint to reach the screen before classifying it.
+  # Wait for the paint AND the cursor park to reach the screen before
+  # classifying it. The body and the CUP sequence are separate writes, so waiting
+  # on ink alone can capture a fully drawn screen whose cursor still sits on the
+  # row below the shape - the verdict would then be taken against the wrong row.
   local i=0
   while [ "$i" -lt 100 ]; do
-    [ -n "$("$REAL_TMUX" -L "$SOCKET" capture-pane -p -t "$SESSION:$name" -S 0 -E - | tr -d '[:space:]')" ] && break
+    if [ -n "$("$REAL_TMUX" -L "$SOCKET" capture-pane -p -t "$SESSION:$name" -S 0 -E - | tr -d '[:space:]')" ] \
+       && [ "$("$REAL_TMUX" -L "$SOCKET" display-message -p -t "$SESSION:$name" '#{cursor_y}')" = "$((cursor_row - 1))" ]; then
+      break
+    fi
     sleep 0.05
     i=$((i + 1))
   done
@@ -226,6 +232,22 @@ test_dead_shell_prompt_stays_unknown() {
   pass "composer shape: dead-shell prompts stay unsafe for injection"
 }
 
+# A bordered box the scan cannot bound fails CLOSED as `unknown`, and the rail
+# reader must not reopen it: `empty` is the single verdict that both confirms
+# delivery to fm-send and authorizes the away-mode daemon to type into a pane.
+# A top corner row above unpaired side rows is positive evidence of a clipped
+# BOX - opencode's genuine rail draws no corner rows - so the aligned side bars
+# must not be promoted to a rail.
+test_corner_capped_unpaired_box_stays_unknown() {
+  local target state top
+  top="$BOX_TL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_TR"
+  target=$(paint clipped-box "$top\\n$BOX_V\\n$BOX_V\\n" 3)
+  state=$(fm_tmux_composer_state "$target")
+  [ "$state" = unknown ] \
+    || fail "a corner-capped box with unpaired side rows must fail closed as unknown, got '$state'"
+  pass "composer shape: an unbounded bordered box still fails closed as unknown"
+}
+
 # A single bar-led row is ordinary output (a pipe, a table), not a rail. Only an
 # aligned repeat of the same box-drawing bar proves a drawn container.
 test_single_bar_row_is_not_a_rail() {
@@ -266,6 +288,7 @@ test_left_rail_composer
 test_left_rail_composer_in_non_utf8_locale
 test_left_rail_reads_rows_above_the_cursor
 test_dead_shell_prompt_stays_unknown
+test_corner_capped_unpaired_box_stays_unknown
 test_single_bar_row_is_not_a_rail
 test_complete_box_still_classifies
 

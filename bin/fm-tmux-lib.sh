@@ -348,8 +348,9 @@ EOF
 # drawn container; a login shell never renders one.
 fm_tmux_find_composer_rail() {  # <cursor-y> <plain-visible-pane> -> "<top-row>"
   local cy=$1 pane=$2 line indent trimmed glyph row=0
-  local run_glyph='' run_indent='' run_top=-1 run_len=0
-  local cursor_top=-1 cursor_len=0 found=0
+  local run_glyph='' run_indent='' run_top=-1 run_len=0 run_capped=0
+  local cursor_top=-1 cursor_len=0 cursor_capped=0 found=0
+  local prev_trimmed='' prev_indent=''
   while IFS= read -r line; do
     indent=${line%%[![:space:]]*}
     trimmed="${line#"${line%%[![:space:]]*}"}"
@@ -365,11 +366,22 @@ fm_tmux_find_composer_rail() {  # <cursor-y> <plain-visible-pane> -> "<top-row>"
       run_len=$((run_len + 1))
     elif [ -n "$glyph" ]; then
       run_glyph=$glyph; run_indent=$indent; run_top=$row; run_len=1
+      # A box TOP border immediately above the run, at the same indent, is
+      # positive evidence of a BOX whose bottom is missing or clipped, not of a
+      # rail: OpenCode's rail draws no corner rows at all. Such a shape must keep
+      # the box scan's fail-closed `unknown`, never be promoted to `empty`.
+      run_capped=0
+      case "$prev_trimmed" in
+        '╭'*'╮'|'┌'*'┐'|'╔'*'╗'|'┏'*'┓')
+          [ "$prev_indent" = "$indent" ] && run_capped=1 ;;
+      esac
     else
-      run_glyph=''; run_indent=''; run_top=-1; run_len=0
+      run_glyph=''; run_indent=''; run_top=-1; run_len=0; run_capped=0
     fi
     if [ "$row" -eq "$cy" ]; then
-      if [ -n "$glyph" ]; then found=1; cursor_top=$run_top; cursor_len=$run_len; fi
+      if [ -n "$glyph" ]; then
+        found=1; cursor_top=$run_top; cursor_len=$run_len; cursor_capped=$run_capped
+      fi
     elif [ "$row" -gt "$cy" ]; then
       # Exactly one row past the cursor: it extends the same rail only when the
       # run never reset, which is what proves a neighbour below.
@@ -378,11 +390,15 @@ fm_tmux_find_composer_rail() {  # <cursor-y> <plain-visible-pane> -> "<top-row>"
       fi
       break
     fi
+    prev_trimmed=$trimmed
+    prev_indent=$indent
     row=$((row + 1))
   done <<EOF
 $pane
 EOF
   [ "$found" = 1 ] || return 1
+  # A corner-capped run is a box, so it stays with the box scan's verdict.
+  [ "$cursor_capped" = 0 ] || return 1
   # One aligned neighbour is the minimum proof of a drawn rail.
   [ "$cursor_len" -ge 2 ] || return 1
   printf '%s' "$cursor_top"

@@ -232,14 +232,21 @@ fm_composer_classify_content() {  # <bordered> <content> [idle_re] [idle_case] [
   content=$(fm_composer_normalize_blanks "$content")
   content="${content#"${content%%[![:space:]]*}"}"
   content="${content%"${content##*[![:space:]]}"}"
-  plain_content=$(fm_composer_normalize_blanks "$plain_content")
-  plain_content="${plain_content#"${plain_content%%[![:space:]]*}"}"
-  plain_content="${plain_content%"${plain_content##*[![:space:]]}"}"
-  if [ "$bordered" != 1 ] && [ -z "$content" ] && [ -n "$plain_content" ]; then
-    case "$plain_content" in
-      '❯'|'›'|'⟩') printf 'empty'; return 0 ;;
-      *) printf 'unknown'; return 0 ;;
-    esac
+  # plain_content is consulted only here, so it is normalized only here: every
+  # structural read passes bordered=1 and would otherwise pay a sed subprocess
+  # per candidate row for a value it never reads. The emptiness test below runs
+  # on the NORMALIZED value, so a row padded only with unicode blanks still
+  # falls through to the empty verdict instead of reading unknown.
+  if [ "$bordered" != 1 ] && [ -z "$content" ]; then
+    plain_content=$(fm_composer_normalize_blanks "$plain_content")
+    plain_content="${plain_content#"${plain_content%%[![:space:]]*}"}"
+    plain_content="${plain_content%"${plain_content##*[![:space:]]}"}"
+    if [ -n "$plain_content" ]; then
+      case "$plain_content" in
+        '❯'|'›'|'⟩') printf 'empty'; return 0 ;;
+        *) printf 'unknown'; return 0 ;;
+      esac
+    fi
   fi
   # A bare prompt glyph on its own row.
   case "$content" in
@@ -259,9 +266,15 @@ fm_composer_classify_content() {  # <bordered> <content> [idle_re] [idle_case] [
     printf 'empty'; return 0
   fi
   # Strip a leading prompt glyph, then re-judge the remainder.
+  # Each multi-byte agent glyph is stripped by its own literal: `#?` and `#??`
+  # count BYTES under LC_CTYPE=C/POSIX, which would leave a glyph's trailing
+  # bytes as leading content and stop the post-strip idle match below from ever
+  # firing. The trim that follows absorbs the separating space either way.
   case "$content" in
-    '❯ '*|'› '*|'⟩ '*|'> '*|'$ '*|'% '*|'# '*) content=${content#??} ;;
-    '❯'*|'›'*|'⟩'*|'>'*|'$'*|'%'*|'#'*) content=${content#?} ;;
+    '❯'*) content=${content#❯} ;;
+    '›'*) content=${content#›} ;;
+    '⟩'*) content=${content#⟩} ;;
+    '>'*|'$'*|'%'*|'#'*) content=${content#?} ;;
   esac
   content="${content#"${content%%[![:space:]]*}"}"
   content="${content%"${content##*[![:space:]]}"}"
