@@ -160,6 +160,44 @@ test_left_rail_composer() {
   pass "composer shape: a left-rail composer separates empty from pending"
 }
 
+# The rail bar is a three-byte glyph, so the row reader must strip it as a
+# CHARACTER and not as one byte. Under LC_CTYPE=C/POSIX - what an unset LANG
+# gives under systemd, cron, ssh and minimal containers - a one-byte strip leaves
+# the bar's tail bytes behind as content, and an EMPTY rail composer reads
+# `pending` exactly like one holding a steer. That is the same false negative
+# this file exists for, so the divergence is asserted away from the ambient
+# UTF-8 locale too. The classification runs in a fresh shell with the locale
+# exported, reading the same live panes through the same public entry point.
+CLASSIFY="$LAB/classify.sh"
+cat > "$CLASSIFY" <<SH
+#!/usr/bin/env bash
+set -u
+. "$ROOT/bin/fm-tmux-lib.sh"
+fm_tmux_composer_state "\$1"
+SH
+chmod +x "$CLASSIFY"
+
+classify_in_locale() {  # <locale> <target> -> state
+  LC_ALL=$1 LANG=$1 LC_CTYPE=$1 "$CLASSIFY" "$2"
+}
+
+test_left_rail_composer_in_non_utf8_locale() {
+  local empty_target text_target loc empty_state text_state
+  empty_target=$(paint rail-empty-c "  $RAIL\\n  $RAIL\\n  $RAIL\\n  $RAIL  Build \302\267 model-name\\n" 2)
+  text_target=$(paint rail-text-c "  $RAIL\\n  $RAIL  half typed steer\\n  $RAIL\\n  $RAIL  Build \302\267 model-name\\n" 2)
+  for loc in C POSIX; do
+    empty_state=$(classify_in_locale "$loc" "$empty_target")
+    text_state=$(classify_in_locale "$loc" "$text_target")
+    [ "$empty_state" = empty ] \
+      || fail "under LC_ALL=$loc an empty left-rail composer is still empty, got '$empty_state'"
+    [ "$text_state" = pending ] \
+      || fail "under LC_ALL=$loc a left-rail composer holding text is still unsubmitted input, got '$text_state'"
+    [ "$empty_state" != "$text_state" ] \
+      || fail "under LC_ALL=$loc empty and text-holding rail composers collapsed to one verdict '$empty_state'"
+  done
+  pass "composer shape: a left-rail composer separates empty from pending in a non-UTF-8 locale"
+}
+
 # Text on an earlier rail row still counts, because the reader covers every row
 # from the rail top through the cursor.
 test_left_rail_reads_rows_above_the_cursor() {
@@ -225,6 +263,7 @@ test_complete_box_still_classifies() {
 test_nbsp_padded_prompt_row
 test_nbsp_only_content_is_blank_not_text
 test_left_rail_composer
+test_left_rail_composer_in_non_utf8_locale
 test_left_rail_reads_rows_above_the_cursor
 test_dead_shell_prompt_stays_unknown
 test_single_bar_row_is_not_a_rail

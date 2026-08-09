@@ -514,7 +514,7 @@ else
         *-turn-started)
           verdict_hint=" The endpoint started a turn, so the text may well have landed; inspect it before resending." ;;
         *-no-delivery)
-          verdict_hint=" The endpoint is idle and shows no delivery, so resending is safe." ;;
+          verdict_hint=" The composer was unreadable and the endpoint appeared idle, so there is no delivery evidence and no turn started; confirm the endpoint before resending." ;;
         pending|pending-unproven)
           verdict_hint=" The text is still sitting unsubmitted in the composer; clear it before resending." ;;
         *) verdict_hint= ;;

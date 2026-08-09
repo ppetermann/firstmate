@@ -154,9 +154,12 @@ fm_tmux_composer_row_state() {  # <raw-row> [bordered] [allow-busy] -> empty|pen
     # row sits inside a genuine composer container (bordered=1, which the
     # left-rail scan below establishes structurally). A bare row that merely
     # starts with a bar glyph never reaches here as bordered.
-    '│'*|'┃'*|'║'*)
-      if [ "$bordered" = 1 ]; then stripped=${stripped#?}; fi
-      ;;
+    # Each glyph is stripped by its own literal, exactly like the paired arms
+    # above: `#?` removes one BYTE under LC_CTYPE=C/POSIX, which would leave the
+    # tail of a multi-byte bar behind and read an empty rail composer as pending.
+    '│'*) if [ "$bordered" = 1 ]; then stripped=${stripped#│}; fi ;;
+    '┃'*) if [ "$bordered" = 1 ]; then stripped=${stripped#┃}; fi ;;
+    '║'*) if [ "$bordered" = 1 ]; then stripped=${stripped#║}; fi ;;
   esac
   stripped="${stripped#"${stripped%%[![:space:]]*}"}"
   stripped="${stripped%"${stripped##*[![:space:]]}"}"
