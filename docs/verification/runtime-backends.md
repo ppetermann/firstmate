@@ -150,7 +150,7 @@ tests/fm-kimi-harness.test.sh
 tests/fm-tmux-submit-busy.test.sh
 ```
 
-Expected structural matrix: real text on any content row is pending; all-empty complete boxes are empty; a left rail proven by an aligned repeated box-drawing bar is read from its top through the cursor row; unreadable, incomplete, or unsafe boxes are unknown, including when their unpaired side rows would otherwise read as a rail (aligned bars adjacent to a corner row above or below, or to a paired side row, stay with the box verdict); and non-bordered panes retain cursor-row compatibility.
+Expected structural matrix: real text on any content row is pending; all-empty complete boxes are empty; a left rail proven by an aligned repeated box-drawing bar is read from its top through the cursor row; unreadable, incomplete, or unsafe boxes are unknown, including when their unpaired side rows would otherwise read as a rail (a run of aligned bars bounded at either end by a corner row or a paired side row of the same family and indent stays with the box verdict, at any run depth); and non-bordered panes retain cursor-row compatibility.
 Expected submit matrix: proven pending plus busy is accepted as queued; proven pending plus idle remains pending; ambiguous pending is never converted by the busy exception; an unreadable composer reports `unknown-but-turn-started` or `unknown-idle-no-delivery` and never succeeds; and only a proven empty composer succeeds directly.
 
 ### Composer shapes per harness

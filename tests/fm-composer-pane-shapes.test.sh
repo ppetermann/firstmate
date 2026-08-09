@@ -238,34 +238,75 @@ test_dead_shell_prompt_stays_unknown() {
 # Box structure adjacent to a run of aligned bars - a corner row above or below,
 # or a paired side row - is positive evidence of a clipped BOX, and opencode's
 # genuine rail draws none of the three, so those bars must not become a rail.
-# All three shapes below read `unknown` on the pre-rail libs; each is a verdict
-# inversion if the guard misses its direction.
+# Every shape below reads `unknown` on the pre-rail libs; each is a verdict
+# inversion if the guard misses its direction. The boundary is checked against
+# the RUN, not against the cursor row, so extra unpaired side rows between the
+# cursor and the box structure cannot walk a shape out of the guard.
 test_unbounded_box_stays_unknown() {
-  local top bottom capped_state below_state inner_state
+  local top bottom wide_top wide_bottom state depth body
   top="$BOX_TL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_TR"
   bottom="$BOX_BL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_BR"
+  wide_top="$BOX_TL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_TR"
+  wide_bottom="$BOX_BL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_BR"
   # (c) side rows capped ABOVE by a top corner.
-  capped_state=$(fm_tmux_composer_state "$(paint clipped-box "$top\\n$BOX_V\\n$BOX_V\\n" 3)")
-  [ "$capped_state" = unknown ] \
-    || fail "a top-corner-capped box with unpaired side rows must fail closed as unknown, got '$capped_state'"
-  # (a) side rows bounded BELOW by a matching bottom corner.
-  below_state=$(fm_tmux_composer_state "$(paint clipped-box-below "$BOX_V\\n$BOX_V\\n$bottom\\n" 2)")
-  [ "$below_state" = unknown ] \
-    || fail "side rows above a bottom corner must fail closed as unknown, got '$below_state'"
-  # (b) unpaired side rows INSIDE a complete box, adjacent to a paired content row.
-  inner_state=$(fm_tmux_composer_state "$(paint clipped-box-inner \
-    "$BOX_TL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_TR\\n$BOX_V > hi   $BOX_V\\n$BOX_V\\n$BOX_V\\n$BOX_BL$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_H$BOX_BR\\n" 4)")
-  [ "$inner_state" = unknown ] \
-    || fail "unpaired side rows inside a complete box must fail closed as unknown, got '$inner_state'"
-  pass "composer shape: a bordered box the scan cannot bound fails closed as unknown, above, below, and within"
+  state=$(fm_tmux_composer_state "$(paint clipped-box "$top\\n$BOX_V\\n$BOX_V\\n" 3)")
+  [ "$state" = unknown ] \
+    || fail "a top-corner-capped box with unpaired side rows must fail closed as unknown, got '$state'"
+  # (a) side rows bounded BELOW by a matching bottom corner, at increasing depth
+  # between the cursor row and that corner.
+  body="$BOX_V\\n$BOX_V\\n"
+  for depth in 2 3 4; do
+    state=$(fm_tmux_composer_state "$(paint "clipped-box-below-$depth" "$body$bottom\\n" 2)")
+    [ "$state" = unknown ] \
+      || fail "$depth side rows above a bottom corner must fail closed as unknown, got '$state'"
+    body="$body$BOX_V\\n"
+  done
+  # (b) unpaired side rows INSIDE a complete box, above a paired content row.
+  state=$(fm_tmux_composer_state "$(paint clipped-box-paired-below \
+    "$BOX_V\\n$BOX_V\\n$BOX_V > hi   $BOX_V\\n$wide_bottom\\n" 1)")
+  [ "$state" = unknown ] \
+    || fail "side rows above a paired content row must fail closed as unknown, got '$state'"
+  # (b') the same, with the paired content row ABOVE the unpaired run.
+  state=$(fm_tmux_composer_state "$(paint clipped-box-inner \
+    "$wide_top\\n$BOX_V > hi   $BOX_V\\n$BOX_V\\n$BOX_V\\n$wide_bottom\\n" 4)")
+  [ "$state" = unknown ] \
+    || fail "unpaired side rows inside a complete box must fail closed as unknown, got '$state'"
+  pass "composer shape: a bordered box the scan cannot bound fails closed as unknown, whatever the run's depth"
+}
+
+# OpenCode draws its idle composer placeholder in truecolor 38;2;128;128;128 -
+# luminance EXACTLY 128, the documented ghost bound - against 38;2;238;238;238
+# for real typed input. The bound is inclusive for precisely this reason: at an
+# exclusive `<` the placeholder survives ghost-stripping and an idle composer
+# reads `pending`, which is the "delivery unconfirmed" false negative this file
+# exists for. The pair is asserted in both directions so it cannot go vacuous.
+test_rail_placeholder_at_the_luminance_bound() {
+  local ghost_target real_target ghost_state real_state
+  ghost_target=$(paint rail-ghost \
+    "  $RAIL\\n  $RAIL  \\033[38;2;128;128;128mAsk anything...\\033[0m\\n  $RAIL\\n  $RAIL  Build\\n" 2)
+  real_target=$(paint rail-real \
+    "  $RAIL\\n  $RAIL  \\033[38;2;238;238;238mreal typed steer\\033[0m\\n  $RAIL\\n  $RAIL  Build\\n" 2)
+  ghost_state=$(fm_tmux_composer_state "$ghost_target")
+  real_state=$(fm_tmux_composer_state "$real_target")
+  [ "$ghost_state" = empty ] \
+    || fail "a placeholder at luminance exactly 128 is ghost text, so the composer is empty, got '$ghost_state'"
+  [ "$real_state" = pending ] \
+    || fail "real input at luminance 238 is unsubmitted text, got '$real_state'"
+  [ "$ghost_state" != "$real_state" ] \
+    || fail "the idle placeholder and real input collapsed to one verdict '$ghost_state'"
+  pass "composer shape: a rail placeholder at the inclusive luminance bound stays apart from real input"
 }
 
 # A single bar-led row is ordinary output (a pipe, a table), not a rail. Only an
-# aligned repeat of the same box-drawing BOX-DRAWING bar proves a drawn
-# container. Both shapes are painted BLANK on purpose: a bar row carrying text
-# reads non-empty for the trivial reason that it holds text, so it would keep
-# passing with the rule it pins deleted. Blank rows isolate the rule itself -
-# each of these reads `empty` if its rule is removed.
+# aligned repeat of the same BOX-DRAWING bar proves a drawn container. Both
+# shapes are painted BLANK on purpose: a bar row carrying text reads non-empty
+# for the trivial reason that it holds text, so it would keep passing with the
+# rule it pins deleted. Each shape is asserted at the verdict its own rule
+# produces, because the two rules fail differently when removed: dropping the
+# minimum-two-rows rule turns the lone bar into a one-row rail and it reads
+# `empty`, while admitting ASCII `|` makes these rows a rail whose bar is not a
+# strippable edge, so the row reads `pending`. Asserting only `!= empty` would
+# let the ASCII half pass with its rule gone.
 test_single_bar_row_is_not_a_rail() {
   local target state ascii_target ascii_state
   target=$(paint lone-bar "some output\\n  $RAIL\\nmore output\\n" 2)
@@ -274,8 +315,8 @@ test_single_bar_row_is_not_a_rail() {
     || fail "a lone bar-led row must not classify as an empty composer"
   ascii_target=$(paint ascii-pipe "|\\n|\\n|\\n" 2)
   ascii_state=$(fm_tmux_composer_state "$ascii_target")
-  [ "$ascii_state" != empty ] \
-    || fail "ASCII bar rows must not classify as an empty composer"
+  [ "$ascii_state" = unknown ] \
+    || fail "ASCII bar rows are not a composer rail, so they stay unreadable, got '$ascii_state'"
   pass "composer shape: an unaligned or ASCII bar row is not a composer rail"
 }
 
@@ -305,6 +346,7 @@ test_left_rail_composer_in_non_utf8_locale
 test_left_rail_reads_rows_above_the_cursor
 test_dead_shell_prompt_stays_unknown
 test_unbounded_box_stays_unknown
+test_rail_placeholder_at_the_luminance_bound
 test_single_bar_row_is_not_a_rail
 test_complete_box_still_classifies
 

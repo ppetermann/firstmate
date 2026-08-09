@@ -401,17 +401,21 @@ fm_tmux_find_composer_rail() {  # <cursor-y> <plain-visible-pane> -> "<top-row>"
         cursor_glyph=$glyph; cursor_indent=$indent
       fi
     elif [ "$row" -gt "$cy" ]; then
-      # Exactly one row past the cursor: it extends the same rail only when the
-      # run never reset, which is what proves a neighbour below. A row that ends
-      # the run instead is checked for box structure, so a run bounded BELOW by a
-      # corner or a paired side row also stays with the box scan's verdict.
+      # Past the cursor, keep consuming rows for as long as they extend the same
+      # run - a neighbour below is what proves a drawn rail. The row that finally
+      # TERMINATES the run is the one checked for box structure, so a run bounded
+      # below stays with the box scan's verdict however many unpaired side rows
+      # sit between the cursor and that boundary. Scanning to the run's end is a
+      # pure loop over rows already captured, so it costs no extra work.
       if [ "$found" = 1 ] && [ -n "$glyph" ] && [ "$run_top" = "$cursor_top" ]; then
         cursor_len=$((cursor_len + 1))
-      elif [ "$found" = 1 ] && [ "$indent" = "$cursor_indent" ] \
+      else
+        if [ "$found" = 1 ] && [ "$indent" = "$cursor_indent" ] \
            && fm_tmux_row_is_box_structure "$trimmed" "$cursor_glyph"; then
-        cursor_capped=1
+          cursor_capped=1
+        fi
+        break
       fi
-      break
     fi
     prev_trimmed=$trimmed
     prev_indent=$indent
