@@ -22,7 +22,11 @@
 # row's IMMEDIATE successor AND herdr's native `agent get` names a known non-Pi
 # agent. Those are the two facts this guard pins against vendor drift: a release
 # that inserts a row between the composer and its closing rule, or that stops
-# being detected as an agent, silently reinstates the overnight wedge.
+# being detected as an agent, silently reinstates the overnight wedge. It pins
+# them on exactly the condition the reader consults them on and never a broader
+# one - only when the plain-separator pair is INCOMPLETE - because a guard that
+# aborts claiming the wedge is back, for a pane it has already affirmed as
+# `empty`, teaches the fleet to discount the next real alarm.
 #
 # Each harness is launched bare, with no prompt, and driven only with keystrokes,
 # so this consumes no model tokens. The launch uses whatever credentials the
@@ -61,6 +65,9 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the her
 # shellcheck source=tests/herdr-test-safety.sh
 . "$ROOT/tests/herdr-test-safety.sh"
 herdr_forget_inherited_pane
+
+# shellcheck source=tests/harness-drift-helpers.sh
+. "$ROOT/tests/harness-drift-helpers.sh"
 
 SESSION="fm-lab-hcomposer-$$"
 CHECKED=0
@@ -105,22 +112,6 @@ is_known_gap() {  # <harness>
   return 1
 }
 
-# Mirror bin/fm-spawn.sh's own resolution order so this guard covers the same
-# binary firstmate would actually launch.
-resolve_harness_binary() {  # <harness>
-  local harness=$1 candidate
-  candidate=$(command -v "$harness" 2>/dev/null || true)
-  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
-    printf '%s\n' "$candidate"
-    return 0
-  fi
-  if [ "$harness" = kimi ] && [ -n "${HOME:-}" ] && [ -x "$HOME/.kimi-code/bin/kimi" ]; then
-    printf '%s\n' "$HOME/.kimi-code/bin/kimi"
-    return 0
-  fi
-  return 1
-}
-
 wait_shell_settled() {  # <pane>
   local pane=$1 i=0 n=0
   while [ "$i" -lt 100 ]; do
@@ -149,43 +140,43 @@ wait_for_state() {  # <target> <wanted>
   return 1
 }
 
-# A pane that has not drawn its TUI yet is mostly blank, and a blank row
-# legitimately classifies as an empty composer. Requiring a drawn screen BEFORE
-# the first verdict is what stops this guard passing vacuously against a harness
-# that never finished starting.
-wait_for_drawn() {  # <target>
-  local target=$1 i=0 rows
-  while [ "$i" -lt "$SETTLE" ]; do
-    rows=$(fm_backend_herdr_capture "$target" 40 2>/dev/null | grep -c '[^[:space:]]' || true)
-    if [ "${rows:-0}" -ge 3 ]; then
-      sleep 2
-      return 0
-    fi
-    sleep 0.5
-    i=$((i + 1))
-  done
-  return 1
+# The herdr-side screen read that the shared fm_drift_wait_for_drawn polls
+# (tests/harness-drift-helpers.sh owns the drawn-screen policy itself).
+fm_drift_capture() {  # <target>
+  fm_backend_herdr_capture "$1" 40 2>/dev/null
 }
 
 # The row numbers (1-based, within the captured window) of the bottom-most agent
-# prompt-glyph row and the bottom-most plain `─` rule row, as the reader's own
-# structural scan sees them. Printed as "<glyph_row> <rule_row>", 0 for absent.
+# prompt-glyph row and the bottom-most plain `─` rule row, plus how many plain
+# rule rows that window holds, as the reader's own structural scan sees them.
+# Printed as "<glyph_row> <rule_row> <rule_count>", 0 for absent.
+#
+# This reuses the reader's OWN predicates (fm_backend_herdr_pi_separator_row and
+# FM_BACKEND_HERDR_BARE_PROMPT_RE) over the reader's own capture rather than
+# restating them: a guard with its own idea of what counts as a rule would take
+# the "not rule-delimited" branch below - skipping both structural assertions
+# while still reporting green - against a harness the reader still treats as
+# rule-delimited. The separator predicate trims the trailing carriage return
+# herdr ends each captured row with, as whitespace, exactly as the reader does.
 composer_frame_rows() {  # <target>
-  fm_backend_herdr_capture_ansi "$target" "$FM_BACKEND_HERDR_COMPOSER_LINES" 2>/dev/null \
-    | fm_composer_strip_ansi \
-    | awk '
-      { row++
-        line = $0
-        # herdr ends each captured row with a carriage return; the reader trims
-        # it as whitespace via bash [[:space:]], and this scan must too or a
-        # plain rule row never looks plain.
-        gsub(/\r/, "", line)
-        sub(/^[ \t]+/, "", line); sub(/[ \t]+$/, "", line)
-        if (line ~ /^(❯|›)/) glyph = row
-        bare = line; gsub(/─/, "", bare)
-        if (bare == "" && length(line) >= 24) rule = row
-      }
-      END { printf "%d %d\n", glyph + 0, rule + 0 }'
+  local target=$1 cap line plain row=0 glyph=0 rule=0 rules=0
+  cap=$(fm_backend_herdr_capture_ansi "$target" "$FM_BACKEND_HERDR_COMPOSER_LINES" 2>/dev/null) || cap=
+  while IFS= read -r line; do
+    row=$((row + 1))
+    plain=$(fm_backend_herdr_strip_ansi "$line")
+    if fm_backend_herdr_pi_separator_row "$plain"; then
+      rule=$row
+      rules=$((rules + 1))
+      continue
+    fi
+    plain="${plain#"${plain%%[![:space:]]*}"}"
+    plain="${plain%"${plain##*[![:space:]]}"}"
+    [ -n "$plain" ] || continue
+    if printf '%s' "$plain" | grep -qE "$FM_BACKEND_HERDR_BARE_PROMPT_RE"; then
+      glyph=$row
+    fi
+  done < <(printf '%s\n' "$cap")
+  printf '%d %d %d\n' "$glyph" "$rule" "$rules"
 }
 
 native_agent() {  # <pane>
@@ -221,10 +212,10 @@ note "dead-shell control: a plain shell pane reads 'unknown' with no native agen
 pass "herdr composer drift: a plain shell pane in a herdr session is refused as a composer"
 fm_backend_herdr_kill "$SESSION:$SHELL_PANE" >/dev/null 2>&1 || true
 
-# The verified adapters, in the order .agents/skills/harness-adapters/SKILL.md
-# records them. An adapter that gains a verified launch path belongs here too.
-for harness in claude codex opencode pi pi-signed grok kimi muse; do
-  if ! bin_path=$(resolve_harness_binary "$harness"); then
+# The verified adapters, owned by tests/harness-drift-helpers.sh so a newly
+# verified adapter cannot be added to one live guard and left out of another.
+for harness in "${FM_DRIFT_HARNESSES[@]}"; do
+  if ! bin_path=$(fm_drift_resolve_harness_binary "$harness"); then
     SKIPPED="$SKIPPED $harness"
     note "skip: $harness is not installed on this machine, so its herdr composer shape is unverified here"
     continue
@@ -253,7 +244,7 @@ EOF
     || fail "$harness ($version): could not launch the harness in the lab pane"
 
   # 0. The TUI must actually be on screen before any verdict counts.
-  wait_for_drawn "$target" || fail \
+  fm_drift_wait_for_drawn "$target" "$SETTLE" || fail \
     "$harness ($version) on herdr $HERDR_VERSION: the pane never drew a TUI, so no composer verdict here would mean anything"
 
   if is_known_gap "$harness"; then
@@ -272,23 +263,33 @@ EOF
   wait_for_state "$target" empty || fail \
     "HERDR COMPOSER DRIFT: $harness $version on herdr $HERDR_VERSION never presented a readable EMPTY composer (last verdict '$(fm_backend_herdr_composer_state "$target")'). Away-mode escalations will defer until the max-defer alarm. Screen tail: [$(composer_view "$target")]. If this is a first-run trust or onboarding prompt, complete it once for this directory and re-run. Otherwise teach fm_backend_herdr_composer_state the shape this release actually draws."
 
-  # 2. The structural invariants the rule-delimited rescue rests on. Only
-  #    harnesses that actually draw a rule BELOW their composer are asserted, so
-  #    a harness with a different composer shape is not held to a rule it never
-  #    draws - but one that draws it must keep it adjacent, or the rescue that
-  #    keeps its verdict silently stops applying.
-  read -r glyph_row rule_row <<EOF
+  # 2. The structural invariants the rule-delimited rescue rests on, asserted on
+  #    exactly the condition the reader consults them on and never a broader
+  #    one. fm_backend_herdr_composer_state reaches for adjacency and native
+  #    identity only when the plain-separator pair is INCOMPLETE (its elif is
+  #    gated on FM_BACKEND_HERDR_PI_PAIR_FOUND -eq 0, which is 0 exactly when
+  #    fewer than two plain rule rows are on screen). A COMPLETE pair keeps the
+  #    verdict with no rescue at all, so a harness drawing one must not be held
+  #    to the adjacency rule: step 1 above has already affirmed this very pane
+  #    as `empty`, and aborting here would claim the away-mode wedge is back for
+  #    a release just proven free of it. The skip is reported rather than
+  #    silent, so a green run still states what it did and did not verify.
+  read -r glyph_row rule_row rule_count <<EOF
 $(composer_frame_rows "$target")
 EOF
   agent_name=$(native_agent "$PANE_ID")
   if [ "${glyph_row:-0}" -gt 0 ] && [ "${rule_row:-0}" -gt "${glyph_row:-0}" ]; then
-    [ "$rule_row" -eq "$((glyph_row + 1))" ] || fail \
-      "HERDR COMPOSER DRIFT: $harness $version on herdr $HERDR_VERSION now draws $((rule_row - glyph_row - 1)) row(s) between its composer row and its closing rule. The reader only keeps a composer whose unmatched closing rule is that row's IMMEDIATE successor, so this release reinstates the away-mode wedge (every escalation reads 'unknown' and defers). Screen tail: [$(composer_view "$target")]."
-    [ -n "$agent_name" ] && [ "$agent_name" != pi ] || fail \
-      "HERDR COMPOSER DRIFT: $harness $version on herdr $HERDR_VERSION draws a rule-delimited composer but herdr's native agent record reports '${agent_name:-<none>}'. The reader needs a known non-Pi native identity to keep that composer's verdict once the top rule stops being a plain rule, so this release reinstates the away-mode wedge."
-    note "$harness $version: rule-delimited composer, closing rule adjacent, native identity '$agent_name'"
+    if [ "${rule_count:-0}" -ge 2 ]; then
+      note "$harness $version: rule-delimited composer, but the ${rule_count} plain rule rows on screen form a COMPLETE separator pair, so the reader keeps this verdict without the adjacency/native-identity rescue; those two invariants are NOT asserted for this harness in this pane (glyph row $glyph_row, bottom rule row $rule_row, native identity '${agent_name:-<none>}')"
+    else
+      [ "$rule_row" -eq "$((glyph_row + 1))" ] || fail \
+        "HERDR COMPOSER DRIFT: $harness $version on herdr $HERDR_VERSION now draws $((rule_row - glyph_row - 1)) row(s) between its composer row and its unmatched closing rule. The reader only keeps a composer whose unmatched closing rule is that row's IMMEDIATE successor, so this release reinstates the away-mode wedge (every escalation reads 'unknown' and defers). Screen tail: [$(composer_view "$target")]."
+      [ -n "$agent_name" ] && [ "$agent_name" != pi ] || fail \
+        "HERDR COMPOSER DRIFT: $harness $version on herdr $HERDR_VERSION draws a composer closed by an UNMATCHED rule but herdr's native agent record reports '${agent_name:-<none>}'. The reader needs a known non-Pi native identity to keep that composer's verdict once the top rule stops being a plain rule, so this release reinstates the away-mode wedge."
+      note "$harness $version: rule-delimited composer with an unmatched closing rule, closing rule adjacent, native identity '$agent_name'"
+    fi
   else
-    note "$harness $version: composer is not rule-delimited in this pane (glyph row ${glyph_row:-0}, rule row ${rule_row:-0}); native identity '${agent_name:-<none>}'"
+    note "$harness $version: composer is not rule-delimited in this pane (glyph row ${glyph_row:-0}, bottom rule row ${rule_row:-0}, plain rule rows ${rule_count:-0}); native identity '${agent_name:-<none>}'"
   fi
 
   # 3. The SAME composer holding unsubmitted text must read pending. A classifier

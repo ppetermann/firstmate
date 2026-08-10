@@ -61,33 +61,20 @@ fm_backend_source tmux || fail "fm_backend_source tmux failed"
 "$REAL_TMUX" -L "$SOCKET" new-session -d -s "$SESSION" -n control -c "$LAB/wt" \
   || fail "could not start the private tmux server"
 
-# Kimi is not required to be on PATH; mirror bin/fm-spawn.sh's own resolution
-# order so this guard covers the same binary firstmate would actually launch.
-resolve_harness_binary() {  # <harness>
-  local harness=$1 candidate
-  candidate=$(command -v "$harness" 2>/dev/null || true)
-  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
-    printf '%s\n' "$candidate"
-    return 0
-  fi
-  if [ "$harness" = kimi ] && [ -n "${HOME:-}" ] && [ -x "$HOME/.kimi-code/bin/kimi" ]; then
-    printf '%s\n' "$HOME/.kimi-code/bin/kimi"
-    return 0
-  fi
-  return 1
-}
+# shellcheck source=tests/harness-drift-helpers.sh
+. "$ROOT/tests/harness-drift-helpers.sh"
 
 CHECKED=0
 SKIPPED=
 
-# The verified adapters, in the order .agents/skills/harness-adapters/SKILL.md
-# records them. An adapter that gains a verified launch path belongs here too.
+# The verified adapters, owned by tests/harness-drift-helpers.sh so a newly
+# verified adapter cannot be added to one live guard and left out of another.
 # muse matters most of all here: its launcher execs a VERSION-SUFFIXED binary,
 # so the live process name changes on every auto-update and its install path
 # carries no `muse` component to fall back on. That is precisely the drift this
 # guard exists to catch, and only a real muse release can produce it.
-for harness in claude codex opencode pi pi-signed grok kimi muse; do
-  if ! bin_path=$(resolve_harness_binary "$harness"); then
+for harness in "${FM_DRIFT_HARNESSES[@]}"; do
+  if ! bin_path=$(fm_drift_resolve_harness_binary "$harness"); then
     SKIPPED="$SKIPPED $harness"
     note "skip: $harness is not installed on this machine, so its classification is unverified here"
     continue
