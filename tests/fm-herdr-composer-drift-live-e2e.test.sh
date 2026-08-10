@@ -28,6 +28,12 @@
 # aborts claiming the wedge is back, for a pane it has already affirmed as
 # `empty`, teaches the fleet to discount the next real alarm.
 #
+# It also pins the premise that identity half rests on: an EXITED agent must
+# LOSE its native record, or a pane whose agent is gone could still keep a
+# verdict. That is checked against a real harness exit for every harness whose
+# quit command is measured (see harness_exit_command); a harness without one is
+# skipped with a note, so an unguarded harness is stated rather than assumed.
+#
 # Each harness is launched bare, with no prompt, and driven only with keystrokes,
 # so this consumes no model tokens. The launch uses whatever credentials the
 # harness already has.
@@ -188,6 +194,24 @@ composer_view() {  # <target> - a few rows of context for a failure message
   fm_backend_herdr_capture "$target" 6 2>/dev/null | cat -v | tr '\n' '|'
 }
 
+# The text that makes a harness quit from an idle composer, for the harnesses
+# whose non-interactive exit has been MEASURED. The rescue's whole safety
+# argument is that an exited agent loses its native record, so that premise is
+# worth exercising against a real exit rather than against a pane that never
+# hosted an agent - but only where the exit is known, because an unrecognized
+# command typed into a live composer would be submitted as a PROMPT, and this
+# guard promises to consume no model tokens. A harness absent from this table
+# is skipped with a note rather than silently.
+#   claude - `/exit` quits from an idle composer (measured, claude 2.1.226 on
+#     herdr 0.8.0: the pane returned to its shell, `agent get` reported no agent
+#     within ~8s, and the composer read `unknown`).
+harness_exit_command() {  # <harness>
+  case "$1" in
+    claude) printf '%s\n' /exit ;;
+    *) return 1 ;;
+  esac
+}
+
 # --- dead-shell control ------------------------------------------------------
 # The counterweight to every `empty` below: a pane running nothing but a login
 # shell must stay `unknown`, or the reader has bought its emptiness by weakening
@@ -313,6 +337,31 @@ EOF
   done
   wait_for_state "$target" empty || fail \
     "HERDR COMPOSER DRIFT: $harness $version on herdr $HERDR_VERSION still reports '$(fm_backend_herdr_composer_state "$target")' after its composer was emptied again, so the empty verdict does not track composer contents. Screen tail: [$(composer_view "$target")]."
+
+  # 5. The exited-agent control: the premise the identity half of the rescue
+  #    rests on. A harness that has EXITED must lose its native record, or a
+  #    pane whose agent is gone could still present a rule-delimited frame the
+  #    reader would keep - which is the one way this rescue could type an
+  #    escalation into whatever now owns the pane. The dead-shell control above
+  #    proves a pane that NEVER hosted an agent has no record; only a real exit
+  #    proves herdr drops the record it once had.
+  if exit_cmd=$(harness_exit_command "$harness"); then
+    agent_live=$(native_agent "$PANE_ID")
+    [ -n "$agent_live" ] || fail \
+      "$harness ($version) on herdr $HERDR_VERSION: herdr reports no native agent for a RUNNING harness pane, so the exited-agent control below would prove nothing and the identity half of the rescue has no signal to lose"
+    fm_backend_herdr_send_text_line "$target" "$exit_cmd" \
+      || fail "$harness ($version) on herdr $HERDR_VERSION: could not send the exit command to the harness"
+    wait_shell_settled "$PANE_ID" || fail \
+      "$harness ($version) on herdr $HERDR_VERSION: the pane never returned to its shell after the exit command, so this release's exit path no longer matches the one harness_exit_command records; teach it the command this release actually quits on"
+    agent_after=$(native_agent "$PANE_ID")
+    [ -z "$agent_after" ] || fail \
+      "EXITED-AGENT PREMISE BROKEN: $harness $version on herdr $HERDR_VERSION still reports native agent '$agent_after' for a pane whose harness has EXITED. The rule-delimited rescue keeps a composer's verdict on that record, so a retained record lets an escalation be typed into whatever now owns the pane. Screen tail: [$(composer_view "$target")]."
+    wait_for_state "$target" unknown || fail \
+      "EXITED-AGENT PREMISE BROKEN: $harness $version on herdr $HERDR_VERSION reads '$(fm_backend_herdr_composer_state "$target")' for a pane whose harness has EXITED, not unknown. Away-mode injection proceeds on an affirmative empty, so this would type an escalation into whatever now owns the pane. Screen tail: [$(composer_view "$target")]."
+    note "exited-agent control: $harness $version lost its native agent record on exit (was '$agent_live') and its pane reads 'unknown'"
+  else
+    note "skip: no measured non-interactive exit for $harness $version, so the exited-agent premise is unguarded for this harness here (add it to harness_exit_command once its quit command is measured)"
+  fi
 
   pass "herdr composer drift: $harness $version on herdr $HERDR_VERSION separates an empty composer from unsubmitted text and keeps its structural frame"
   CHECKED=$((CHECKED + 1))

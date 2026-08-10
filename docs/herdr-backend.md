@@ -235,6 +235,7 @@ A separator below the recognized row normally retires it as stale.
 Claude delimits its own composer with a horizontal rule above and below, and inlines its in-progress todo into the top rule once the pane is wide enough, which leaves its own closing rule unmatched below its live composer.
 That row keeps its verdict only when the unmatched separator is its immediate successor and native identity names a known non-Pi agent; a Pi, absent, or unreadable identity, or a non-adjacent separator, stays unknown.
 Requiring both is what keeps scrollback left by an exited agent, which still shows its prompt glyph and its rule, from reading as a live composer.
+Herdr drops the native agent record when the harness process exits, measured against a real exit and recorded in [`docs/verification/runtime-backends.md`](verification/runtime-backends.md).
 
 ANSI capture preserves de-emphasized placeholder style.
 `bin/fm-composer-lib.sh` is the fleet-wide owner that strips dim or faint runs and dark truecolor placeholders while retaining bright typed input.

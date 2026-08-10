@@ -151,6 +151,9 @@ EOF
 # to report its own agent state, verified empirically against real herdr 0.7.1
 # in an isolated session.
 LOOP_SCRIPT="$STATE_DIR/supervisor-loop.sh"
+# The single owner of the `rule` shape's frame width: the fixture draws both
+# rules this wide and Scenario E refuses any pane narrower than it.
+FM_RULE_COLUMNS=53
 cat > "$LOOP_SCRIPT" <<'LOOP'
 #!/usr/bin/env bash
 MARK=$'\xE2\x81\xA3'
@@ -162,8 +165,12 @@ LOG="$1"
 # caller derives it from the pane's MEASURED height, because a frame pinned
 # below the pane's last row is clamped onto that row and the three frame rows
 # overwrite each other.
+# <rule-columns>: how wide both rules are drawn. The caller owns this constant
+# and refuses a pane narrower than it, because a wrapped closing rule puts a
+# second plain rule row on screen and completes a separator pair.
 SHAPE="${2:-bordered}"
 FRAME_ROW="${3:-18}"
+RULE_COLUMNS="${4:-53}"
 AGENT_SOURCE=fm-test-supervisor
 AGENT_LABEL=fm-test-supervisor
 report_agent_state() {  # <idle|working>
@@ -206,8 +213,9 @@ _shown() {
 # is wide enough to inline the in-progress todo, so it is NOT a plain rule and
 # the pair stays incomplete - the shape that read `unknown` and wedged every
 # away-mode escalation.
-TOP_RULE="$(printf '─%.0s' $(seq 1 40)) Run tests ──"
-BOT_RULE="$(printf '─%.0s' $(seq 1 53))"
+RULE_LABEL=" Run tests ──"
+TOP_RULE="$(printf '─%.0s' $(seq 1 $((RULE_COLUMNS - ${#RULE_LABEL}))))$RULE_LABEL"
+BOT_RULE="$(printf '─%.0s' $(seq 1 "$RULE_COLUMNS"))"
 redraw() {
   local shown
   shown=$(_shown)
@@ -568,7 +576,7 @@ test_scenario_d_max_defer() {
 # stays `unknown`, no digest is ever submitted, and .subsuper-inject-wedged is
 # raised. It therefore fails loudly if the structural rescue is ever lost.
 test_scenario_e_rule_delimited_composer() {
-  local ids _tab_id pane_id target verdict saved_target pane_height frame_row
+  local ids _tab_id pane_id target verdict saved_target pane_layout pane_height pane_width frame_row
   reset_state
 
   ids=$(fm_backend_herdr_create_task "$CONTAINER" "fm-afk-e2e-rule" /tmp) \
@@ -594,23 +602,36 @@ EOF
   done
   [ "$ready" = true ] || fail "Scenario E: the rule-delimited pane's shell did not become ready"
 
-  # The `rule` shape owns ABSOLUTE cursor rows, so the frame origin must come
-  # from the pane's MEASURED height rather than a constant: in a pane shorter
-  # than the frame the terminal clamps all three printf targets onto the last
-  # row, the rules and the composer row overwrite each other, and the verdict
-  # below would read `unknown` for a fixture that never drew the shape. This
-  # refuses in fixture/geometry terms, deliberately worded apart from the
-  # captain's-wedge assertion, so a too-short pane can never be misdiagnosed as
+  # The `rule` shape owns ABSOLUTE cursor rows and draws a frame FM_RULE_COLUMNS
+  # wide, so BOTH pane dimensions must be measured before it is drawn, and both
+  # refusals are worded in fixture/geometry terms, deliberately apart from the
+  # captain's-wedge assertion, so a mis-sized pane can never be misdiagnosed as
   # the regression this scenario exists to detect.
-  pane_height=$(fm_backend_herdr_cli "$SESSION" pane layout --pane "$pane_id" 2>/dev/null \
+  #   height - in a pane shorter than the frame the terminal clamps all three
+  #     printf targets onto the last row and they overwrite each other, so the
+  #     verdict below would read `unknown` for a fixture that never drew the
+  #     shape. The frame origin is derived from the measured height.
+  #   width - in a narrower pane the closing rule WRAPS, and its remainder lands
+  #     on the row below as a second plain rule. That completes a separator pair
+  #     around the composer row, so the reader answers from the untouched
+  #     matched-pair branch and the scenario would pass green through a path the
+  #     pre-fix reader handled too, proving nothing about the rescue it exists
+  #     to pin.
+  pane_layout=$(fm_backend_herdr_cli "$SESSION" pane layout --pane "$pane_id" 2>/dev/null \
     | jq -r --arg pane "$pane_id" \
-      '.result.layout.panes[]? | select(.pane_id == $pane) | .rect.height' 2>/dev/null | head -1)
-  case "$pane_height" in ''|*[!0-9]*) pane_height=0 ;; esac
+      '.result.layout.panes[]? | select(.pane_id == $pane) | "\(.rect.height) \(.rect.width)"' 2>/dev/null | head -1)
+  read -r pane_height pane_width <<EOF
+$pane_layout
+EOF
+  case "${pane_height:-}" in ''|*[!0-9]*) pane_height=0 ;; esac
+  case "${pane_width:-}" in ''|*[!0-9]*) pane_width=0 ;; esac
   [ "$pane_height" -ge 12 ] || fail \
     "Scenario E FIXTURE GEOMETRY (not a composer regression): 'herdr pane layout' reports height '$pane_height' for the lab pane, which is unreadable or too short to hold the three-row rule-delimited frame at absolute cursor rows. Repair the fixture's geometry; do not read this as the away-mode wedge."
+  [ "$pane_width" -ge "$FM_RULE_COLUMNS" ] || fail \
+    "Scenario E FIXTURE GEOMETRY (not a composer regression): 'herdr pane layout' reports width '$pane_width' for the lab pane, which is unreadable or narrower than the fixture's $FM_RULE_COLUMNS-column frame, so the closing rule would wrap into a second plain rule row and complete a separator pair the reader answers from without the rescue. Repair the fixture's geometry; do not read this as the away-mode wedge."
   frame_row=$((pane_height - 5))
 
-  fm_backend_herdr_send_text_line "$target" "bash '$LOOP_SCRIPT' '$LOG_FILE' rule $frame_row" \
+  fm_backend_herdr_send_text_line "$target" "bash '$LOOP_SCRIPT' '$LOG_FILE' rule $frame_row $FM_RULE_COLUMNS" \
     || fail "Scenario E: could not start the rule-delimited composer fixture"
   sleep 2
 
