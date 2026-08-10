@@ -2859,9 +2859,10 @@ EOF
     #     and its rule but loses that record, so it stays `unknown` exactly as
     #     before - which is what preserves the dead-shell refusal here. Measured
     #     against a real exit (claude 2.1.226 on herdr 0.8.0, isolated lab):
-    #     herdr DROPPED the record within ~8s of `/exit` and the pane read
-    #     `unknown`, recorded in docs/verification/runtime-backends.md and
-    #     re-checked live by tests/fm-herdr-composer-drift-live-e2e.test.sh.
+    #     herdr DROPPED the record within 0.05s of the pane returning to its
+    #     shell and the pane read `unknown`, recorded in
+    #     docs/verification/runtime-backends.md and re-checked live by
+    #     tests/fm-herdr-composer-drift-live-e2e.test.sh.
     # A working Pi, an unreadable identity, or a non-adjacent separator all
     # stay conservative.
     found=0

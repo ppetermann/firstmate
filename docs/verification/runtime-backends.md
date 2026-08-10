@@ -622,6 +622,10 @@ Method: a claude pane launched in an isolated lab session, read with `fm_backend
 | ~8s after the quit command | `unknown` | agent absent, status absent |
 | 20s after the quit command | `unknown` | agent absent, status absent |
 
+That first post-exit sample was taken at about 8 seconds, which bounds the drop only loosely.
+Three further consecutive runs tightened it: the record was already absent at the FIRST sample, taken 0.05 seconds after `pane process-info` showed the pane's shell back in the foreground, so no clearing lag was observed at all.
+The guard still polls for the record to clear rather than reading it once, because Herdr's agent state is event-driven (`pane.agent_status_changed`) and a slower or loaded machine is not bound by these measurements.
+
 `pane process-info` returned the foreground process to the shell (foreground pid equal to `shell_pid`, name `zsh`), and the screen after exit showed only the shell prompt because claude restored the normal screen buffer.
 So no stale glyph row and no rule survived at all, and Herdr had already dropped the record: two independent reasons the rescue cannot fire on an exited agent.
 
