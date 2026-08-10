@@ -212,6 +212,34 @@ harness_exit_command() {  # <harness>
   esac
 }
 
+# Every quit command above is slash-prefixed, and a `/`- or `$`-prefixed send
+# opens a completion popup within ~0.1s that can consume the first Enter
+# (bin/backends/herdr.sh fm_backend_herdr_send_text_submit, docs/herdr-backend.md
+# "Composer and injection safety"). This is NOT repairing an observed failure:
+# measured against claude 2.1.226 on herdr 0.8.0 in an isolated lab, BOTH the
+# atomic `pane run` path and this sequence quit claude cleanly, each settling
+# the pane back to its shell, dropping the native agent record and leaving the
+# composer reading `unknown`. It follows the adapter's own popup-safe order
+# anyway - type once with send_literal, hold the shared 1.2s slash settle
+# bin/fm-send.sh uses, then retry ENTER ALONE, never retyping - because the
+# popup hazard is a real class risk this repo already owns everywhere else, one
+# settle is cheap, and a swallowed Enter here would abort the whole guard with a
+# drift alarm against a harness release that is fine.
+FM_HERDR_EXIT_SLASH_SETTLE=${FM_HERDR_EXIT_SLASH_SETTLE:-1.2}
+FM_HERDR_EXIT_ENTER_RETRIES=${FM_HERDR_EXIT_ENTER_RETRIES:-3}
+
+send_exit_command() {  # <target> <pane> <text> -> 0 once the pane is back at its shell
+  local target=$1 pane=$2 text=$3 i=0
+  fm_backend_herdr_send_literal "$target" "$text" || return 1
+  sleep "$FM_HERDR_EXIT_SLASH_SETTLE"
+  while [ "$i" -lt "$FM_HERDR_EXIT_ENTER_RETRIES" ]; do
+    fm_backend_herdr_send_key "$target" Enter || return 1
+    wait_shell_settled "$pane" && return 0
+    i=$((i + 1))
+  done
+  return 1
+}
+
 # --- dead-shell control ------------------------------------------------------
 # The counterweight to every `empty` below: a pane running nothing but a login
 # shell must stay `unknown`, or the reader has bought its emptiness by weakening
@@ -349,10 +377,8 @@ EOF
     agent_live=$(native_agent "$PANE_ID")
     [ -n "$agent_live" ] || fail \
       "$harness ($version) on herdr $HERDR_VERSION: herdr reports no native agent for a RUNNING harness pane, so the exited-agent control below would prove nothing and the identity half of the rescue has no signal to lose"
-    fm_backend_herdr_send_text_line "$target" "$exit_cmd" \
-      || fail "$harness ($version) on herdr $HERDR_VERSION: could not send the exit command to the harness"
-    wait_shell_settled "$PANE_ID" || fail \
-      "$harness ($version) on herdr $HERDR_VERSION: the pane never returned to its shell after the exit command, so this release's exit path no longer matches the one harness_exit_command records; teach it the command this release actually quits on"
+    send_exit_command "$target" "$PANE_ID" "$exit_cmd" || fail \
+      "$harness ($version) on herdr $HERDR_VERSION: the pane never returned to its shell after '$exit_cmd' was typed and Enter was retried $FM_HERDR_EXIT_ENTER_RETRIES times, so this release's exit path no longer matches the one harness_exit_command records; teach it the command this release actually quits on. Screen tail: [$(composer_view "$target")]."
     agent_after=$(native_agent "$PANE_ID")
     [ -z "$agent_after" ] || fail \
       "EXITED-AGENT PREMISE BROKEN: $harness $version on herdr $HERDR_VERSION still reports native agent '$agent_after' for a pane whose harness has EXITED. The rule-delimited rescue keeps a composer's verdict on that record, so a retained record lets an escalation be typed into whatever now owns the pane. Screen tail: [$(composer_view "$target")]."
