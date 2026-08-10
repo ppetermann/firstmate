@@ -647,7 +647,7 @@ fi
 remove_grok_turnend_auth() {
   local state_dir=$1 id=$2 token_path token='' path
   token_path=$(fm_control_harness_turnend_token_path grok "$state_dir" "$id") || return 1
-  if [ -n "$token_path" ] && [ -f "$token_path" ]; then
+  if [ -n "$token_path" ] && [ -f "$token_path" ] && [ -s "$token_path" ]; then
     IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
   fi
   path=$(fm_control_harness_turnend_auth_path grok "$token") || return 1
@@ -658,7 +658,7 @@ remove_grok_turnend_auth() {
 remove_kimi_turnend_auth() {
   local state_dir=$1 id=$2 token_path token='' path
   token_path=$(fm_control_harness_turnend_token_path kimi "$state_dir" "$id") || return 1
-  if [ -n "$token_path" ] && [ -f "$token_path" ]; then
+  if [ -n "$token_path" ] && [ -f "$token_path" ] && [ -s "$token_path" ]; then
     IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
   fi
   path=$(fm_control_harness_turnend_auth_path kimi "$token") || return 1

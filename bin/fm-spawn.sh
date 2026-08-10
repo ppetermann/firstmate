@@ -796,7 +796,7 @@ clear_relaunch_harness_wiring() {
   harness=$(fm_control_harness_family "$harness") || harness=
   token_path=$(fm_control_harness_turnend_token_path "$harness" "$state" "$id") || return 1
   token=
-  if [ -n "$token_path" ] && [ -f "$token_path" ]; then
+  if [ -n "$token_path" ] && [ -f "$token_path" ] && [ -s "$token_path" ]; then
     IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
   fi
   auth_path=$(fm_control_harness_turnend_auth_path "$harness" "$token") || return 1

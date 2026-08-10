@@ -49,6 +49,11 @@
 #   (w) index.lock mtime read failure                         -> lock kept, REFUSE
 #   (x) transient lock cleared after first failed return      -> retry ALLOW
 #   (y) persistent lock (never clears, not provably stale)    -> REFUSE loudly
+#
+# Also covers the recorded grok/kimi turn-end token teardown reads before revoking a
+# harness's global registry entry.
+#   (z)  no token file / zero-byte token / populated token -> teardown proceeds
+#   (aa) present, non-empty, unreadable token              -> REFUSE, state retained
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -651,6 +656,123 @@ test_local_only_merged_to_local_main_allows() {
   expect_code 0 "$rc" "merged-main: teardown should succeed when work is merged into local main"
   ! grep -q REFUSED "$case_dir/stderr" || fail "merged-main: teardown printed a REFUSED line"
   pass "local-only worktree with work merged into local main is torn down (no regression)"
+}
+
+# Run teardown with the harness registry homes pointed inside the case dir, so the
+# grok/kimi turn-end auth entries teardown revokes are the fixture's own and never
+# the runner's real ~/.grok or ~/.kimi-code. GROK_HOME is set explicitly rather than
+# left to its $HOME default so an ambient GROK_HOME cannot leak in.
+# Args: case_dir [extra args...]
+run_teardown_with_harness_homes() {
+  local case_dir=$1; shift
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  HOME="$case_dir/harness-home" \
+  GROK_HOME="$case_dir/harness-home/.grok" \
+  PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
+    "$TEARDOWN" task-x1 "$@"
+}
+
+# Where a harness's global turn-end registry entry lands under the fake HOME above.
+# Args: case_dir harness
+turnend_auth_dir() {
+  local case_dir=$1 harness=$2
+  case "$harness" in
+    grok) printf '%s\n' "$case_dir/harness-home/.grok/hooks/fm-turn-end.d" ;;
+    kimi) printf '%s\n' "$case_dir/harness-home/.kimi-code/fm-turn-end.d" ;;
+    *) return 1 ;;
+  esac
+}
+
+# The recorded turn-end token (state/<id>.<harness>-turnend-token) names the global
+# registry entry teardown revokes. bin/fm-spawn.sh writes it with a plain redirect,
+# which truncates to zero bytes before the token lands, so a crash, a kill, or ENOSPC
+# in that window leaves an EMPTY token file behind. An empty token names no registry
+# entry, so it is the same nothing-to-revoke case as no token file at all and must not
+# wedge teardown - the pre-fix read treated EOF-on-empty as a read failure, and both
+# call sites abort teardown before any state is removed, so the task could never be
+# torn down again. All three states are asserted against the same teardown entry point
+# so the empty case cannot pass just because teardown ignores tokens entirely.
+test_turnend_token_states_do_not_wedge_teardown() {
+  local harness case_dir auth_dir token_path rc
+  for harness in grok kimi; do
+    case_dir=$(make_case "turnend-$harness-absent")
+    write_meta "$case_dir" local-only ship
+    set +e
+    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 0 "$rc" "turnend-$harness-absent: teardown should succeed with no recorded token"
+    assert_absent "$case_dir/state/task-x1.meta" \
+      "turnend-$harness-absent: teardown left the task meta behind"
+
+    case_dir=$(make_case "turnend-$harness-empty")
+    write_meta "$case_dir" local-only ship
+    token_path="$case_dir/state/task-x1.$harness-turnend-token"
+    : > "$token_path"
+    set +e
+    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 0 "$rc" \
+      "turnend-$harness-empty: zero-byte token wedged teardown (stderr: $(cat "$case_dir/stderr"))"
+    assert_absent "$token_path" "turnend-$harness-empty: empty token state survived teardown"
+    assert_absent "$case_dir/state/task-x1.meta" \
+      "turnend-$harness-empty: teardown left the task meta behind"
+
+    case_dir=$(make_case "turnend-$harness-populated")
+    write_meta "$case_dir" local-only ship
+    token_path="$case_dir/state/task-x1.$harness-turnend-token"
+    printf 'fm.abcdefabcdef\n' > "$token_path"
+    auth_dir=$(turnend_auth_dir "$case_dir" "$harness")
+    mkdir -p "$auth_dir"
+    : > "$auth_dir/fm.abcdefabcdef"
+    set +e
+    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 0 "$rc" "turnend-$harness-populated: teardown should succeed with a recorded token"
+    assert_absent "$auth_dir/fm.abcdefabcdef" \
+      "turnend-$harness-populated: registry entry survived teardown"
+    assert_absent "$token_path" "turnend-$harness-populated: token state survived teardown"
+  done
+  pass "absent, zero-byte, and populated turn-end tokens all let teardown proceed"
+}
+
+# The counterpart to the case above: tolerating an EMPTY token must not tolerate a
+# token that is present and non-empty but cannot be read, because that one really
+# does leave an unrevoked registry entry behind. Teardown must fail loudly and keep
+# every durable record so it can be retried once the file is readable.
+test_unreadable_turnend_token_refuses_before_removing_state() {
+  local harness case_dir auth_dir token_path rc
+  for harness in grok kimi; do
+    case_dir=$(make_case "turnend-$harness-unreadable")
+    write_meta "$case_dir" local-only ship
+    token_path="$case_dir/state/task-x1.$harness-turnend-token"
+    printf 'fm.abcdefabcdef\n' > "$token_path"
+    auth_dir=$(turnend_auth_dir "$case_dir" "$harness")
+    mkdir -p "$auth_dir"
+    : > "$auth_dir/fm.abcdefabcdef"
+    chmod 000 "$token_path"
+    if [ -r "$token_path" ]; then
+      chmod 600 "$token_path"
+      echo "skip: file modes do not deny reads here (running privileged); cannot stage an unreadable token"
+      return 0
+    fi
+
+    set +e
+    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    chmod 600 "$token_path"
+    expect_code 1 "$rc" "turnend-$harness-unreadable: teardown should fail on an unreadable token"
+    assert_present "$auth_dir/fm.abcdefabcdef" \
+      "turnend-$harness-unreadable: teardown dropped the registry entry it could not resolve"
+    assert_present "$case_dir/state/task-x1.meta" \
+      "turnend-$harness-unreadable: teardown removed task state despite the failure"
+  done
+  pass "an unreadable non-empty turn-end token still fails teardown before any state removal"
 }
 
 test_no_mistakes_origin_remote_allows() {
@@ -2596,6 +2718,8 @@ test_teardown_prompts_tasks_axi_done_when_compatible
 test_teardown_manual_backend_prompts_hand_edit_even_when_tasks_axi_present
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
+test_turnend_token_states_do_not_wedge_teardown
+test_unreadable_turnend_token_refuses_before_removing_state
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
