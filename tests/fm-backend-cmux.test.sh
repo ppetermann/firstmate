@@ -774,6 +774,34 @@ test_composer_state_borderless_claude_text_is_pending() {
   pass "fm_backend_cmux_composer_state: a borderless Claude row with typed text reads pending"
 }
 
+# The borderless branch accepts a bare row on structural evidence alone, so this
+# pins the fail-closed half of that widening: the SAME horizontal-rule container
+# that makes an agent glyph read empty must never make a dead shell's prompt read
+# empty, because composer-emptiness is what the away-mode injector treats as a
+# safe injection target. Both halves are asserted against one identical container
+# so the case cannot pass vacuously by rejecting every bare row.
+test_composer_state_borderless_dead_shell_prompt_is_unknown() {
+  local dir fb out glyph n=0
+  for glyph in '>' '$' '%' '#'; do
+    n=$((n + 1))
+    dir="$TMP_ROOT/composer-borderless-dead-shell-$n"; mkdir -p "$dir/responses"
+    cmux_panes_response "$dir" 1 "bbbbbbbb-1111-1111-1111-111111111111"
+    cmux_read_screen_response "$dir" 2 "$(printf '────────────────────────\n%s\n────────────────────────\nHaiku 4.5' "$glyph")"
+    fb=$(make_cmux_fakebin "$dir")
+    out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
+      bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_composer_state "aaaaaaaa-0000-0000-0000-000000000000:bbbbbbbb-1111-1111-1111-111111111111"' "$ROOT" )
+    [ "$out" = unknown ] || fail "a bare '$glyph' shell prompt inside horizontal rules is a dead shell, never an injectable composer, got '$out'"
+  done
+  dir="$TMP_ROOT/composer-borderless-dead-shell-control"; mkdir -p "$dir/responses"
+  cmux_panes_response "$dir" 1 "bbbbbbbb-1111-1111-1111-111111111111"
+  cmux_read_screen_response "$dir" 2 $'────────────────────────\n❯\n────────────────────────\nHaiku 4.5'
+  fb=$(make_cmux_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
+    bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_composer_state "aaaaaaaa-0000-0000-0000-000000000000:bbbbbbbb-1111-1111-1111-111111111111"' "$ROOT" )
+  [ "$out" = empty ] || fail "the identical container with an AGENT glyph must still read empty, got '$out' (the dead-shell assertions above would be vacuous)"
+  pass "fm_backend_cmux_composer_state: a dead-shell prompt in a borderless container stays unknown while an agent glyph reads empty"
+}
+
 test_composer_state_ghost_placeholder_is_empty() {
   local dir fb out
   dir="$TMP_ROOT/composer-ghost"; mkdir -p "$dir/responses"
@@ -1139,6 +1167,7 @@ test_composer_state_borderless_claude_prompt_is_empty
 test_composer_state_borderless_claude_prompt_outranks_stale_bordered_row
 test_composer_state_borderless_claude_nbsp_prompt_is_empty
 test_composer_state_borderless_claude_text_is_pending
+test_composer_state_borderless_dead_shell_prompt_is_unknown
 test_composer_state_ghost_placeholder_is_empty
 test_composer_state_real_text_is_pending
 test_composer_state_popup_placeholder_fill_is_pending

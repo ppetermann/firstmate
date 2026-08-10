@@ -47,7 +47,9 @@
 # composer with a no-break space, which no shell trim and no `[[:space:]]` class
 # treats as whitespace, so the padding read as real typed text and an empty
 # composer classified `pending`. fm_composer_normalize_blanks below is the ONE
-# place that decision is made, so the tmux and herdr adapters cannot drift.
+# place that decision is made, so no adapter can drift against it - including
+# cmux, whose borderless-Claude row hands its padding straight to this owner
+# instead of carrying a narrower per-adapter strip.
 #
 # Each adapter still owns its own CAPTURE and structural row-finding, because
 # those use genuinely different primitives (tmux's visible-pane box scan,
