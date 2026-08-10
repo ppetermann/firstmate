@@ -67,10 +67,12 @@ Run the real-harness guard after any harness upgrade and before trusting refresh
 ### Composer, busy state, and delivery
 
 Agent liveness and composer safety are separate checks.
-For a bordered composer, the tmux reader locates the complete box structurally and classifies every content row through the shared ANSI and ghost handling in `bin/fm-composer-lib.sh`.
-Real text on any content row is pending, while only an unambiguous box with every row empty is proven empty.
-Unreadable, incomplete, or structurally ambiguous boxes fail closed, and panes without a bordered composer retain the compatible cursor-row classification.
-The shared classifier accepts a shell glyph as an empty agent composer only inside a verified bordered composer.
+Composer shape is vendor-controlled, so the tmux reader recognizes two drawn containers structurally: a complete bordered box, and a left rail of aligned box-drawing bars with no right border and no corner rows.
+It classifies each container row through the shared ANSI, ghost, and unicode-blank handling in `bin/fm-composer-lib.sh`.
+Real text on any content row is pending, while only an unambiguous container with every row empty is proven empty.
+A rail is read from its top through the cursor row inclusive rather than to its end, because a harness can draw a status line as its last rail row.
+Unreadable, incomplete, or structurally ambiguous boxes fail closed, and panes with no recognized container retain the compatible cursor-row classification.
+The shared classifier accepts a shell glyph as an empty agent composer only inside a verified container, and a rail requires box-drawing bars rather than ASCII pipes so ordinary piped shell output can never form one.
 A bare shell prompt is `unknown`, so away-mode escalation is never injected into a dead shell.
 
 Busy state is not read from rendered text on this backend.
@@ -82,8 +84,9 @@ The supervisor guard selects only the detected primary harness's signature rathe
 `bin/fm-tmux-lib.sh` owns exact type-and-submit mechanics.
 It types a message once and retries Enter only until the composer clears.
 Only a proven empty composer is a positive delivery acknowledgement.
-Text left in established structure remains `pending`, text in ambiguous structure remains unproven, and unreadable or unsafe state remains unknown.
-`fm-send.sh` reports every unconfirmed verdict as a failure instead of retyping or assuming delivery.
+Text left in established structure remains `pending`, text in ambiguous structure remains unproven, and an unreadable composer is reported as `unknown-but-turn-started` on a busy pane or `unknown-idle-no-delivery` on an idle one.
+An unreadable composer ends the Enter retry loop instead of spending it, because repeated Enters into a pane that may be showing a modal dialog could confirm that dialog.
+`fm-send.sh` reports every unconfirmed verdict as a failure instead of retyping or assuming delivery, and its error states whether the endpoint showed a turn starting, so a resend cannot silently double-deliver a steer that already landed.
 
 OpenCode 1.18.4 has one busy-queue exception.
 While OpenCode is mid-turn, Enter queues the message but leaves its text visible until the turn completes.
@@ -101,10 +104,11 @@ tests/fm-backend-tmux-smoke.test.sh
 tests/fm-tmux-agent-liveness.test.sh
 tests/fm-harness-liveness-drift-live-e2e.test.sh
 tests/fm-composer-ghost.test.sh
+tests/fm-composer-pane-shapes.test.sh
 tests/fm-kimi-harness.test.sh
 tests/fm-muse-harness.test.sh
 tests/fm-tmux-submit-busy.test.sh
 tests/fm-bootstrap.test.sh
 ```
 
-[`verification/runtime-backends.md`](verification/runtime-backends.md#tmux) records the active foreground-process and submit evidence.
+[`verification/runtime-backends.md`](verification/runtime-backends.md#tmux) records the active foreground-process, per-harness composer-shape, and submit evidence.

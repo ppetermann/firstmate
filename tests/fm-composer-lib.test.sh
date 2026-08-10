@@ -110,6 +110,44 @@ test_idle_placeholder_is_empty() {
   pass "fm_composer_classify_content: a known idle placeholder reads empty, before and after glyph stripping"
 }
 
+# The agent glyphs are multi-byte, so a byte-counting strip leaves their trailing
+# bytes as leading content and the post-strip idle match can never fire. Under
+# LC_CTYPE=C/POSIX - what an unset LANG gives under systemd, cron, ssh and
+# minimal containers - that turned an idle grok composer into `pending`, the
+# false negative this classifier's callers exist to avoid. The ambient-locale
+# expectation above is re-asserted here away from UTF-8 so the hole cannot
+# reopen.
+classify_in_locale() {  # <locale> <args...> -> verdict
+  local loc=$1; shift
+  LC_ALL=$loc LANG=$loc LC_CTYPE=$loc "${BASH:-bash}" "$ROOT/tests/fm-composer-classify-probe.sh" "$@"
+}
+
+test_idle_placeholder_is_empty_in_non_utf8_locale() {
+  local idle='^Type a message\.\.\.$' loc g out
+  for loc in C POSIX; do
+    for g in '❯' '›' '⟩' '>'; do
+      out=$(classify_in_locale "$loc" 0 "$g Type a message..." "$idle")
+      [ "$out" = empty ] \
+        || fail "under LC_ALL=$loc the idle placeholder after '$g' should read empty, got '$out'"
+    done
+    out=$(classify_in_locale "$loc" 0 '❯ fix findings 1 and 3')
+    [ "$out" = pending ] \
+      || fail "under LC_ALL=$loc real text after a glyph should stay pending, got '$out'"
+  done
+  pass "fm_composer_classify_content: glyph stripping and idle matching survive a non-UTF-8 locale"
+}
+
+# plain_content is normalized before its emptiness is judged, so a bare row
+# padded only with unicode blanks stays empty rather than flipping to unknown.
+test_unicode_blank_plain_content_is_empty() {
+  local nbsp out
+  nbsp=$(printf '\302\240')
+  out=$(classify 0 '' '' sensitive "$nbsp$nbsp")
+  [ "$out" = empty ] \
+    || fail "a bare row whose plain content is only unicode blanks should read empty, got '$out'"
+  pass "fm_composer_classify_content: unicode-blank-only plain content reads empty, not unknown"
+}
+
 test_idle_placeholder_case_mode_is_explicit() {
   local idle='^Type a message\.\.\.$' out
   out=$(classify 1 'type a message...' "$idle")
@@ -140,5 +178,7 @@ test_bordered_shell_glyph_is_empty
 test_agent_glyphs_are_empty_bordered_and_bare
 test_empty_content_is_empty
 test_idle_placeholder_is_empty
+test_idle_placeholder_is_empty_in_non_utf8_locale
+test_unicode_blank_plain_content_is_empty
 test_idle_placeholder_case_mode_is_explicit
 test_real_text_is_pending

@@ -145,12 +145,37 @@ The structural multi-row composer reader, Kimi pointer-delivery path, and OpenCo
 
 ```sh
 tests/fm-composer-ghost.test.sh
+tests/fm-composer-pane-shapes.test.sh
 tests/fm-kimi-harness.test.sh
 tests/fm-tmux-submit-busy.test.sh
 ```
 
-Expected structural matrix: real text on any content row is pending; all-empty complete boxes are empty; unreadable, incomplete, or unsafe boxes are unknown; and non-bordered panes retain cursor-row compatibility.
-Expected submit matrix: proven pending plus busy is accepted as queued; proven pending plus idle remains pending; ambiguous pending is never converted by the busy exception; and only a proven empty composer succeeds directly.
+Expected structural matrix: real text on any content row is pending; all-empty complete boxes are empty; a left rail proven by an aligned repeated box-drawing bar is read from its top through the cursor row; unreadable, incomplete, or unsafe boxes are unknown, including when their unpaired side rows would otherwise read as a rail (a run of aligned bars bounded at either end by a corner row or a paired side row of the same family and indent stays with the box verdict, at any run depth); and non-bordered panes retain cursor-row compatibility.
+Expected submit matrix: proven pending plus busy is accepted as queued; proven pending plus idle remains pending; ambiguous pending is never converted by the busy exception; an unreadable composer reports `unknown-but-turn-started` or `unknown-idle-no-delivery` and never succeeds; and only a proven empty composer succeeds directly.
+
+### Composer shapes per harness
+
+Composer rendering is a vendor-controlled surface, and both current primary shapes were measured on 2026-08-09 with tmux 3.2a on Linux, in 80x24 panes with no attached client.
+
+```sh
+FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh
+```
+
+Observed output:
+
+```text
+ok - composer drift: claude 2.1.226 (Claude Code) separates an empty composer from unsubmitted text
+ok - composer drift: opencode 1.18.15 separates an empty composer from unsubmitted text
+# unverified on this machine (not installed): codex pi pi-signed grok kimi muse
+# checked 2 installed harness(es)
+```
+
+Claude 2.1.226 draws no bordered composer box at all: its input area is a bare `❯` row between two full-width `─` rules, and the empty composer's cursor row is exactly `❯` plus one U+00A0 (captured bytes `e2 9d af c2 a0`).
+OpenCode 1.18.4 and 1.18.15 draw a left rail only: consecutive rows led by U+2503 at a shared indent, with no right border, no corner rows, and a U+2579 cap beneath; the last rail row is the model and mode status line rather than input.
+OpenCode's idle placeholder is truecolor `38;2;128;128;128` against `38;2;238;238;238` for real typed input, which is why the ghost-luminance bound is inclusive.
+The two OpenCode releases render identically, so the OpenCode reader change was not driven by a vendor change.
+
+That command is what refreshes this section; run it after any harness upgrade and before trusting the shapes recorded above.
 
 ### Cleanup endpoint identity
 
@@ -498,12 +523,14 @@ ok - forced teardown retains a nested secondmate home and its grandchild's Herdr
 Real captures verified these active distinctions:
 
 - Claude and Codex use bare `❯` and `›` agent composers.
+- Unicode blank padding around a prompt glyph is padding, not typed input, because no shell trim treats U+00A0 as whitespace.
+- OpenCode uses a left-rail composer container with no right border and no corner rows.
 - Pi uses content between complete separator rows and requires exact native Pi identity.
 - Dim or faint suggestion text is ghost content, while normally styled text is pending input.
 - Grok dark truecolor placeholders are ghost content, while bright truecolor typed input remains pending.
 - A bare shell prompt has no safe agent-composer container and is unknown.
 
-`tests/fm-composer-ghost.test.sh`, `tests/fm-composer-lib.test.sh`, and the Herdr composer cases pin the exact captured ANSI bytes.
+`tests/fm-composer-ghost.test.sh`, `tests/fm-composer-lib.test.sh`, `tests/fm-composer-pane-shapes.test.sh`, and the Herdr composer cases pin the exact captured ANSI bytes.
 The U+2063 operational and routed-request separators were exercised through a real Pi-on-Herdr path; the byte-exact active regression is:
 
 ```sh

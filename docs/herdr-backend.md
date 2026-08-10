@@ -233,6 +233,7 @@ A working Pi, pending middle row, missing identity, incomplete separator pair, o
 
 ANSI capture preserves de-emphasized placeholder style.
 `bin/fm-composer-lib.sh` is the fleet-wide owner that strips dim or faint runs and dark truecolor placeholders while retaining bright typed input.
+It also normalizes unicode blank padding, so a bare agent prompt row padded with a no-break space reads empty rather than as typed text on every adapter, including Herdr's Claude `❯` row.
 If a future Herdr version strips ANSI style, ghost suggestions become pending rather than empty, which safely defers injection and eventually raises the wedge alarm.
 
 A bare shell prompt is never an empty agent composer.
@@ -311,6 +312,8 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 - Mid-session secondmate liveness is not implemented.
 - OpenCode 1.18.4 can accept Enter while busy without clearing the composer.
   The tmux backend has a busy-queue fallback, but Herdr still reports this case as submit pending and needs a separate adapter fix.
+- OpenCode draws a left-rail composer with no right border and no corner rows.
+  The tmux reader recognizes that container, but Herdr's structural scan still matches only paired borders and bare agent prompt glyphs, so an OpenCode composer under Herdr stays unknown and its submits stay unconfirmed.
 - Only tmux and Herdr can host the away-mode supervisor terminal.
 
 ## Regression entry points

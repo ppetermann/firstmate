@@ -42,6 +42,13 @@
 # byte-pattern check missed claude's own dim ghost (its prompt glyph is not
 # bold-wrapped) and no adapter covered grok's truecolor placeholder at all.
 #
+# UNICODE BLANK PADDING is the third half of this owner (task
+# fm-send-delivery-false-negative): a harness may pad an otherwise-empty
+# composer with a no-break space, which no shell trim and no `[[:space:]]` class
+# treats as whitespace, so the padding read as real typed text and an empty
+# composer classified `pending`. fm_composer_normalize_blanks below is the ONE
+# place that decision is made, so the tmux and herdr adapters cannot drift.
+#
 # Each adapter still owns its own CAPTURE and structural row-finding, because
 # those use genuinely different primitives (tmux's visible-pane box scan,
 # herdr's ANSI tail scan, orca/cmux's plain read-screen). Once an adapter has a
@@ -73,8 +80,8 @@ fm_composer_strip_ansi() {
 #   - dim/faint runs (SGR 2): how claude and codex render ghost/suggestion text.
 #     A reset (SGR 0) or normal-intensity (SGR 22) ends a dim run.
 #   - dark/muted TRUECOLOR foreground runs (SGR 38;2;r;g;b or the colon form
-#     38:2::r:g:b) whose perceived luminance (0.299R + 0.587G + 0.114B) is below
-#     FM_COMPOSER_GHOST_LUMA_MAX (default 128): how grok renders its placeholder
+#     38:2::r:g:b) whose perceived luminance (0.299R + 0.587G + 0.114B) is at or
+#     below FM_COMPOSER_GHOST_LUMA_MAX (default 128): how grok renders its placeholder
 #     and hint text. A reset (SGR 0), a default-foreground (SGR 39), any base
 #     foreground colour (30-37 / 90-97), or a lighter 38;2 foreground ends the
 #     dark-foreground run. This assumes a DARK terminal theme, the firstmate
@@ -84,6 +91,11 @@ fm_composer_strip_ansi() {
 #     no fleet harness uses it for ghost text, so it is kept (real text wins:
 #     under-stripping merely defers, which the max-defer alarm surfaces, while
 #     over-stripping would inject over real input).
+# The bound is INCLUSIVE because #808080 - luminance exactly 128, the canonical
+# muted grey - is what OpenCode 1.18.4/1.18.15 draws its idle composer
+# placeholder in (verified: 38;2;128;128;128 for `Ask anything...`, against
+# 38;2;238;238;238 for real typed input). An exclusive bound left that
+# placeholder counting as unsubmitted text.
 # Raising FM_COMPOSER_GHOST_LUMA_MAX is not free: muse draws its `⟩` prompt glyph
 # in truecolor 38;2;90;160;255, luminance ~149.9 (verified, muse 0.1.0-R708.1),
 # the tightest margin over the 128 default in the fleet. Above ~150 that glyph is
@@ -120,11 +132,11 @@ fm_composer_strip_ghost() {
         nf = split(spec, f, ":")
         if (f[2] != "2" || nf < 5) return 0
         r = f[nf - 2] + 0; g = f[nf - 1] + 0; b = f[nf] + 0
-        return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
+        return ((299*r + 587*g + 114*b) / 1000 <= lumamax) ? 1 : 0
       }
       if (p + 1 > k || a[p + 1] != "2" || p + 4 > k) return 0
       r = a[p + 2] + 0; g = a[p + 3] + 0; b = a[p + 4] + 0
-      return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
+      return ((299*r + 587*g + 114*b) / 1000 <= lumamax) ? 1 : 0
     }
     {
       line = $0; out = ""; dim = 0; darkfg = 0; n = length(line); i = 1
@@ -169,6 +181,28 @@ fm_composer_strip_ghost() {
   '
 }
 
+# fm_composer_normalize_blanks: map every UNICODE blank a TUI may use to pad an
+# otherwise-empty composer onto an ASCII space, so the emptiness decision below
+# sees padding as padding. Shells and `[[:space:]]` do not treat U+00A0 as
+# whitespace, and claude 2.1.226 draws its bare composer as `❯` followed by one
+# U+00A0: the residual no-break space survived every trim and the glyph strip,
+# so an EMPTY claude composer classified `pending` exactly like one holding real
+# text. That made every claude submit unverifiable (fm-send's "delivery
+# unconfirmed" false negative) and made the away-mode injector's
+# confirmed-empty guard defer every escalation until the max-defer alarm.
+# The pattern is written as explicit UTF-8 byte escapes and matched under
+# LC_ALL=C so the set is byte-identical in every locale ($'\uXXXX' is not).
+# It covers U+00A0, U+2000-U+200B, U+202F, U+205F, U+2060, U+3000, and U+FEFF.
+# Every character in it is invisible or renders as blank space, so treating it
+# as padding can only make a VISUALLY empty composer read empty; a visible
+# glyph is never normalized away, which is what keeps the injector from typing
+# over real input.
+FM_COMPOSER_BLANK_RE=$(printf '\302\240|\342\200[\200-\213\257]|\342\201[\237\240]|\343\200\200|\357\273\277')
+
+fm_composer_normalize_blanks() {  # <text> -> text with unicode blanks as spaces
+  printf '%s' "$1" | LC_ALL=C sed -E "s/$FM_COMPOSER_BLANK_RE/ /g"
+}
+
 # fm_composer_classify_content: the single shared composer-content verdict.
 #   <bordered> 1 when <content> came from a genuine agent-composer container (a
 #              bordered composer box, or a structurally-identified bare AGENT
@@ -192,11 +226,27 @@ fm_composer_idle_matches() {
 fm_composer_classify_content() {  # <bordered> <content> [idle_re] [idle_case] [plain_content]
   local bordered=$1 content=$2 idle_re=${3:-} idle_case=${4:-sensitive} plain_content
   plain_content=${5:-$content}
-  if [ "$bordered" != 1 ] && [ -z "$content" ] && [ -n "$plain_content" ]; then
-    case "$plain_content" in
-      '❯'|'›'|'⟩') printf 'empty'; return 0 ;;
-      *) printf 'unknown'; return 0 ;;
-    esac
+  # Unicode blank padding is padding, not content (see the normalizer above).
+  # Both inputs are re-trimmed here because the callers' own trims ran before
+  # the normalization and could not see a no-break space as whitespace.
+  content=$(fm_composer_normalize_blanks "$content")
+  content="${content#"${content%%[![:space:]]*}"}"
+  content="${content%"${content##*[![:space:]]}"}"
+  # plain_content is consulted only here, so it is normalized only here: every
+  # structural read passes bordered=1 and would otherwise pay a sed subprocess
+  # per candidate row for a value it never reads. The emptiness test below runs
+  # on the NORMALIZED value, so a row padded only with unicode blanks still
+  # falls through to the empty verdict instead of reading unknown.
+  if [ "$bordered" != 1 ] && [ -z "$content" ]; then
+    plain_content=$(fm_composer_normalize_blanks "$plain_content")
+    plain_content="${plain_content#"${plain_content%%[![:space:]]*}"}"
+    plain_content="${plain_content%"${plain_content##*[![:space:]]}"}"
+    if [ -n "$plain_content" ]; then
+      case "$plain_content" in
+        '❯'|'›'|'⟩') printf 'empty'; return 0 ;;
+        *) printf 'unknown'; return 0 ;;
+      esac
+    fi
   fi
   # A bare prompt glyph on its own row.
   case "$content" in
@@ -216,9 +266,15 @@ fm_composer_classify_content() {  # <bordered> <content> [idle_re] [idle_case] [
     printf 'empty'; return 0
   fi
   # Strip a leading prompt glyph, then re-judge the remainder.
+  # Each multi-byte agent glyph is stripped by its own literal: `#?` and `#??`
+  # count BYTES under LC_CTYPE=C/POSIX, which would leave a glyph's trailing
+  # bytes as leading content and stop the post-strip idle match below from ever
+  # firing. The trim that follows absorbs the separating space either way.
   case "$content" in
-    '❯ '*|'› '*|'⟩ '*|'> '*|'$ '*|'% '*|'# '*) content=${content#??} ;;
-    '❯'*|'›'*|'⟩'*|'>'*|'$'*|'%'*|'#'*) content=${content#?} ;;
+    '❯'*) content=${content#❯} ;;
+    '›'*) content=${content#›} ;;
+    '⟩'*) content=${content#⟩} ;;
+    '>'*|'$'*|'%'*|'#'*) content=${content#?} ;;
   esac
   content="${content#"${content%%[![:space:]]*}"}"
   content="${content%"${content##*[![:space:]]}"}"
