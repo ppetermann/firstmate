@@ -523,6 +523,7 @@ ok - forced teardown retains a nested secondmate home and its grandchild's Herdr
 Real captures verified these active distinctions:
 
 - Claude and Codex use bare `❯` and `›` agent composers.
+  Claude's row carries further rule-delimited structure this reader depends on; [Away-mode transport](#away-mode-transport) below owns that shape and the delivery failure it caused.
 - Unicode blank padding around a prompt glyph is padding, not typed input, because no shell trim treats U+00A0 as whitespace.
 - OpenCode uses a left-rail composer container with no right border and no corner rows.
 - Pi uses content between complete separator rows and requires exact native Pi identity.
