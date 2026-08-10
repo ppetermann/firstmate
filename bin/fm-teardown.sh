@@ -644,6 +644,15 @@ fi
 # Where a harness's firstmate-owned global turn-end registry entry lives is
 # owned by bin/fm-control-lib.sh, so teardown and the control plane's relaunch
 # retire the same artifact rather than each carrying its own copy of the path.
+#
+# The `-s` guard below is load-bearing, not redundant with `-f`. The token is
+# written with a plain redirect, which truncates before the token lands, so a
+# crash in that window leaves a ZERO-BYTE file. An empty token names no registry
+# entry, so it is the same nothing-to-revoke case as no token file at all;
+# treating its EOF as a read failure aborts teardown before any state is removed
+# and the task can never be torn down again. A token that is present and
+# non-empty but unreadable still fails closed, because that one really would
+# strand a live registry entry.
 remove_grok_turnend_auth() {
   local state_dir=$1 id=$2 token_path token='' path
   token_path=$(fm_control_harness_turnend_token_path grok "$state_dir" "$id") || return 1
