@@ -3190,13 +3190,21 @@ test_composer_state_claude_unbordered_prompt_is_pending() {
 # collapses back to `unknown`, and the last two assert the divergence directly:
 # the same shape holding real text must still read `pending`, and a dead shell
 # delimited identically must still read `unknown`.
+# HERDR_CLAUDE_RULE_TOP selects which top rule the fixture draws: `label` (the
+# wide-pane shape, with the in-progress todo inlined) or `plain` (the same
+# composer while no todo is in progress, so both rules are plain `─` runs and
+# they enclose the composer row as a complete separator pair).
 herdr_claude_rule_capture() {  # <path> <composer-row> [<row-between-composer-and-closing-rule>...]
   local path=$1 composer=$2 rule="" top="" i=0 row
   shift 2
   while [ "$i" -lt 107 ]; do rule="$rule─"; i=$((i + 1)); done
-  i=0
-  while [ "$i" -lt 95 ]; do top="$top─"; i=$((i + 1)); done
-  top="$top Run tests ──"
+  if [ "${HERDR_CLAUDE_RULE_TOP:-label}" = plain ]; then
+    top=$rule
+  else
+    i=0
+    while [ "$i" -lt 95 ]; do top="$top─"; i=$((i + 1)); done
+    top="$top Run tests ──"
+  fi
   {
     printf '\033[0m\033[38;2;8;145;178m%s\033[0m\n' "$top"
     printf '\033[0m\033[38;2;153;153;153m%s\033[0m\n' "$composer"
@@ -3227,6 +3235,28 @@ test_composer_state_claude_labelled_top_rule_is_empty() {
   calls=$(grep -c $'\x1f''agent'$'\x1f''get' "$TMP_ROOT/composer-claude-rule-labelled-empty/log")
   [ "$calls" -eq 1 ] || fail "keeping the generic verdict must corroborate native agent identity exactly once, made $calls agent calls"
   pass "fm_backend_herdr_composer_state: claude's rule-delimited composer reads empty when its top rule carries an inline label"
+}
+
+# The other half of the same live composer, pinned by name because it is the
+# shape the pane shows whenever no todo is in progress and it must never depend
+# on the rescue above: both rules are plain, so they form a complete separator
+# pair that ENCLOSES the composer row and the verdict is reached without
+# consulting native identity at all. Asserted at the captain's real 107-column
+# width with the real U+00A0 padding, and asserted to make NO agent call, so a
+# future change that quietly routed this shape through the identity-dependent
+# path would fail here rather than silently narrowing when away mode works.
+test_composer_state_claude_plain_rule_delimited_is_empty() {
+  local out nbsp calls
+  nbsp=$(printf '\302\240')
+  out=$(HERDR_CLAUDE_RULE_TOP=plain herdr_claude_rule_state plain-empty "❯$nbsp" \
+    '{"result":{"agent":{"agent":"claude","agent_status":"working"}}}')
+  [ "$out" = empty ] || fail "claude's rule-delimited composer between two PLAIN rules must read empty, got '$out'"
+  calls=$(grep -c $'\x1f''agent'$'\x1f''get' "$TMP_ROOT/composer-claude-rule-plain-empty/log" || true)
+  [ "$calls" -eq 0 ] || fail "a complete separator pair encloses the composer row, so this shape must need no native identity call, made $calls"
+  out=$(HERDR_CLAUDE_RULE_TOP=plain herdr_claude_rule_state plain-pending '❯ ship the fix captain' \
+    '{"result":{"agent":{"agent":"claude","agent_status":"working"}}}')
+  [ "$out" = pending ] || fail "real unsubmitted text between two plain rules must still read pending, got '$out'"
+  pass "fm_backend_herdr_composer_state: claude's PLAIN rule-delimited composer reads empty without consulting native identity, and still reads pending with text"
 }
 
 test_composer_state_claude_labelled_top_rule_needs_native_identity() {
@@ -4441,6 +4471,7 @@ test_composer_state_pi_separator_requires_safe_native_identity
 test_composer_state_claude_unbordered_prompt_is_empty
 test_composer_state_claude_unbordered_prompt_is_pending
 test_composer_state_claude_labelled_top_rule_is_empty
+test_composer_state_claude_plain_rule_delimited_is_empty
 test_composer_state_claude_labelled_top_rule_needs_native_identity
 test_composer_state_claude_labelled_top_rule_needs_adjacent_rule
 test_composer_state_claude_labelled_top_rule_real_text_is_pending
