@@ -179,6 +179,14 @@ fm_drift_capture() {  # <target>
 # while still reporting green - against a harness the reader still treats as
 # rule-delimited. The separator predicate trims the trailing carriage return
 # herdr ends each captured row with, as whitespace, exactly as the reader does.
+#
+# The glyph row deliberately tracks the BARE shape ONLY, even though the
+# reader's structural scan also recognizes bordered rows: the rescue this guard
+# pins applies only to the bare agent-glyph row (bin/backends/herdr.sh gates it
+# on `shape = bare`), and asserting adjacency about a bordered row the reader
+# never routes through that branch would hold a harness to an invariant the
+# reader does not have. The two are one decision, so a change to either shape
+# gate must move both together.
 composer_frame_rows() {  # <target>
   local target=$1 cap line plain row=0 glyph=0 rule=0 rules=0
   cap=$(fm_backend_herdr_capture_ansi "$target" "$FM_BACKEND_HERDR_COMPOSER_LINES" 2>/dev/null) || cap=
@@ -207,6 +215,10 @@ native_agent() {  # <pane>
 
 native_agent_absent() {  # <pane>
   [ -z "$(native_agent "$1")" ]
+}
+
+native_agent_present() {  # <pane>
+  [ -n "$(native_agent "$1")" ]
 }
 
 composer_view() {  # <target> - a few rows of context for a failure message
@@ -246,16 +258,19 @@ harness_exit_command() {  # <harness>
 # drift alarm against a harness release that is fine.
 FM_HERDR_EXIT_SLASH_SETTLE=${FM_HERDR_EXIT_SLASH_SETTLE:-1.2}
 FM_HERDR_EXIT_ENTER_RETRIES=${FM_HERDR_EXIT_ENTER_RETRIES:-3}
-# How long the exited-agent control below waits for herdr to drop the native
-# agent record. Also NOT repairing an observed failure: measured against claude
-# 2.1.226 on herdr 0.8.0 in an isolated lab across THREE consecutive runs, the
-# record was already absent at the FIRST sample, taken 0.05s after the pane's
-# shell settled back to the foreground, so no clearing lag was observed at all.
-# herdr's agent state is event-driven (`pane.agent_status_changed`) rather than
-# derived on demand, so a bounded poll is what keeps a slower or loaded machine
-# from reading one transient and aborting the run with a safety-premise alarm.
-# It costs nothing when the record is already gone, which is what was measured.
-FM_HERDR_EXIT_RECORD_POLLS=${FM_HERDR_EXIT_RECORD_POLLS:-20}
+# How long every read of the native agent record below waits for the value it
+# expects, whether that is the record APPEARING for a running harness or being
+# DROPPED after one exits. Also NOT repairing an observed failure: measured
+# against claude 2.1.226 on herdr 0.8.0 in an isolated lab across THREE
+# consecutive runs, the record was already absent at the FIRST sample, taken
+# 0.05s after the pane's shell settled back to the foreground, so no clearing
+# lag was observed at all. herdr's agent state is event-driven
+# (`pane.agent_status_changed`) rather than derived on demand, so a bounded poll
+# is what keeps a slower or loaded machine from reading one transient and
+# aborting the run with a drift or safety-premise alarm against a harness
+# release that is fine. It costs nothing when the record already reads the way
+# the caller expects, which is what was measured.
+FM_HERDR_AGENT_RECORD_POLLS=${FM_HERDR_AGENT_RECORD_POLLS:-20}
 
 send_exit_command() {  # <target> <pane> <text> -> 0 once the pane is back at its shell
   local target=$1 pane=$2 text=$3 i=0
@@ -358,6 +373,7 @@ EOF
   read -r glyph_row rule_row rule_count <<EOF
 $(composer_frame_rows "$target")
 EOF
+  wait_until "$FM_HERDR_AGENT_RECORD_POLLS" native_agent_present "$PANE_ID" || true
   agent_name=$(native_agent "$PANE_ID")
   if [ "${glyph_row:-0}" -gt 0 ] && [ "${rule_row:-0}" -gt "${glyph_row:-0}" ]; then
     if [ "${rule_count:-0}" -ge 2 ]; then
@@ -403,12 +419,12 @@ EOF
   #    proves a pane that NEVER hosted an agent has no record; only a real exit
   #    proves herdr drops the record it once had.
   if exit_cmd=$(harness_exit_command "$harness"); then
-    agent_live=$(native_agent "$PANE_ID")
-    [ -n "$agent_live" ] || fail \
+    wait_until "$FM_HERDR_AGENT_RECORD_POLLS" native_agent_present "$PANE_ID" || fail \
       "$harness ($version) on herdr $HERDR_VERSION: herdr reports no native agent for a RUNNING harness pane, so the exited-agent control below would prove nothing and the identity half of the rescue has no signal to lose"
+    agent_live=$(native_agent "$PANE_ID")
     send_exit_command "$target" "$PANE_ID" "$exit_cmd" || fail \
       "$harness ($version) on herdr $HERDR_VERSION: the pane never returned to its shell after '$exit_cmd' was typed and Enter was retried $FM_HERDR_EXIT_ENTER_RETRIES times, so this release's exit path no longer matches the one harness_exit_command records; teach it the command this release actually quits on. Screen tail: [$(composer_view "$target")]."
-    wait_until "$FM_HERDR_EXIT_RECORD_POLLS" native_agent_absent "$PANE_ID" || fail \
+    wait_until "$FM_HERDR_AGENT_RECORD_POLLS" native_agent_absent "$PANE_ID" || fail \
       "EXITED-AGENT PREMISE BROKEN: $harness $version on herdr $HERDR_VERSION still reports native agent '$(native_agent "$PANE_ID")' for a pane whose harness has EXITED. The rule-delimited rescue keeps a composer's verdict on that record, so a retained record lets an escalation be typed into whatever now owns the pane. Screen tail: [$(composer_view "$target")]."
     wait_for_state "$target" unknown || fail \
       "EXITED-AGENT PREMISE BROKEN: $harness $version on herdr $HERDR_VERSION reads '$(fm_backend_herdr_composer_state "$target")' for a pane whose harness has EXITED, not unknown. Away-mode injection proceeds on an affirmative empty, so this would type an escalation into whatever now owns the pane. Screen tail: [$(composer_view "$target")]."

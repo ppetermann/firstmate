@@ -2846,11 +2846,22 @@ EOF
     # rendered as separate rows below ~80), which leaves the closing rule
     # unmatched and retired claude's own live composer as `unknown`.
     #
-    # Two independent signals must BOTH hold to keep the generic verdict, and
+    # Three independent signals must ALL hold to keep the generic verdict, and
     # they are deliberately conjunctive rather than alternative because the two
     # failure directions are not symmetric: refusing a genuine composer only
     # defers an escalation (the max-defer alarm surfaces it), while accepting a
     # stale one types into whatever now owns the pane.
+    #   - shape: the structural scan matched the BARE agent-glyph row. That is
+    #     the only shape with live evidence behind it (claude's rule-delimited
+    #     composer), and a bordered row followed by an adjacent rule is what the
+    #     portable fixtures themselves call a STALE generic row. Letting this
+    #     branch cover it would turn an injection-REFUSING verdict into an
+    #     injection-AUTHORIZING one on no evidence, as a side effect of a fix
+    #     aimed at something else, and that is exactly the dead-shell boundary
+    #     this classifier exists to hold: text typed into a shell RUNS. A
+    #     bordered or separated row therefore keeps precisely the behaviour it
+    #     had before this branch existed; authorizing a new shape needs its own
+    #     evidence and its own change.
     #   - position: the separator is the composer row's IMMEDIATE successor, so
     #     it closes the region that row is in instead of opening one below it.
     #   - identity: herdr's own native agent record (`agent get`) names a known
@@ -2863,10 +2874,11 @@ EOF
     #     shell and the pane read `unknown`, recorded in
     #     docs/verification/runtime-backends.md and re-checked live by
     #     tests/fm-herdr-composer-drift-live-e2e.test.sh.
-    # A working Pi, an unreadable identity, or a non-adjacent separator all
-    # stay conservative.
+    # A non-bare shape, a working Pi, an unreadable identity, or a non-adjacent
+    # separator all stay conservative.
     found=0
-    if [ "$FM_BACKEND_HERDR_PI_LAST_SEPARATOR_LINE" -eq "$((generic_line + 1))" ]; then
+    if [ "$shape" = bare ] \
+       && [ "$FM_BACKEND_HERDR_PI_LAST_SEPARATOR_LINE" -eq "$((generic_line + 1))" ]; then
       identity=$(fm_backend_herdr_agent_identity_raw "$session" "$pane" 2>/dev/null || true)
       IFS=$'\t' read -r agent agent_status <<EOF
 $identity

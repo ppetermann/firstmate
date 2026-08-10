@@ -3107,6 +3107,39 @@ test_composer_state_pi_incomplete_separator_below_stale_generic_is_unknown() {
   pass "fm_backend_herdr_composer_state: an incomplete lower Pi separator cannot inherit a stale empty row"
 }
 
+# The same stale BORDERED row and adjacent rule as the case above, with the
+# native identity stubbed to a known NON-Pi agent. The rule-delimited rescue is
+# gated on the BARE agent-glyph shape, so a bordered banner must stay unknown no
+# matter which agent herdr names: the case above only stubs `pi` and would still
+# pass if the rescue were widened back to every recognized row, which would turn
+# an injection-REFUSING verdict into an injection-AUTHORIZING one for a row this
+# very fixture calls stale. Each identity is checked, so the shape gate cannot be
+# satisfied by one vendor string happening to be excluded.
+test_composer_state_bordered_row_above_adjacent_rule_stays_unknown() {
+  local dir log resp fb out agent
+  for agent in claude codex; do
+    dir="$TMP_ROOT/composer-bordered-adjacent-rule-$agent"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+    printf '│   │\n─────────────────────────────────────────────────────\n\n' > "$resp/1.out"
+    printf '{"result":{"agent":{"agent":"%s","agent_status":"idle"}}}\n' "$agent" > "$resp/2.out"
+    fb=$(make_herdr_fakebin "$dir")
+    out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+      bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state lab:w1:p2' "$ROOT" )
+    [ "$out" = unknown ] || fail "a stale BORDERED row above an adjacent plain rule must stay unknown even when herdr names '$agent', got '$out' - the rule-delimited rescue covers the bare agent-glyph row only"
+  done
+  # Positive control: the identical frame with a BARE glyph row instead of the
+  # bordered one is the shape the rescue does cover, so it must read empty. This
+  # is what stops the assertions above passing because the fixture stopped
+  # producing a rescuable frame at all.
+  dir="$TMP_ROOT/composer-bordered-adjacent-rule-control"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '❯\n─────────────────────────────────────────────────────\n\n' > "$resp/1.out"
+  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/2.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state lab:w1:p2' "$ROOT" )
+  [ "$out" = empty ] || fail "positive control: a BARE glyph row above the same adjacent plain rule should read empty, got '$out' - the fixture no longer produces a rescuable frame, so the bordered assertions above prove nothing"
+  pass "fm_backend_herdr_composer_state: the rule-delimited rescue covers the bare glyph row only, never a stale bordered banner"
+}
+
 test_composer_state_pi_separator_requires_safe_native_identity() {
   local dir log resp fb out status case_id idx=0
   for case_id in working non-pi unreadable over-tall; do
@@ -4467,6 +4500,7 @@ test_composer_state_unknown_when_no_composer_row_found
 test_composer_state_pi_separator_idle_is_empty
 test_composer_state_pi_separator_real_text_is_pending
 test_composer_state_pi_incomplete_separator_below_stale_generic_is_unknown
+test_composer_state_bordered_row_above_adjacent_rule_stays_unknown
 test_composer_state_pi_separator_requires_safe_native_identity
 test_composer_state_claude_unbordered_prompt_is_empty
 test_composer_state_claude_unbordered_prompt_is_pending
