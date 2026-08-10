@@ -590,6 +590,44 @@ FM_AFK_PI_HERDR_E2E=1 HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
 Observed guarantees: pending composer input refused injection and raised one alert; idle Pi accepted one marked escalation; the return gate refused ordinary work while a live blocker remained; resolving the blocker allowed the return flow.
 The dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
 
+#### claude's rule-delimited composer (2026-08-10, claude 2.1.226 on Herdr 0.8.0)
+
+claude delimits its composer with a horizontal rule above and below rather than a box.
+While both rules are plain `─` runs they form a complete separator pair enclosing the composer row, and the reader was already correct.
+Once the pane is wide enough claude inlines its in-progress todo into the TOP rule, which stops that rule being plain, leaves claude's own CLOSING rule unmatched below the live composer, and made the reader answer `unknown`.
+The away-mode injector requires an affirmative `empty`, so every escalation deferred to the max-defer wedge alarm on an idle, injectable pane.
+
+Measured read-only on the captain's pane at 107 columns:
+
+```text
+row 1  ───────────────…─────────── Run tests ──   (107 cols, NOT a plain rule)
+row 2  ❯<U+00A0>                                  (ESC[38;2;153;153;153m)
+row 3  ───────────────…──────────────────────────  (107 cols, plain rule)
+row 4    ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents · esc to interrupt
+```
+
+A headless lab session has no attached client and its panes are fixed at the default grid, measured as 54 columns on Herdr 0.8.0 (`herdr pane layout` reported `{"height":23,"width":54,"x":26,"y":1}`, and `tput cols` inside the pane agreed).
+`COLUMNS`, a wide controlling PTY, and `herdr pane zoom` all left that unchanged, and at 54 columns claude renders the same todo as separate rows above a plain top rule.
+The wide-pane label therefore cannot be redrawn in an isolated lab; the guard below pins the verdicts and the structural invariants instead.
+
+The reader keeps the composer's verdict only when both the closing rule is the composer row's immediate successor and `herdr agent get` names a known non-Pi agent.
+Both were confirmed live: `agent get` reported `claude` for a launched claude pane and returned no agent for a plain shell pane in the same session.
+
+```sh
+tests/fm-afk-inject-herdr-e2e.test.sh
+FM_COMPOSER_DRIFT=1 tests/fm-herdr-composer-drift-live-e2e.test.sh
+```
+
+Scenario E of the injection e2e drives the real daemon over the real Herdr transport against that exact frame.
+Against the pre-fix reader it reproduced the wedge (`reads 'unknown', not empty`); with the fix it delivered exactly one escalation and raised no wedge alarm.
+The drift guard launched every installed harness in an isolated lab session and reported `claude 2.1.226 (Claude Code): rule-delimited composer, closing rule adjacent, native identity 'claude'`.
+Its dead-shell control, a pane in the same session running only a login shell, read `unknown` with no native agent record, so the emptiness above was not bought by weakening the refusal that keeps an escalation out of a shell.
+The guard cannot itself redraw the wide-pane label, so it does not fail against the pre-fix reader; the portable cases and Scenario E are what fail pre-fix, and the guard covers the vendor drift neither of them can see.
+It also launched opencode 1.18.16 and re-confirmed the left-rail composer limitation recorded in [`docs/herdr-backend.md`](../herdr-backend.md) still reads `unknown`, so away-mode delivery to opencode on Herdr remains unverified.
+That is the guard's one known-gap entry, and the guard fails asking for the entry to be removed if a listed harness starts reading correctly, so the list cannot outlive the limitation.
+Herdr names its backspace key `backspace` and refuses tmux's `BSpace` with `invalid_key`.
+These commands are what refresh this record; run them after every claude or Herdr upgrade rather than trusting the versions above.
+
 ## Zellij
 
 The current compatibility floor and latest verification are Zellij 0.44.0 with `jq` on macOS aarch64.

@@ -231,6 +231,11 @@ Herdr has no direct cursor-row primitive.
 The adapter locates the bottom-most recognized bordered row, Claude `❯` row, Codex `›` row, or a Pi separator region admitted only when native identity is exactly Pi and state is idle, done, or blocked.
 A working Pi, pending middle row, missing identity, incomplete separator pair, or over-tall candidate remains pending or unknown.
 
+A separator below the recognized row normally retires it as stale.
+Claude delimits its own composer with a horizontal rule above and below, and inlines its in-progress todo into the top rule once the pane is wide enough, which leaves its own closing rule unmatched below its live composer.
+That row keeps its verdict only when the unmatched separator is its immediate successor and native identity names a known non-Pi agent; a Pi, absent, or unreadable identity, or a non-adjacent separator, stays unknown.
+Requiring both is what keeps scrollback left by an exited agent, which still shows its prompt glyph and its rule, from reading as a live composer.
+
 ANSI capture preserves de-emphasized placeholder style.
 `bin/fm-composer-lib.sh` is the fleet-wide owner that strips dim or faint runs and dark truecolor placeholders while retaining bright typed input.
 It also normalizes unicode blank padding, so a bare agent prompt row padded with a no-break space reads empty rather than as typed text on every adapter, including Herdr's Claude `❯` row.

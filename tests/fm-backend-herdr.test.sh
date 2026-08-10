@@ -3169,6 +3169,120 @@ test_composer_state_claude_unbordered_prompt_is_pending() {
   pass "fm_backend_herdr_composer_state: a real-claude unbordered '❯ <text>' prompt row reads pending"
 }
 
+# --- claude's RULE-DELIMITED composer with a labelled top rule ---------------
+# The shape the captain's real pane draws (claude 2.1.226 on herdr 0.8.0,
+# 107 columns, captured read-only 2026-08-09/2026-08-10): the composer is a
+# bare `❯` padded with U+00A0, delimited by a horizontal rule ABOVE and BELOW.
+# While both rules are plain `─` runs they form a complete Pi separator pair
+# that ENCLOSES the composer row, and the reader is happy. Once the pane is wide
+# enough, claude inlines the in-progress todo into the TOP rule (` Run tests `),
+# which stops that rule being a separator - and claude's own CLOSING rule, now
+# unmatched and below the composer row, retired the live composer as `unknown`.
+# The away-mode injector requires an affirmative `empty`, so every escalation
+# deferred to the max-defer wedge alarm while nothing was actually wrong.
+#
+# Panes below roughly 80 columns render the same todo as separate rows above the
+# top rule, leaving both rules plain, which is why a narrow lab pane cannot show
+# this and the width is part of the fixture rather than incidental to it.
+#
+# The rescue is deliberately conjunctive (position AND herdr's native agent
+# identity), so each case below drops exactly ONE signal and asserts the verdict
+# collapses back to `unknown`, and the last two assert the divergence directly:
+# the same shape holding real text must still read `pending`, and a dead shell
+# delimited identically must still read `unknown`.
+herdr_claude_rule_capture() {  # <path> <composer-row> [<row-between-composer-and-closing-rule>...]
+  local path=$1 composer=$2 rule="" top="" i=0 row
+  shift 2
+  while [ "$i" -lt 107 ]; do rule="$rule─"; i=$((i + 1)); done
+  i=0
+  while [ "$i" -lt 95 ]; do top="$top─"; i=$((i + 1)); done
+  top="$top Run tests ──"
+  {
+    printf '\033[0m\033[38;2;8;145;178m%s\033[0m\n' "$top"
+    printf '\033[0m\033[38;2;153;153;153m%s\033[0m\n' "$composer"
+    for row in "$@"; do printf '\033[0m\033[38;2;153;153;153m%s\033[0m\n' "$row"; done
+    printf '\033[0m\033[38;2;8;145;178m%s\033[0m\n' "$rule"
+    printf '%s\n' '  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents · esc to interrupt'
+  } > "$path"
+}
+
+herdr_claude_rule_state() {  # <case> <composer-row> <agent-json> [<extra-row>...] -> verdict
+  local case_id=$1 composer=$2 agent_json=$3 dir log resp fb
+  shift 3
+  dir="$TMP_ROOT/composer-claude-rule-$case_id"; mkdir -p "$dir/responses"
+  log="$dir/log"; resp="$dir/responses"; : > "$log"
+  herdr_claude_rule_capture "$resp/1.out" "$composer" "$@"
+  printf '%s\n' "$agent_json" > "$resp/2.out"
+  fb=$(make_herdr_fakebin "$dir")
+  PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w3:p1' "$ROOT"
+}
+
+test_composer_state_claude_labelled_top_rule_is_empty() {
+  local out nbsp calls
+  nbsp=$(printf '\302\240')
+  out=$(herdr_claude_rule_state labelled-empty "❯$nbsp" \
+    '{"result":{"agent":{"agent":"claude","agent_status":"working"}}}')
+  [ "$out" = empty ] || fail "claude's live rule-delimited composer must read empty once its top rule carries an inline todo label, got '$out' (this is the away-mode wedge: every escalation deferred because the reader let claude's own closing rule retire claude's own composer)"
+  calls=$(grep -c $'\x1f''agent'$'\x1f''get' "$TMP_ROOT/composer-claude-rule-labelled-empty/log")
+  [ "$calls" -eq 1 ] || fail "keeping the generic verdict must corroborate native agent identity exactly once, made $calls agent calls"
+  pass "fm_backend_herdr_composer_state: claude's rule-delimited composer reads empty when its top rule carries an inline label"
+}
+
+test_composer_state_claude_labelled_top_rule_needs_native_identity() {
+  local out nbsp case_id baseline
+  nbsp=$(printf '\302\240')
+  # Positive control first: this exact fixture DOES read empty with a live
+  # claude identity, so a case below reading unknown can only be the dropped
+  # signal and never a fixture that stopped producing the shape at all.
+  baseline=$(herdr_claude_rule_state labelled-identity-control "❯$nbsp" \
+    '{"result":{"agent":{"agent":"claude","agent_status":"working"}}}')
+  [ "$baseline" = empty ] || fail "the identity control fixture must read empty before dropping the identity signal means anything, got '$baseline'"
+  for case_id in absent pi; do
+    case "$case_id" in
+      absent) out=$(herdr_claude_rule_state "labelled-$case_id" "❯$nbsp" '{"result":{"agent":{}}}') ;;
+      pi) out=$(herdr_claude_rule_state "labelled-$case_id" "❯$nbsp" \
+            '{"result":{"agent":{"agent":"pi","agent_status":"idle"}}}') ;;
+    esac
+    [ "$out" = unknown ] || fail "with a '$case_id' native agent identity the unmatched closing rule must still refuse the row (got '$out'): an exited agent leaves its glyph and its rule in scrollback, and that is the dead-shell case this branch exists for"
+  done
+  pass "fm_backend_herdr_composer_state: the rule-delimited rescue reads empty with a live native identity and collapses to unknown without a known non-Pi one"
+}
+
+test_composer_state_claude_labelled_top_rule_needs_adjacent_rule() {
+  local out nbsp baseline agent
+  nbsp=$(printf '\302\240')
+  agent='{"result":{"agent":{"agent":"claude","agent_status":"working"}}}'
+  baseline=$(herdr_claude_rule_state labelled-adjacent-control "❯$nbsp" "$agent")
+  [ "$baseline" = empty ] || fail "the adjacency control fixture must read empty before moving the closing rule means anything, got '$baseline'"
+  out=$(herdr_claude_rule_state labelled-far "❯$nbsp" "$agent" \
+    'a wrapped continuation row' 'and another')
+  [ "$out" = unknown ] || fail "a separator that is NOT the composer row's immediate successor cannot be claimed as its own closing rule (got '$out')"
+  pass "fm_backend_herdr_composer_state: the rule-delimited rescue reads empty only while the closing rule stays adjacent"
+}
+
+test_composer_state_claude_labelled_top_rule_real_text_is_pending() {
+  local out
+  out=$(herdr_claude_rule_state labelled-pending '❯ ship the fix captain' \
+    '{"result":{"agent":{"agent":"claude","agent_status":"working"}}}')
+  [ "$out" = pending ] || fail "real unsubmitted text in the same rule-delimited composer must still read pending, got '$out'"
+  pass "fm_backend_herdr_composer_state: the same rule-delimited composer holding real text still reads pending"
+}
+
+test_composer_state_claude_labelled_top_rule_keeps_dead_shell_unknown() {
+  local out glyph nbsp baseline
+  nbsp=$(printf '\302\240')
+  baseline=$(herdr_claude_rule_state labelled-shell-control "❯$nbsp" \
+    '{"result":{"agent":{"agent":"claude","agent_status":"working"}}}')
+  [ "$baseline" = empty ] || fail "the dead-shell control fixture must read empty with the agent glyph, or the shell cases below prove nothing, got '$baseline'"
+  for glyph in '>' '$' '%' '#'; do
+    out=$(herdr_claude_rule_state "labelled-shell-$(printf '%s' "$glyph" | od -An -tx1 | tr -d ' ')" "$glyph " \
+      '{"result":{"agent":{"agent":"claude","agent_status":"working"}}}')
+    [ "$out" = unknown ] || fail "a bare shell prompt '$glyph' delimited exactly like claude's composer must stay unknown even with a live native agent identity, got '$out'"
+  done
+  pass "fm_backend_herdr_composer_state: a dead-shell prompt in the identical rule-delimited frame stays unknown"
+}
+
 # The exact incident shape: a bordered decorative box (claude's own startup
 # welcome banner) is STILL in the capture window, sitting ABOVE the live,
 # unbordered "❯" prompt. Before the fix, the bordered branch was the ONLY one
@@ -4326,6 +4440,11 @@ test_composer_state_pi_incomplete_separator_below_stale_generic_is_unknown
 test_composer_state_pi_separator_requires_safe_native_identity
 test_composer_state_claude_unbordered_prompt_is_empty
 test_composer_state_claude_unbordered_prompt_is_pending
+test_composer_state_claude_labelled_top_rule_is_empty
+test_composer_state_claude_labelled_top_rule_needs_native_identity
+test_composer_state_claude_labelled_top_rule_needs_adjacent_rule
+test_composer_state_claude_labelled_top_rule_real_text_is_pending
+test_composer_state_claude_labelled_top_rule_keeps_dead_shell_unknown
 test_composer_state_bare_prompt_below_stale_bordered_banner_wins
 test_composer_state_claude_dim_prompt_suggestion_ghost_is_empty
 test_composer_state_claude_dim_ghost_row_with_real_text_is_pending

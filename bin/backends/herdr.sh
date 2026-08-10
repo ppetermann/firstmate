@@ -2647,6 +2647,10 @@ fm_backend_herdr_strip_ansi() {  # <text>
 #              deliberately narrower than the bordered content classifier so a
 #              no-agent shell fallback prompt (`>`, `$`, `%`, or `#`) falls
 #              through to `unknown` instead of being misread as delivered.
+#              claude also DELIMITS that bare row with a horizontal rule above
+#              and below, so its own closing rule is a Pi separator candidate;
+#              the staleness rule below owns why that rule cannot retire the
+#              live composer it closes.
 #   separated - Pi's composer is one or more content rows between two solid
 #              horizontal `─` separator rows, with no prompt glyph or side
 #              borders. This shape is accepted ONLY when Herdr's native
@@ -2828,11 +2832,45 @@ EOF
         ;;
       *) : ;; # A known non-Pi agent keeps its established generic verdict.
     esac
-  elif [ "$FM_BACKEND_HERDR_PI_PAIR_FOUND" -eq 0 ] \
+  elif [ "$found" -eq 1 ] \
+       && [ "$FM_BACKEND_HERDR_PI_PAIR_FOUND" -eq 0 ] \
        && [ "$FM_BACKEND_HERDR_PI_LAST_SEPARATOR_LINE" -gt "$generic_line" ]; then
-    # A lower unmatched separator proves the generic row is stale, but does
-    # not provide the complete Pi composer structure required for injection.
+    # A lower unmatched separator normally proves the generic row is stale
+    # while not providing the complete Pi composer structure injection needs.
+    # It proves nothing of the sort when that separator is the generic
+    # composer's OWN closing rule: claude draws a RULE-DELIMITED composer
+    # (rule / `❯` / rule), so its own closing rule always sits below its live
+    # composer row. While both rules are plain `─` runs the pair completes and
+    # the generic row is enclosed, but claude inlines the in-progress todo into
+    # the TOP rule once the pane is wide enough (` Run tests ` at 107 columns,
+    # rendered as separate rows below ~80), which leaves the closing rule
+    # unmatched and retired claude's own live composer as `unknown`.
+    #
+    # Two independent signals must BOTH hold to keep the generic verdict, and
+    # they are deliberately conjunctive rather than alternative because the two
+    # failure directions are not symmetric: refusing a genuine composer only
+    # defers an escalation (the max-defer alarm surfaces it), while accepting a
+    # stale one types into whatever now owns the pane.
+    #   - position: the separator is the composer row's IMMEDIATE successor, so
+    #     it closes the region that row is in instead of opening one below it.
+    #   - identity: herdr's own native agent record (`agent get`) names a known
+    #     non-Pi agent, the same protocol fact the matched-pair branch above
+    #     already trusts. Scrollback left by an EXITED agent keeps its `❯` row
+    #     and its rule but loses that record, so it stays `unknown` exactly as
+    #     before - which is what preserves the dead-shell refusal here.
+    # A working Pi, an unreadable identity, or a non-adjacent separator all
+    # stay conservative.
     found=0
+    if [ "$FM_BACKEND_HERDR_PI_LAST_SEPARATOR_LINE" -eq "$((generic_line + 1))" ]; then
+      identity=$(fm_backend_herdr_agent_identity_raw "$session" "$pane" 2>/dev/null || true)
+      IFS=$'\t' read -r agent agent_status <<EOF
+$identity
+EOF
+      case "$agent" in
+        ''|pi) : ;;
+        *) found=1 ;;
+      esac
+    fi
   fi
   [ "$found" -eq 1 ] || { printf 'unknown'; return 0; }
   # Content: extract the real typed text from the raw row with the shared,
