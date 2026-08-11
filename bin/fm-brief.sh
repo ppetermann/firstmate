@@ -332,7 +332,7 @@ The report is the only thing that survives, so anything worth keeping must be in
    append \`needs-decision [key=<slug>]: {one-line summary}\` and stop - put the \`[key=<slug>]\` token between the verb and the colon, e.g. \`needs-decision [key=api-shape]: REST or RPC?\`, so firstmate can close it with \`bin/fm-send.sh <task> --resolve-key <slug>\`.
    Firstmate will reply with the decision.
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
-   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>]: {how it cleared}\` yourself (same slug you opened it with) as you resume.
+   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>]: {how it cleared}\` yourself with the same slug you opened it with, or a bare \`resolved: {how it cleared}\` if you opened it without a key (a rule-5 \`blocked:\`), as you resume.
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
@@ -449,7 +449,7 @@ $RULE1
    append \`needs-decision [key=<slug>]: {one-line summary}\` and stop - put the \`[key=<slug>]\` token between the verb and the colon, e.g. \`needs-decision [key=api-shape]: REST or RPC?\`, so firstmate can close it with \`bin/fm-send.sh <task> --resolve-key <slug>\`.
    Firstmate will apply the configured authority and reply with the decision.
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
-   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>]: {how it cleared}\` yourself (same slug you opened it with) as you resume.
+   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>]: {how it cleared}\` yourself with the same slug you opened it with, or a bare \`resolved: {how it cleared}\` if you opened it without a key (a rule-5 \`blocked:\`), as you resume.
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.

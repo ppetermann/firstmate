@@ -219,10 +219,13 @@ _fm_decision_key() {  # <status-line> -> key slug, or "default" when no token
   # the colon, optional leading whitespace), so a worker's natural
   # "needs-decision: [key=x] ..." still folds to key x and interoperates with a
   # "resolved: [key=x] ..." close at the same position. A line with no colon
-  # has no note, so it keeps the historical "default".
+  # has no note, so it keeps the historical "default". The note extraction is
+  # inlined rather than delegated to status_line_note because this runs on the
+  # fold's per-line hot path, where a command substitution costs a subshell.
   case "$1" in
     *:*)
-      note=$(status_line_note "$1")
+      note=${1#*:}
+      note=${note#"${note%%[![:space:]]*}"}
       case "$note" in
         \[key=*\]*) _fm_decision_slug "$note" ;;
         *) printf 'default' ;;
