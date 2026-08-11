@@ -149,6 +149,11 @@ START=$SECONDS
 fm_signal_stop_child "$STOPPABLE" 5 || fail "a TERM-responsive child was reported as needing the kill backstop"
 [ $((SECONDS - START)) -le 2 ] || fail "stopping a TERM-responsive child took $((SECONDS - START))s"
 kill -0 "$STOPPABLE" 2>/dev/null && fail "fm_signal_stop_child left a TERM-responsive child running"
+# The stop reaps the child itself, so the published status is the only record of
+# how it ended: a caller that logs that outcome has no second wait to fall back
+# on, and an empty or zeroed value would report a clean exit for a signalled one.
+[ "$FM_SIGNAL_STOP_STATUS" = 143 ] \
+  || fail "fm_signal_stop_child published '$FM_SIGNAL_STOP_STATUS' for a child SIGTERM ended, not its 143 wait status"
 pass "fm_signal_stop_child: a child that honors SIGTERM is stopped and reaped without the kill backstop"
 
 # --- fm_signal_stop_child: a TERM-deaf child cannot hold shutdown open ------
@@ -172,6 +177,8 @@ fm_signal_stop_child "$DEAF" 1 && fail "a TERM-deaf child was reported as having
 ELAPSED=$((SECONDS - START))
 [ "$ELAPSED" -le 3 ] || fail "a TERM-deaf child held fm_signal_stop_child for ${ELAPSED}s past its 1s grace"
 kill -0 "$DEAF" 2>/dev/null && fail "fm_signal_stop_child left a TERM-deaf child running"
+[ "$FM_SIGNAL_STOP_STATUS" = 137 ] \
+  || fail "fm_signal_stop_child published '$FM_SIGNAL_STOP_STATUS' for a child the kill backstop ended, not its 137 wait status"
 # The kill backstop cannot reach a grandchild, so this test cleans up the one it
 # deliberately created rather than leaving a 300s sleep behind.
 kill -KILL "$(cat "$DEAF_INNER")" 2>/dev/null || true

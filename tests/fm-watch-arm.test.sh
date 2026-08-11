@@ -647,6 +647,33 @@ test_downtime_marker_does_not_follow_symlink() {
   pass "watch-arm: downtime marker publication does not follow symlinks"
 }
 
+# The fixture watcher in the case below ignores SIGTERM by design, so nothing
+# short of SIGKILL can reap it and no ordinary teardown reaches it: the suite
+# must not exit on ANY path, success or failure, while it still runs.
+# Only the two pids this case itself recorded are ever signalled, and the watcher
+# is resolved as a direct child of this case's own arm pid, because a pattern or
+# process-group kill against fm-watch would reach every firstmate home's watcher,
+# including sibling and secondmate homes.
+STALLED_ARM_PID=
+STALLED_WATCHER_PID=
+
+arm_watcher_child() {  # <arm-pid>
+  ps -eo pid,ppid,args | awk -v a="$1" '$2==a && /fm-watch\.sh/{print $1}' | head -1
+}
+
+reap_stalled_watcher_fixture() {
+  if [ -z "$STALLED_WATCHER_PID" ] && [ -n "$STALLED_ARM_PID" ]; then
+    STALLED_WATCHER_PID=$(arm_watcher_child "$STALLED_ARM_PID")
+  fi
+  [ -n "$STALLED_WATCHER_PID" ] && kill -KILL "$STALLED_WATCHER_PID" 2>/dev/null
+  [ -n "$STALLED_ARM_PID" ] && kill -KILL "$STALLED_ARM_PID" 2>/dev/null
+  STALLED_WATCHER_PID=
+  STALLED_ARM_PID=
+  return 0
+}
+
+trap 'reap_stalled_watcher_fixture; fm_test_cleanup' EXIT
+
 test_interrupted_arm_stops_a_watcher_that_ignores_sigterm() {
   local dir home state bindir armout f child status i
   dir=$(make_case arm-interrupt-stalled-watcher)
@@ -675,12 +702,16 @@ SH
     FM_ARM_CONFIRM_TIMEOUT=60 FM_ARM_CHILD_STOP_GRACE_SECS=1 \
     "$bindir/fm-watch-arm.sh" > "$armout" 2>&1 &
   ARM_PID=$!
+  STALLED_ARM_PID=$ARM_PID
 
   child=
   i=0
   while [ "$i" -lt 100 ]; do
-    child=$(ps -eo pid,ppid,args | awk -v a="$ARM_PID" '$2==a && /fm-watch\.sh/{print $1}' | head -1)
-    [ -n "$child" ] && break
+    child=$(arm_watcher_child "$ARM_PID")
+    if [ -n "$child" ]; then
+      STALLED_WATCHER_PID=$child
+      break
+    fi
     sleep 0.1
     i=$((i + 1))
   done
@@ -689,6 +720,9 @@ SH
   kill -TERM "$ARM_PID" 2>/dev/null || fail "could not interrupt the arm"
   wait_for_exit "$ARM_PID" 120
   status=$?
+  # wait_for_exit reaped the arm on both outcomes, so the recorded pid is no
+  # longer ours to signal.
+  STALLED_ARM_PID=
   [ "$status" -ne 124 ] \
     || fail "an interrupted arm blocked forever on a watcher that ignores SIGTERM"
 
@@ -699,6 +733,7 @@ SH
   done
   ! kill -0 "$child" 2>/dev/null \
     || fail "the interrupted arm left its stalled watcher running"
+  STALLED_WATCHER_PID=
   pass "watch-arm: an interrupted arm stops a watcher that ignores SIGTERM"
 }
 
