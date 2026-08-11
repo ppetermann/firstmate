@@ -291,22 +291,42 @@ test_before_colon_open_is_closed_by_after_colon_resolve() {
   pass "the before-colon and after-colon key positions interoperate"
 }
 
-test_invalid_slug_after_colon_is_rejected_not_folded_to_default() {
+# A malformed slug must never make the escalation disappear: a needs-decision a
+# worker stopped on is the one thing this fold exists to keep visible, so an
+# out-of-charset key falls back to "default" and the line still surfaces. The
+# drain omits the [key=...] prefix for the default key, so the absence of that
+# prefix is what shows the fallback took effect.
+
+test_invalid_slug_after_colon_still_surfaces_under_default() {
   local dir state out
   dir=$(make_case after-colon-invalid)
   state="$dir/state"
   out="$dir/drain.out"
-  # An invalid slug (here a space) after the colon must reject the line - it
-  # opens NO decision, and in particular never silently folds to "default".
-  # If it folded to default, an OPEN DECISIONS row would appear here.
-  printf 'needs-decision: [key=bad slug] should not open\n' > "$state/task-bad.status"
+  printf 'needs-decision: [key=bad slug] should not vanish\n' > "$state/task-bad.status"
 
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an invalid after-colon slug"
 
-  if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
-    fail "an invalid after-colon slug opened a decision instead of being rejected: $(cat "$out")"
-  fi
-  pass "an invalid slug after the colon is rejected, never folded to default"
+  grep -F 'OPEN DECISIONS' "$out" >/dev/null \
+    || fail "an invalid after-colon slug made the escalation vanish: $(cat "$out")"
+  grep -F 'task-bad needs-decision: [key=bad slug] should not vanish' "$out" >/dev/null \
+    || fail "an invalid after-colon slug did not surface under the default key: $(cat "$out")"
+  pass "an invalid slug after the colon still surfaces under the default key"
+}
+
+test_invalid_slug_before_colon_still_surfaces_under_default() {
+  local dir state out
+  dir=$(make_case before-colon-invalid)
+  state="$dir/state"
+  out="$dir/drain.out"
+  printf 'needs-decision [key=bad slug]: should not vanish\n' > "$state/task-bad2.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an invalid before-colon slug"
+
+  grep -F 'OPEN DECISIONS' "$out" >/dev/null \
+    || fail "an invalid before-colon slug made the escalation vanish: $(cat "$out")"
+  grep -F 'task-bad2 needs-decision: should not vanish' "$out" >/dev/null \
+    || fail "an invalid before-colon slug did not surface under the default key: $(cat "$out")"
+  pass "an invalid slug before the colon still surfaces under the default key"
 }
 
 test_buried_decision_still_surfaces
@@ -321,4 +341,5 @@ test_status_symlink_is_not_followed
 test_after_colon_key_position_opens_a_decision
 test_after_colon_open_is_closed_only_by_its_own_key
 test_before_colon_open_is_closed_by_after_colon_resolve
-test_invalid_slug_after_colon_is_rejected_not_folded_to_default
+test_invalid_slug_after_colon_still_surfaces_under_default
+test_invalid_slug_before_colon_still_surfaces_under_default

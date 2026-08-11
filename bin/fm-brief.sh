@@ -329,7 +329,7 @@ The report is the only thing that survives, so anything worth keeping must be in
    treating it as a possible wedge. Use \`blocked:\` when you are stuck and need help.
 5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
 6. If a decision belongs to a human (product choices, destructive actions),
-   append \`needs-decision [key=<slug>]: {one-line summary}\` and stop - put the \`[key=<slug>]\` token between the verb and the colon, e.g. \`needs-decision [key=api-shape]: REST or RPC?\`, so firstmate can close it with \`bin/fm-send.sh <task> --resolve-key <slug>\`.
+   append \`needs-decision [key=<slug>]: {one-line summary}\` and stop - put the \`[key=<slug>]\` token between the verb and the colon, e.g. \`needs-decision [key=api-shape]: REST or RPC?\`, so firstmate can close it with \`bin/fm-send.sh <task> --resolve-key <slug>\`. The \`<slug>\` may use only letters, digits, \`.\`, \`_\`, or \`-\`.
    Firstmate will reply with the decision.
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>]: {how it cleared}\` yourself with the same slug you opened it with, or a bare \`resolved: {how it cleared}\` if you opened it without a key (a rule-5 \`blocked:\`), as you resume.
@@ -446,7 +446,7 @@ $RULE1
    cadence instead of treating it as a possible wedge. Use \`blocked:\` when you are stuck and need help.
 5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
 6. If a decision belongs above the implementation worker (product choices, destructive actions, ask-user findings),
-   append \`needs-decision [key=<slug>]: {one-line summary}\` and stop - put the \`[key=<slug>]\` token between the verb and the colon, e.g. \`needs-decision [key=api-shape]: REST or RPC?\`, so firstmate can close it with \`bin/fm-send.sh <task> --resolve-key <slug>\`.
+   append \`needs-decision [key=<slug>]: {one-line summary}\` and stop - put the \`[key=<slug>]\` token between the verb and the colon, e.g. \`needs-decision [key=api-shape]: REST or RPC?\`, so firstmate can close it with \`bin/fm-send.sh <task> --resolve-key <slug>\`. The \`<slug>\` may use only letters, digits, \`.\`, \`_\`, or \`-\`.
    Firstmate will apply the configured authority and reply with the decision.
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>]: {how it cleared}\` yourself with the same slug you opened it with, or a bare \`resolved: {how it cleared}\` if you opened it without a key (a rule-5 \`blocked:\`), as you resume.
