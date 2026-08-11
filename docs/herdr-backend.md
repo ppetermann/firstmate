@@ -320,9 +320,9 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 - Mid-session secondmate liveness is not implemented.
 - OpenCode 1.18.4 can accept Enter while busy without clearing the composer.
   The tmux backend has a busy-queue fallback, but Herdr still reports this case as submit pending and needs a separate adapter fix.
-- OpenCode draws a left-rail composer with no right border and no corner rows.
-  That is no longer a Herdr-local shape gap: the shared classifier owns the left-bar shape for every backend, and `tests/fm-composer-lib.test.sh` pins an idle OpenCode composer reading `empty` under Herdr's exact capability descriptor.
-  It has not been re-measured against real Herdr since classification was unified, so away-mode delivery to OpenCode on Herdr stays unverified; `tests/fm-herdr-composer-drift-live-e2e.test.sh` still lists `opencode` as a known gap and fails asking for that entry's removal once the shape reads correctly live.
+- OpenCode's left-rail composer, which draws no right border and no corner rows, is read here but not yet live-confirmed here.
+  The shape gap itself is CLOSED: unifying classification gave Herdr the fleet-wide left-bar shape, and `tests/fm-composer-lib.test.sh` pins an idle OpenCode composer reading `empty` under Herdr's exact capability descriptor while the same shape holding typed text still reads `pending`.
+  That evidence is portable, not live - no real opencode-on-Herdr pane has been measured since the shared classifier took the shape over, so what remains is confirmation, cleared by the next opt-in `FM_COMPOSER_DRIFT=1` run of `tests/fm-herdr-composer-drift-live-e2e.test.sh`, which no longer excuses opencode as a known gap.
 - Only tmux and Herdr can host the away-mode supervisor terminal.
 
 ## Regression entry points

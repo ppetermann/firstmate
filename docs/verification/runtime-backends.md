@@ -656,11 +656,13 @@ At the lab's 54 columns both of claude's rules are plain, so the separator pair 
 The wide-pane labelled shape, where the rescue is load-bearing, is pinned by the portable cases in `tests/fm-backend-herdr.test.sh` and by Scenario E instead.
 The guard cannot itself redraw the wide-pane label, so it does not fail against the pre-fix reader; the portable cases and Scenario E are what fail pre-fix, and the guard covers the vendor drift neither of them can see.
 Its dead-shell control, a pane in the same session running only a login shell, read `unknown` with no native agent record, so the emptiness above was not bought by weakening the refusal that keeps an escalation out of a shell.
-It also launched opencode 1.18.16 and re-confirmed the left-rail composer limitation recorded in [`docs/herdr-backend.md`](../herdr-backend.md) still read `unknown` against the Herdr-local scan of the time; the shared classifier has since taken that shape over, so away-mode delivery to opencode on Herdr stays unverified only until this guard runs again.
-That is the guard's one known-gap entry, and the guard fails asking for the entry to be removed if a listed harness starts reading correctly, so the list cannot outlive the limitation.
+It also launched opencode 1.18.16, which read `unknown` against the Herdr-local composer scan of the time - the left-rail limitation that run was excusing as the guard's one known-gap entry.
+That scan has since been retired for the shared classifier, which reads the same shape `empty` under Herdr's exact capability descriptor, so [`docs/herdr-backend.md`](../herdr-backend.md) now records that limitation as closed and the guard's known-gap list is empty.
+The closure is proven portably in `tests/fm-composer-lib.test.sh`, not live: no opencode-on-Herdr pane has been measured since, and the next opt-in `FM_COMPOSER_DRIFT=1` run - now holding opencode to the full empty/pending/empty-again contract - is what confirms away-mode delivery there.
+The guard still fails asking for an entry's removal if a listed harness starts reading correctly, so a future entry cannot outlive the limitation it documents.
 Herdr names its backspace key `backspace` and refuses tmux's `BSpace` with `invalid_key`.
 
-Observed against installed harnesses as of this commit: the dead-shell control, claude's empty, pending and empty-again verdicts, the frame observation above, and opencode's standing gap.
+Observed against installed harnesses as of this commit: the dead-shell control, claude's empty, pending and empty-again verdicts, the frame observation above, and opencode's `unknown` under the since-retired Herdr-local scan.
 NOT yet observed: the guard's exited-agent control is newly added and has never run as part of a full guard run, so read claude's pass as covering the verdicts and the frame and never that control.
 The premise that control checks is evidence-backed by the measurement table above, and from the next run on the guard re-checks it live for every harness whose quit command it has measured, reporting a harness without one as skipped rather than assuming it.
 

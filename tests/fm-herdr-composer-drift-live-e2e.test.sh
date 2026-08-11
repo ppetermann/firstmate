@@ -107,11 +107,11 @@ PROBE=fmdrift
 # green. A listed harness is still launched and still read: the gap must still
 # be there, and a listed harness that starts reading correctly FAILS this guard
 # asking for its entry to be removed, so the list cannot quietly outlive the
-# gap it documents.
-#   opencode - the left-rail composer limitation docs/herdr-backend.md already
-#     records under its "Active limits" heading. Re-confirmed here against
-#     opencode 1.18.16 on herdr 0.8.0.
-HERDR_COMPOSER_KNOWN_GAPS=${FM_HERDR_COMPOSER_KNOWN_GAPS:-opencode}
+# gap it documents. The list is EMPTY today - every installed harness is held to
+# the full contract below - and `FM_HERDR_COMPOSER_KNOWN_GAPS` sets it (a
+# space-separated harness list) when a vendor release breaks a shape and the
+# reader has not caught up yet.
+HERDR_COMPOSER_KNOWN_GAPS=${FM_HERDR_COMPOSER_KNOWN_GAPS:-}
 
 is_known_gap() {  # <harness>
   case " $HERDR_COMPOSER_KNOWN_GAPS " in *" $1 "*) return 0 ;; esac
