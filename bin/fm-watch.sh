@@ -802,6 +802,26 @@ resurface_after_downtime() {
     fi
     [ "$FM_RECOVERY_MARKER_ACTION" = recover ] || return 0
   fi
+  # Under the away-supervisor daemon (state/.afk present) the watcher restarts
+  # as a one-shot in a tight loop, so a resurface that only reads the marker
+  # would re-fire once per restart for the same downtime generation. Claim
+  # handling for this generation (downtime->handling) before waking so the next
+  # arm resolves to action=wait instead of recover, while every genuine new
+  # downtime generation still gets exactly one resurface. The ordinary
+  # persistent-arm path (no .afk) leaves the marker pending:downtime: its arm
+  # layer establishes a successor and transitions handling via
+  # --handling-delivered, and expects each crash-replay re-arm to re-surface the
+  # same generation until that successor is confirmed.
+  if afk_present; then
+    fm_recovery_marker_snapshot "$WATCHER_DOWNTIME_MARKER" || true
+    case "$FM_RECOVERY_MARKER_TOKEN" in
+      pending:handling:*) return 0 ;;
+      pending:downtime:*)
+        fm_recovery_marker_begin_handling "$WATCHER_DOWNTIME_MARKER" \
+          || { echo "watcher: recovery state could not enter handling" >&2; exit 1; }
+        ;;
+    esac
+  fi
   wake "check: rearm-resurface"
 }
 
