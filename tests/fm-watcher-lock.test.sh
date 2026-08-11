@@ -68,6 +68,66 @@ test_singleton_start() {
   pass "simultaneous watcher starts leave exactly one live process"
 }
 
+# Regression: a stop signal that lands during watcher startup - after the
+# singleton lock is claimed but before the full cleanup trap is armed - must
+# still release the lock instead of leaving a dead watcher's pid file behind
+# (observed as fm-watch-checkpoint's bounded TERM landing mid-startup on a
+# slow host). The startup arm-check's first step waits on the wake-queue
+# lock, so holding that lock from a live process parks the watcher in exactly
+# this window for as long as the test needs.
+test_startup_signal_releases_claimed_lock() {
+  local dir state wpid holder_pid i
+  dir=$(make_case startup-signal)
+  state="$dir/state"
+  mark_pr_check_migration_complete "$state"
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_try_acquire "$STATE/.wake-queue.lock" || exit 7
+    # Stay alive so the held lock names a live pid and is never reclaimed.
+    sleep 60
+  ' _ "$LIB" &
+  holder_pid=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -e "$state/.wake-queue.lock/pid" ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -e "$state/.wake-queue.lock/pid" ] || {
+    kill "$holder_pid" 2>/dev/null || true
+    fail "fixture could not hold the wake-queue lock"
+  }
+  FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$dir/watch.out" 2>&1 &
+  wpid=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" != "$wpid" ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] || {
+    kill "$holder_pid" "$wpid" 2>/dev/null || true
+    fail "watcher never claimed the singleton lock"
+  }
+  # Refuse to measure a subject that already left the window: the lock's
+  # fm-home file is written only after the full cleanup trap is armed, so its
+  # presence means the fixture no longer parks the watcher in startup.
+  [ ! -e "$state/.watch.lock/fm-home" ] || {
+    kill "$holder_pid" "$wpid" 2>/dev/null || true
+    fail "watcher escaped the startup window; the fixture no longer parks it"
+  }
+  kill -TERM "$wpid" 2>/dev/null || true
+  i=0
+  while [ "$i" -lt 100 ] && is_live_non_zombie "$wpid"; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  wait "$wpid" 2>/dev/null || true
+  kill "$holder_pid" 2>/dev/null || true
+  wait "$holder_pid" 2>/dev/null || true
+  [ ! -e "$state/.watch.lock/pid" ] \
+    || fail "startup SIGTERM left a claimed watch lock behind: pid $(cat "$state/.watch.lock/pid" 2>/dev/null || true)"
+  pass "a stop signal during watcher startup releases the freshly claimed lock"
+}
+
 test_stale_watch_lock_reclaimed() {
   local dir state fakebin out dead_pid pid live lock_pid i
   dir=$(make_case stale-lock)
@@ -1099,6 +1159,7 @@ test_msys_pid_identity_uses_proc() {
 }
 
 test_singleton_start
+test_startup_signal_releases_claimed_lock
 test_pid_identity_is_locale_invariant
 test_proc_pid_identity_ignores_wall_clock_and_detects_pid_reuse
 test_msys_pid_identity_uses_proc

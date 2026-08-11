@@ -755,6 +755,22 @@ fi
   exit 1
 }
 
+# A stop signal that lands between claiming the singleton lock and arming the
+# full cleanup trap below would otherwise kill this process on bash's default
+# disposition, with its fresh claim still on disk: the lock outlives its owner
+# and a bounded stop (e.g. timeout(1)'s TERM) observes a dead watcher's pid
+# file. Release only the watch lock here - fm_lock_release is pid-guarded, so
+# it no-ops until the claim is ours - and never touch the downtime marker: an
+# interrupted arm-check may still hold the marker and queue locks, and a
+# watcher stopped this early has consumed nothing, so the next arm-check
+# recovers any queued wakes from the marker and queue state as they stand.
+watcher_startup_interrupted() {
+  trap - EXIT
+  fm_lock_release "$WATCH_LOCK"
+  exit 1
+}
+trap watcher_startup_interrupted HUP INT TERM
+
 if ! fm_lock_try_acquire "$WATCH_LOCK"; then
   BEAT="$STATE/.last-watcher-beat"
   if [ -n "${FM_LOCK_HELD_PID:-}" ]; then
@@ -812,6 +828,10 @@ watcher_cleanup() {
   return "$cleanup_status"
 }
 trap watcher_cleanup EXIT
+# Retires watcher_startup_interrupted: from here on a signal exits through the
+# EXIT trap's full cleanup. A signal landing between these two trap lines still
+# takes the startup handler, whose `trap - EXIT` keeps the two cleanups from
+# both running.
 trap 'exit 1' HUP INT TERM
 # This watcher's own pid, as recorded in the lock by fm_lock_claim (which writes
 # ${BASHPID:-$$} from this same main shell). Read directly, never via a command
