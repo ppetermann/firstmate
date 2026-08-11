@@ -917,7 +917,7 @@ _fm_pending_reply_close_escalation_locked() {  # <state-dir> <corr_id>
   [ -n "$parent_status" ] || return 1
   escalation=$(fm_pending_reply_escalation_line "$parent_status" "$rec" "$corr")
   if [ -n "$escalation" ]; then
-    key=$(_fm_decision_key "$escalation") || key=''
+    key=$(_fm_decision_key "$escalation")
     note=$(status_line_note "$escalation")
     while IFS= read -r open_line; do
       [ -n "$open_line" ] || continue

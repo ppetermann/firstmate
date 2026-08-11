@@ -174,13 +174,14 @@ status_is_paused_or_captain_held() {  # <status-line>
 #        resolved:       [key=api-shape] <how it was decided>
 # A line with no token uses the key "default", preserving the historical
 # one-open-decision-per-task behavior (a bare "resolved:" closes "default").
-# An invalid slug at EITHER position falls back to the "default" key, so the
-# line still folds as a transition rather than being dropped: a malformed
-# escalation surfaces under "default" instead of vanishing, which is the safer
-# failure for the one thing this fold exists to keep visible. The canonical
-# before-colon position wins when both are present. The parsers are pure reads
-# of a single line; the verb parser strips any key token before the colon so the
-# leading word is recovered cleanly.
+# An invalid slug at EITHER position falls back to the reserved "invalid-key"
+# bucket, NEVER to "default": the line still folds as a transition, so a
+# malformed escalation surfaces in OPEN DECISIONS (closable with
+# `fm-send --resolve-key invalid-key`) instead of vanishing, while its own
+# bucket keeps it from masking, overwriting, or closing a real unkeyed decision.
+# The canonical before-colon position wins when both are present. The parsers are
+# pure reads of a single line; the verb parser strips any key token before the
+# colon so the leading word is recovered cleanly.
 status_line_verb() {  # <status-line> -> leading verb word
   local v=${1%%:*}
   v=${v%%\[key=*}
@@ -208,12 +209,12 @@ _fm_decision_slug() {  # <text-whose-first-[key=...]-token-holds-the-slug>
     *) printf '%s' "$k" ;;
   esac
 }
-_fm_decision_key() {  # <status-line> -> key slug, or "default" when no valid token
+_fm_decision_key() {  # <status-line> -> key slug, "default" (no token) or "invalid-key"
   local prefix=${1%%:*} note
   # Canonical position: a [key=<slug>] token between the verb and the colon.
   case "$prefix" in
     *\[key=*\]*)
-      _fm_decision_slug "$prefix" || printf 'default'
+      _fm_decision_slug "$prefix" || printf 'invalid-key'
       return 0
       ;;
   esac
@@ -229,7 +230,7 @@ _fm_decision_key() {  # <status-line> -> key slug, or "default" when no valid to
       note=${1#*:}
       note=${note#"${note%%[![:space:]]*}"}
       case "$note" in
-        \[key=*\]*) _fm_decision_slug "$note" || printf 'default' ;;
+        \[key=*\]*) _fm_decision_slug "$note" || printf 'invalid-key' ;;
         *) printf 'default' ;;
       esac
       ;;
@@ -300,7 +301,7 @@ _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb
   stripped=${line//[[:space:]]/}
   [ -n "$stripped" ] || { printf '%s' "$open"; return 0; }
   verb=$(status_line_verb "$line")
-  key=$(_fm_decision_key "$line") || { printf '%s' "$open"; return 0; }
+  key=$(_fm_decision_key "$line")
   _fm_decision_key_transition_allowed "$key" "$(status_line_note "$line")" \
     || { printf '%s' "$open"; return 0; }
   case "$verb" in
@@ -427,7 +428,7 @@ _fm_open_decisions_cursor_path() {  # <status-file>
   printf '%s/.%s.open-decisions-cursor' "$dir" "${base%.status}"
 }
 
-FM_OPEN_DECISIONS_FOLD_VERSION=4
+FM_OPEN_DECISIONS_FOLD_VERSION=5
 
 # Portable device:inode identity for the rotation/recreation check below.
 _fm_open_decisions_file_ident() {  # <file> -> "dev:inode", empty on I/O failure
@@ -583,7 +584,7 @@ _fm_status_open_activities_stream() {
     stripped=${line//[[:space:]]/}
     [ -n "$stripped" ] || continue
     verb=$(status_line_verb "$line")
-    key=$(_fm_decision_key "$line") || continue
+    key=$(_fm_decision_key "$line")
     case "$verb" in
       working|"$pause")
         note=$(status_line_note "$line")

@@ -291,13 +291,14 @@ test_before_colon_open_is_closed_by_after_colon_resolve() {
   pass "the before-colon and after-colon key positions interoperate"
 }
 
-# A malformed slug must never make the escalation disappear: a needs-decision a
-# worker stopped on is the one thing this fold exists to keep visible, so an
-# out-of-charset key falls back to "default" and the line still surfaces. The
-# drain omits the [key=...] prefix for the default key, so the absence of that
-# prefix is what shows the fallback took effect.
+# A malformed slug must never make the escalation disappear - a needs-decision a
+# worker stopped on is the one thing this fold exists to keep visible - and must
+# never land in the "default" bucket either, where it would overwrite or close
+# the historical unkeyed decision. Both positions fall back to the reserved
+# "invalid-key" bucket instead. The drain prefixes every non-default key, so the
+# rendered "[key=invalid-key]" is what shows which bucket the line folded into.
 
-test_invalid_slug_after_colon_still_surfaces_under_default() {
+test_invalid_slug_after_colon_surfaces_under_invalid_key() {
   local dir state out
   dir=$(make_case after-colon-invalid)
   state="$dir/state"
@@ -308,12 +309,12 @@ test_invalid_slug_after_colon_still_surfaces_under_default() {
 
   grep -F 'OPEN DECISIONS' "$out" >/dev/null \
     || fail "an invalid after-colon slug made the escalation vanish: $(cat "$out")"
-  grep -F 'task-bad needs-decision: [key=bad slug] should not vanish' "$out" >/dev/null \
-    || fail "an invalid after-colon slug did not surface under the default key: $(cat "$out")"
-  pass "an invalid slug after the colon still surfaces under the default key"
+  grep -F 'task-bad [key=invalid-key] needs-decision:' "$out" >/dev/null \
+    || fail "an invalid after-colon slug did not surface under invalid-key: $(cat "$out")"
+  pass "an invalid slug after the colon surfaces under the invalid-key bucket"
 }
 
-test_invalid_slug_before_colon_still_surfaces_under_default() {
+test_invalid_slug_before_colon_surfaces_under_invalid_key() {
   local dir state out
   dir=$(make_case before-colon-invalid)
   state="$dir/state"
@@ -324,9 +325,30 @@ test_invalid_slug_before_colon_still_surfaces_under_default() {
 
   grep -F 'OPEN DECISIONS' "$out" >/dev/null \
     || fail "an invalid before-colon slug made the escalation vanish: $(cat "$out")"
-  grep -F 'task-bad2 needs-decision: should not vanish' "$out" >/dev/null \
-    || fail "an invalid before-colon slug did not surface under the default key: $(cat "$out")"
-  pass "an invalid slug before the colon still surfaces under the default key"
+  grep -F 'task-bad2 [key=invalid-key] needs-decision: should not vanish' "$out" >/dev/null \
+    || fail "an invalid before-colon slug did not surface under invalid-key: $(cat "$out")"
+  pass "an invalid slug before the colon surfaces under the invalid-key bucket"
+}
+
+test_invalid_slug_does_not_mask_a_real_default_decision() {
+  local dir state out
+  dir=$(make_case invalid-vs-default)
+  state="$dir/state"
+  out="$dir/drain.out"
+  # A rule-5 blocker is unkeyed, so it holds the "default" record. A later
+  # malformed escalation must not take that bucket over: were it to fold to
+  # "default" the fold would drop the blocker's record before re-adding its own,
+  # and the real blocker would silently disappear from OPEN DECISIONS.
+  printf 'blocked: real blocker here\n' > "$state/task-both.status"
+  printf 'needs-decision [key=bad slug]: should not vanish\n' >> "$state/task-both.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a mixed invalid/default stream"
+
+  grep -F 'task-both blocked: real blocker here' "$out" >/dev/null \
+    || fail "a malformed line masked the real unkeyed blocker: $(cat "$out")"
+  grep -F 'task-both [key=invalid-key] needs-decision: should not vanish' "$out" >/dev/null \
+    || fail "the malformed escalation did not surface under invalid-key: $(cat "$out")"
+  pass "a malformed key never masks a real unkeyed decision"
 }
 
 test_buried_decision_still_surfaces
@@ -341,5 +363,6 @@ test_status_symlink_is_not_followed
 test_after_colon_key_position_opens_a_decision
 test_after_colon_open_is_closed_only_by_its_own_key
 test_before_colon_open_is_closed_by_after_colon_resolve
-test_invalid_slug_after_colon_still_surfaces_under_default
-test_invalid_slug_before_colon_still_surfaces_under_default
+test_invalid_slug_after_colon_surfaces_under_invalid_key
+test_invalid_slug_before_colon_surfaces_under_invalid_key
+test_invalid_slug_does_not_mask_a_real_default_decision
