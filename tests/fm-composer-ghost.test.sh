@@ -154,6 +154,35 @@ test_strip_ghost_drops_dark_truecolor_ghost() {
   pass "fm_tmux_strip_ghost drops a dark/muted truecolor foreground (grok placeholder)"
 }
 
+# --- the threshold itself is INCLUSIVE ---------------------------------------
+
+# OpenCode 1.18.4/1.18.15 draw their idle composer placeholder in #808080 -
+# truecolor 38;2;128;128;128, perceived luminance EXACTLY 128, the canonical
+# muted grey - against 38;2;238;238;238 for real typed input. The comparison
+# against FM_COMPOSER_GHOST_LUMA_MAX is therefore at-or-below, not below: an
+# exclusive bound leaves that placeholder surviving the strip fleet-wide, so an
+# idle OpenCode composer reads as unsubmitted text and no submit to it can be
+# confirmed. Asserted here, at the stripper, because this is where the bound is
+# decided; a shape classifier that separately recognises the placeholder string
+# would mask the regression on its own path while leaving every other path wrong.
+# The 129 case is the other direction, so the test cannot pass with the
+# comparison removed altogether.
+test_strip_ghost_bound_is_inclusive_at_the_opencode_placeholder() {
+  local out
+  out=$(printf '\033[38;2;128;128;128mAsk anything...\033[0m\n' | fm_tmux_strip_ghost)
+  [ -z "${out//[[:space:]]/}" ] \
+    || fail "a placeholder at luminance exactly 128 must be stripped as ghost text, got '$out' (an exclusive bound makes every idle OpenCode composer read pending)"
+  out=$(printf '\033[38;2;238;238;238mreal typed steer\033[0m\n' | fm_tmux_strip_ghost)
+  [ "$out" = 'real typed steer' ] \
+    || fail "real typed input at luminance 238 must survive stripping, got '$out'"
+  # One point above the bound is NOT ghost, so the comparison is a real bound
+  # rather than an unconditional strip.
+  out=$(printf '\033[38;2;129;129;129mnot quite ghost\033[0m\n' | fm_tmux_strip_ghost)
+  [ "$out" = 'not quite ghost' ] \
+    || fail "text just above the luminance bound must survive stripping, got '$out'"
+  pass "fm_composer_strip_ghost: the ghost-luminance bound is inclusive, matching OpenCode's #808080 placeholder"
+}
+
 # --- muse's composer sits closest to the ghost threshold ---------------------
 
 # These are muse 0.1.0-R708.1's real captured composer rows. Its prompt glyph
@@ -685,6 +714,7 @@ test_strip_ghost_drops_dim_keeps_normal
 test_strip_ghost_handles_combined_and_boundary_codes
 test_strip_ghost_keeps_colored_text_with_2_payloads
 test_strip_ghost_drops_dark_truecolor_ghost
+test_strip_ghost_bound_is_inclusive_at_the_opencode_placeholder
 test_strip_ghost_keeps_muse_composer_colors
 test_dim_ghost_only_composer_is_not_pending
 test_dim_ghost_inside_bordered_composer_is_not_pending
