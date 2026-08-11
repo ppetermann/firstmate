@@ -291,8 +291,16 @@ worker_stop_active_execution() {
   WORKER_ACTIVE_JOB=
 }
 
+# Further stop signals are ignored rather than restored to their default
+# disposition, because this worker is normally stopped by a signal to its whole
+# process group: the supervisor receives that same signal and relays a second
+# TERM to this child. Restoring the default made that redundant signal fatal
+# mid-shutdown, which abandoned the ownership lock holding a half-written
+# quarantine temp file no later worker could ever rmdir away, wedging every
+# replacement in a restart loop. Ignoring keeps one in-flight shutdown
+# authoritative; the caller's own KILL backstop still bounds a stuck one.
 worker_shutdown() {
-  trap - HUP INT TERM
+  trap '' HUP INT TERM
   worker_publish_quarantine || {
     worker_error "cannot guard worker ownership for shutdown"
     trap worker_shutdown HUP INT TERM

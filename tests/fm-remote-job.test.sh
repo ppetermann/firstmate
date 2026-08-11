@@ -18,6 +18,7 @@ FAKE_PERL_LOG="$TMP_ROOT/perl.log"
 REAL_GIT=$(command -v git)
 OTHER_PID=
 RECOVERY_WORKER_PID=
+INTERRUPTED_WORKER_PID=
 mkdir -p "$REMOTE_ROOT/bin" "$REMOTE_HOME" "$ACCOUNT_HOME" "$RUNTIME_BIN"
 # worker.pid records the serving child, not its restart supervisor, so stopping
 # that pid alone leaves the supervisor to respawn - the leak
@@ -25,6 +26,7 @@ mkdir -p "$REMOTE_ROOT/bin" "$REMOTE_HOME" "$ACCOUNT_HOME" "$RUNTIME_BIN"
 cleanup_remote_job_fixture() {
   [ -z "$OTHER_PID" ] || kill "$OTHER_PID" 2>/dev/null || true
   [ -z "$RECOVERY_WORKER_PID" ] || kill "$RECOVERY_WORKER_PID" 2>/dev/null || true
+  [ -z "$INTERRUPTED_WORKER_PID" ] || kill "$INTERRUPTED_WORKER_PID" 2>/dev/null || true
   if [ -f "$STATE_ROOT/worker.pid" ]; then
     fm_remote_job_stop_worker_tree "$(cat "$STATE_ROOT/worker.pid")" || true
   fi
@@ -619,5 +621,53 @@ kill -TERM "$RECOVERY_WORKER_PID"
 wait "$RECOVERY_WORKER_PID" 2>/dev/null || true
 RECOVERY_WORKER_PID=
 pass "quarantine clears only after recorded execution has stopped"
+
+# A worker is normally stopped by a signal to its whole process group, so its
+# own supervisor receives that same signal and relays a second TERM to the
+# child whose shutdown is already under way. That redundant delivery must not
+# abort the shutdown: a worker killed part-way through it abandons an ownership
+# lock still holding the half-written temp file its quarantine guard was
+# staging, and nothing can rmdir that lock away afterwards, so every
+# replacement worker fails to report ready. Signalling for as long as the child
+# lives makes the redundant delivery deterministic instead of load-dependent.
+INTERRUPT_HOME="$TMP_ROOT/interrupted-account"
+INTERRUPT_STATE="$TMP_ROOT/interrupted-jobs"
+mkdir -p "$INTERRUPT_HOME"
+chmod 700 "$INTERRUPT_HOME"
+HOME="$INTERRUPT_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$INTERRUPT_STATE" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
+  > "$TMP_ROOT/interrupted-worker.out" 2> "$TMP_ROOT/interrupted-worker.err" &
+INTERRUPTED_WORKER_PID=$!
+for _ in $(seq 1 300); do
+  [ -f "$INTERRUPT_STATE/worker.ready" ] && break
+  sleep 0.05
+done
+assert_present "$INTERRUPT_STATE/worker.ready" "the interrupted-shutdown fixture worker never became ready"
+INTERRUPTED_CHILD_PID=$(cat "$INTERRUPT_STATE/worker.pid")
+for _ in $(seq 1 400); do
+  kill -TERM "$INTERRUPTED_CHILD_PID" 2>/dev/null || break
+  sleep 0.005
+done
+kill -0 "$INTERRUPTED_CHILD_PID" 2>/dev/null && fail "the repeatedly signalled worker never exited"
+assert_absent "$INTERRUPT_STATE/worker.lock" \
+  "a shutdown interrupted by a redundant stop signal abandoned the worker ownership lock"
+wait "$INTERRUPTED_WORKER_PID" 2>/dev/null || true
+# Proves the readiness assertion below belongs to the replacement rather than
+# to a heartbeat the stopped worker left behind.
+assert_absent "$INTERRUPT_STATE/worker.ready" "the stopped worker left its readiness heartbeat behind"
+HOME="$INTERRUPT_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$INTERRUPT_STATE" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
+  >> "$TMP_ROOT/interrupted-worker.out" 2>> "$TMP_ROOT/interrupted-worker.err" &
+INTERRUPTED_WORKER_PID=$!
+for _ in $(seq 1 300); do
+  [ -f "$INTERRUPT_STATE/worker.ready" ] && break
+  sleep 0.05
+done
+assert_present "$INTERRUPT_STATE/worker.ready" \
+  "a replacement worker never reported ready after an interrupted shutdown"
+kill -TERM "$INTERRUPTED_WORKER_PID" 2>/dev/null || true
+wait "$INTERRUPTED_WORKER_PID" 2>/dev/null || true
+INTERRUPTED_WORKER_PID=
+pass "a redundant stop signal cannot abort a worker shutdown into an unreclaimable lock"
 
 echo "ALL TESTS PASSED"
