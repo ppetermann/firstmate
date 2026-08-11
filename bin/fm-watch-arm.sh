@@ -63,6 +63,8 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-signal-wait-lib.sh
+. "$SCRIPT_DIR/fm-signal-wait-lib.sh"
 
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 WATCH_LOCK="$STATE/.watch.lock"
@@ -77,6 +79,13 @@ case "${OSTYPE:-}" in
   *) ARM_CONFIRM_DEFAULT=10 ;;
 esac
 CONFIRM_TIMEOUT=${FM_ARM_CONFIRM_TIMEOUT:-$ARM_CONFIRM_DEFAULT}
+# Seconds an interrupted arm allows its watcher child to honor SIGTERM before the kill backstop.
+# A stopping watcher persists its downtime recovery state from its exit cleanup, so killing it mid-shutdown would drop durable recovery evidence.
+# This is deliberately far above the watcher's own FM_SIGNAL_GRACE linger, and it deliberately does not match the much shorter default bin/fm-supervise-daemon.sh passes when it stops the same fm-watch.sh child through the same fm_signal_stop_child primitive.
+# That divergence is intentional and is a statement about this path only: an interrupted arm must leave its watcher time to finish that exit cleanup, so the daemon's shutdown grace is not evidence about what this path requires.
+# Measured here: a 2s grace and then a 10s grace both reproducibly broke tests/fm-watch-arm.test.sh's test_interrupted_handling_is_redrained_on_rearm - which passes on unmodified main - by killing the watcher mid-shutdown and dropping the durable downtime marker, while 120s passed repeatedly.
+# The backstop is not a deadline for normal shutdown - it exists only so a watcher that never finishes cannot leave this arm, the harness-tracked task, impossible to stop.
+CHILD_STOP_GRACE=${FM_ARM_CHILD_STOP_GRACE_SECS:-120}
 # Poll interval while attached to an existing healthy watcher.
 ATTACH_POLL=${FM_ARM_ATTACH_POLL:-0.5}
 CYCLE_LOG="$STATE/.watch-cycle-exits.log"
@@ -449,8 +458,14 @@ fi
 child=
 child_out=
 cleanup_child() {
-  if [ -n "$child" ] && fm_pid_alive "$child"; then
-    kill -TERM "$child" 2>/dev/null || true
+  if [ -n "$child" ]; then
+    # Bounded stop, the same contract the supervise daemon's shutdown uses: a
+    # watcher that stalls inside its own exit cleanup must never leave this arm
+    # - the harness-tracked task - impossible to stop. fm_signal_stop_child
+    # sends SIGTERM, waits out the grace, then kills and reaps, so this always
+    # returns instead of blocking on a child that will not exit. It also reaps
+    # an already-dead child, publishing its status in FM_SIGNAL_STOP_STATUS.
+    fm_signal_stop_child "$child" "$CHILD_STOP_GRACE" || true
   fi
   if [ -n "$child_out" ]; then
     rm -f "$child_out" 2>/dev/null || true
@@ -461,12 +476,8 @@ cleanup_child() {
 handle_arm_signal() {
   local signal=$1 rc=$2
   trap - HUP TERM INT
-  if [ -n "$child" ] && fm_pid_alive "$child"; then
-    kill -TERM "$child" 2>/dev/null || true
-    wait "$child" 2>/dev/null || true
-  fi
-  cycle_log_append "$rc" "$signal" arm-interrupted none
   cleanup_child
+  cycle_log_append "$rc" "$signal" arm-interrupted none
   exit "$rc"
 }
 
@@ -552,7 +563,6 @@ while :; do
       cycle_refresh_lock_before
       if ! handling_generation=$(handling_successor_generation); then
         cleanup_child
-        wait "$child" 2>/dev/null || true
         cycle_log_append 1 none handling-handoff-failed none
         echo "watcher: FAILED - established successor could not inspect handling state"
         exit 1
@@ -588,8 +598,9 @@ done
 trap - HUP TERM INT
 print_watch_output "$child_out"
 cleanup_child
-wait "$child" 2>/dev/null
-rc=$?
+# cleanup_child already reaped the child, so its published status is the one
+# this ledger entry records; a second wait here would only report "not a child".
+rc=${FM_SIGNAL_STOP_STATUS:-0}
 cycle_log_append "$rc" "$(cycle_signal_name "$rc")" confirmation-timeout none
 echo "watcher: FAILED - no live watcher with a fresh beacon"
 exit 1
