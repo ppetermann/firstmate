@@ -231,13 +231,10 @@ fm_control_harness_turnend_token_path() {  # <harness> <state-dir> <id>
 }
 
 fm_control_harness_turnend_auth_path() {  # <harness> <token>
-  local harness=${1-} token=${2-}
+  local harness=${1-} token=${2-} dir
   case "$token" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
-  case "$harness" in
-    grok) printf '%s\n' "${GROK_HOME:-$HOME/.grok}/hooks/fm-turn-end.d/$token" ;;
-    kimi) printf '%s\n' "$HOME/.kimi-code/fm-turn-end.d/$token" ;;
-    *) return 0 ;;
-  esac
+  dir=$(fm_control_harness_turnend_registry_dir "$harness") || return 0
+  printf '%s/%s\n' "$dir" "$token"
 }
 
 # The per-harness registry directory under which each task's turn-end auth token
@@ -275,7 +272,7 @@ fm_control_harness_turnend_registry_dir() {  # <harness>
 # surgical. Returns 0 silently when the registry still holds entries, when the
 # registry is missing, or when the harness has no global hook.
 fm_control_harness_turnend_maybe_retire_global() {  # <harness> <script_dir>
-  local harness=${1-} script_dir=${2-} registry count
+  local harness=${1-} script_dir=${2-} registry count grok_hooks
   registry=$(fm_control_harness_turnend_registry_dir "$harness") 2>/dev/null || return 0
   [ -n "$registry" ] || return 0
   [ -d "$registry" ] || return 0
@@ -283,8 +280,8 @@ fm_control_harness_turnend_maybe_retire_global() {  # <harness> <script_dir>
   [ "$count" -eq 0 ] || return 0
   case "$harness" in
     grok)
-      rm -f -- "${GROK_HOME:-$HOME/.grok}/hooks/fm-turn-end.sh" \
-               "${GROK_HOME:-$HOME/.grok}/hooks/fm-turn-end.json"
+      grok_hooks=$(dirname "$registry")
+      rm -f -- "$grok_hooks/fm-turn-end.sh" "$grok_hooks/fm-turn-end.json"
       rmdir -- "$registry" 2>/dev/null || true
       ;;
     kimi)
