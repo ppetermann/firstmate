@@ -2424,7 +2424,7 @@ EOF
       # Result: the hook is outside the worktree, needs no trust grant, and never
       # touches grok's managed config - only firstmate-owned files.
       GROK_HOOKS_DIR="${GROK_HOME:-$HOME/.grok}/hooks"
-      GROK_AUTH_DIR="$GROK_HOOKS_DIR/fm-turn-end.d"
+      GROK_AUTH_DIR=$(fm_control_harness_turnend_registry_dir grok)
       mkdir -p "$GROK_AUTH_DIR"
       old_umask=$(umask)
       umask 077
@@ -2490,7 +2490,7 @@ EOF
       # task's token pointer and the token resolves through Firstmate's private
       # registry. The installer above owns the format-preserving config edit and
       # the always-zero, silent hook script.
-      KIMI_AUTH_DIR="$HOME/.kimi-code/fm-turn-end.d"
+      KIMI_AUTH_DIR=$(fm_control_harness_turnend_registry_dir kimi)
       # A concurrent teardown of the last kimi task may have removed the global
       # hook and registry (via fm-kimi-turnend-hook.sh remove) between the
       # install in __KIMIBIN__ and here. Recreate the directory so mktemp
