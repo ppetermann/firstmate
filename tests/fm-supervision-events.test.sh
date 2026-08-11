@@ -26,15 +26,21 @@ export FM_ROOT_OVERRIDE="$ROOT"
 . "$ROOT/bin/fm-watch.sh"
 
 # Overrides: capture wake reasons and neutralize real sleeps (POLL is 15s).
+# The watcher's terminal wait is the signal-responsive fm_signal_sleep, so that
+# is what these cases must neutralize; the plain `sleep` override stays as the
+# backstop for the short waits inside the primitives themselves.
 WAKE_LOG="$TMP/wakes"
 SLEEP_LOG="$TMP/sleeps"
 wake() { printf '%s\n' "$1" >> "$WAKE_LOG"; return 0; }
 sleep() { printf 'SLEEP\n' >> "$SLEEP_LOG"; }
+# shellcheck disable=SC2329 # Runtime override called by the isolated watcher.
+fm_signal_sleep() { printf 'SLEEP\n' >> "$SLEEP_LOG"; }
 
 reset_state() {
   rm -f "$STATE_DIR"/*.meta "$STATE_DIR"/*.status "$STATE_DIR"/.wake-queue \
     "$STATE_DIR"/.wake-queue.seq "$STATE_DIR"/.watch-triage.log \
-    "$STATE_DIR"/.herdr-escalated-* "$TMP"/panes "$TMP"/wtcalls "$TMP"/wtcalled 2>/dev/null || true
+    "$STATE_DIR"/.herdr-escalated-* "$TMP"/panes "$TMP"/wtcalls "$TMP"/wtcalled \
+    "$TMP"/wtconfirmed 2>/dev/null || true
   : > "$WAKE_LOG"
   : > "$SLEEP_LOG"
   _event_cap_key=""
@@ -102,14 +108,19 @@ fm_write_meta "$STATE_DIR/tk3.meta" "window=default:wG:pQ" "backend=herdr" "kind
 CAP_CALLS=0
 # shellcheck disable=SC2329 # Runtime overrides called by the isolated watcher.
 fm_backend_events_capable() { CAP_CALLS=$((CAP_CALLS + 1)); return 0; }
+# The wait runs as a background child of the watcher, so its verdict must reach
+# this shell through a file: a `fail` inside it would only exit that child and
+# leave the assertion silently vacuous.
 # shellcheck disable=SC2329 # Runtime overrides called by the isolated watcher.
 fm_backend_wait_transition() {
-  [ "${FM_BACKEND_EVENTS_CAPABILITY_CONFIRMED:-0}" = 1 ] || fail "cached capability verdict was not passed to the wait"
+  printf '%s\n' "${FM_BACKEND_EVENTS_CAPABILITY_CONFIRMED:-0}" >> "$TMP/wtconfirmed"
   return 1
 }
 event_wait_or_sleep
 event_wait_or_sleep
 [ "$CAP_CALLS" = 1 ] || fail "capability probe must be memoized across waits, got $CAP_CALLS calls"
+[ "$(cat "$TMP/wtconfirmed" 2>/dev/null)" = "$(printf '1\n1')" ] \
+  || fail "both bounded waits must reach the event path carrying the cached capability verdict, got '$(cat "$TMP/wtconfirmed" 2>/dev/null)'"
 pass "event_wait_or_sleep: one cached capability probe owns validation across bounded waits"
 
 # --- event_wait_or_sleep: a tmux-only home never runs the event path ----------

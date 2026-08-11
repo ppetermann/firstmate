@@ -141,13 +141,25 @@
 #                                   not misread as pending input.
 #          FM_INJECT_CONFIRM_SLEEP  seconds between daemon submit checks
 #                                   (default 0.5)
+#          FM_WATCHER_STOP_GRACE_SECS seconds shutdown allows the watcher child
+#                                   to honor SIGTERM before killing it (default 2)
 #          FM_LOG_MAX_BYTES / FM_LOG_KEEP_LINES / FM_CRASH_*  log + crash guards
 #          FM_STATE_OVERRIDE        alternate state dir (testing)
 #          Logs each wake to state/.supervise-daemon.log (size-capped). Single
-#          instance via portable lock on state/.supervise-daemon.lock. Trapped
-#          SIGTERM/SIGINT shut down within ~1s, flush escalations, release the
-#          lock. A crashing fm-watch.sh is logged and restarted, never killing
-#          the daemon; a tight crash-restart spin is detected and backed off.
+#          instance via portable lock on state/.supervise-daemon.lock. A crashing
+#          fm-watch.sh is logged and restarted, never killing the daemon; a tight
+#          crash-restart spin is detected and backed off.
+#
+# SHUTDOWN. Trapped SIGTERM/SIGINT begin handling IMMEDIATELY from every parked
+# state - the poll tick, the crash-restart backoff, the pane-gone backoff, and
+# the idle wait after a non-wake watcher exit - because every one of those waits
+# goes through bin/fm-signal-wait-lib.sh; a plain foreground `sleep` would defer
+# the handler until it ended instead. The handler then flushes escalations,
+# stops the watcher with a BOUNDED stop rather than an open-ended `wait` on a
+# child that defers signals the same way, and releases the lock. Both properties
+# are what bin/fm-afk-launch.sh stop's fixed wait budget depends on: without
+# them a daemon parked in a long wait missed that budget, stop refused and
+# preserved lifecycle state, and away mode stayed up until a second attempt.
 set -u
 
 FM_DAEMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -187,6 +199,12 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$FM_DAEMON_DIR/fm-busy-lib.sh"
 
+# Signal-responsive waiting. Every wait this loop parks in goes through this
+# library so a trapped SIGTERM is handled when it arrives instead of when the
+# wait ends; see its header for why a plain foreground `sleep` defers the trap.
+# shellcheck source=bin/fm-signal-wait-lib.sh
+. "$FM_DAEMON_DIR/fm-signal-wait-lib.sh"
+
 # --- tunables ---------------------------------------------------------------
 # Supervisor backends this daemon knows how to inject into today. zellij, orca,
 # and cmux are real backends elsewhere in firstmate (bin/fm-backend.sh) but this
@@ -222,6 +240,11 @@ CRASH_THRESHOLD_DEFAULT=10
 CRASH_WINDOW_DEFAULT=60
 CRASH_BACKOFF_DEFAULT=60
 CRASH_NORMAL_SLEEP_DEFAULT=5
+# How long shutdown waits for the watcher child to honor SIGTERM before killing
+# it. The watcher answers promptly through the same signal-responsive waits, so
+# this is a backstop against a watcher stuck in a backend call, not the normal
+# path: shutdown must stay bounded no matter what the child is doing.
+WATCHER_STOP_GRACE_SECS_DEFAULT=2
 LOG_MAX_BYTES_DEFAULT=1048576
 LOG_KEEP_LINES_DEFAULT=2000
 
@@ -1393,6 +1416,7 @@ fm_super_main() {
   local LOCK="$STATE/.supervise-daemon.lock"
   local PIDFILE="$STATE/.supervise-daemon.pid"
   local INJECT_FAIL_SLEEP=${FM_INJECT_FAIL_SLEEP:-$INJECT_FAIL_SLEEP_DEFAULT}
+  local WATCHER_STOP_GRACE=${FM_WATCHER_STOP_GRACE_SECS:-$WATCHER_STOP_GRACE_SECS_DEFAULT}
   local CRASH_THRESHOLD=${FM_CRASH_THRESHOLD:-$CRASH_THRESHOLD_DEFAULT}
   local CRASH_WINDOW=${FM_CRASH_WINDOW:-$CRASH_WINDOW_DEFAULT}
   local CRASH_BACKOFF=${FM_CRASH_BACKOFF:-$CRASH_BACKOFF_DEFAULT}
@@ -1495,11 +1519,21 @@ fm_super_main() {
   local WATCHER_PID="" CUR_TMP=""
   cleanup() {
     trap - TERM INT
+    # The interrupted wait this handler was reached from still owns a live sleep
+    # child; reap it first so shutdown leaves nothing of its own behind.
+    fm_signal_wait_reap
     wedge_alarm_stop_active_notifier
     escalate_flush "$STATE" 2>/dev/null || true
     if [ -n "${WATCHER_PID:-}" ]; then
-      kill "$WATCHER_PID" 2>/dev/null || true
-      wait "$WATCHER_PID" 2>/dev/null || true
+      # Bounded, never an open-ended `wait`: the watcher normally answers SIGTERM
+      # at once through the same signal-responsive waits, but one stuck in a
+      # backend call must not hold this shutdown past the stopper's budget.
+      # Killing it discards nothing durable - the wake queue,
+      # the escalation buffer, and the watcher's singleton lock each have their
+      # own recovery path - so a bounded stop is strictly safer than waiting.
+      if ! fm_signal_stop_child "$WATCHER_PID" "$WATCHER_STOP_GRACE"; then
+        log "watcher did not exit within ${WATCHER_STOP_GRACE}s of SIGTERM; killed it to keep shutdown bounded"
+      fi
     fi
     if [ -n "${CUR_TMP:-}" ]; then
       rm -f "$CUR_TMP" 2>/dev/null || true
@@ -1549,7 +1583,7 @@ fm_super_main() {
     if ! fm_backend_target_exists "$BACKEND" "$TARGET"; then
       log "warn: supervisor target '$TARGET' gone; backing off ${INJECT_FAIL_SLEEP}s, will retry"
       # Flush is pointless with no pane; preserve any buffered escalations.
-      sleep "$INJECT_FAIL_SLEEP"
+      fm_signal_sleep "$INJECT_FAIL_SLEEP"
       continue
     fi
 
@@ -1570,7 +1604,7 @@ fm_super_main() {
           record_crash
           log "watcher exited rc=$rc reason='$reason'; restarting after ${backoff_secs}s"
           WATCHER_PID=""
-          sleep "$backoff_secs"
+          fm_signal_sleep "$backoff_secs"
           continue
         fi
         # Non-wake stdout (e.g. a watcher singleton-collision "already running"
@@ -1580,7 +1614,7 @@ fm_super_main() {
         if ! is_wake_reason "$reason"; then
           log "watcher non-wake stdout, idling: $reason"
           WATCHER_PID=""
-          sleep "${HOUSEKEEPING_TICK:-$HOUSEKEEPING_TICK_DEFAULT}"
+          fm_signal_sleep "${HOUSEKEEPING_TICK:-$HOUSEKEEPING_TICK_DEFAULT}"
           continue
         fi
         log "wake: $reason"
@@ -1597,7 +1631,7 @@ fm_super_main() {
     # to detect its exit (the kill -0 above) promptly and run housekeeping often
     # enough that batch flushes, stale rechecks, and the catch-all scan fire on
     # cadence. Gating keeps a large fleet cheap between ticks.
-    sleep 1
+    fm_signal_sleep 1
     if [ "$(_file_age "$STATE/.subsuper-last-housekeep")" -ge "${FM_HOUSEKEEPING_TICK:-$HOUSEKEEPING_TICK_DEFAULT}" ]; then
       _now > "$STATE/.subsuper-last-housekeep"
       housekeeping "$STATE"
