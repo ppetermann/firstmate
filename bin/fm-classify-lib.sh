@@ -160,13 +160,25 @@ status_is_paused_or_captain_held() {  # <status-line>
 # rule 6), so closure never depends on a busy worker's discipline.
 #
 # Decision key grammar (backward-compatible with the existing "<verb>: <note>"
-# format): an OPTIONAL "[key=<slug>]" token sits between the verb and the colon,
-#   needs-decision [key=api-shape]: <summary>
-#   resolved       [key=api-shape]: <how it was decided>
+# format): an OPTIONAL "[key=<slug>]" token names a decision so an
+# needs-decision/blocked open and its resolved/captain-held close can be paired.
+# Two positions are accepted, validated by the same slug charset in
+# _fm_decision_slug below:
+#   1. Between the verb and the colon (canonical, takes precedence):
+#        needs-decision [key=api-shape]: <summary>
+#        resolved       [key=api-shape]: <how it was decided>
+#   2. Leading the note, right after the colon (fallback, so a worker's natural
+#      "needs-decision: [key=api-shape] ..." still pairs with a matching
+#      "resolved: [key=api-shape] ..."):
+#        needs-decision: [key=api-shape] <summary>
+#        resolved:       [key=api-shape] <how it was decided>
 # A line with no token uses the key "default", preserving the historical
 # one-open-decision-per-task behavior (a bare "resolved:" closes "default").
-# The three parsers are pure reads of a single line; the verb parser strips any
-# key token before the colon so the leading word is recovered cleanly.
+# An invalid slug at EITHER position rejects the line (no transition is folded),
+# so a malformed key never silently folds to "default"; the canonical before-
+# colon position wins when both are present. The parsers are pure reads of a
+# single line; the verb parser strips any key token before the colon so the
+# leading word is recovered cleanly.
 status_line_verb() {  # <status-line> -> leading verb word
   local v=${1%%:*}
   v=${v%%\[key=*}
@@ -180,15 +192,40 @@ status_line_note() {  # <status-line> -> text after the first colon, trimmed
     *) printf '%s' "$1" ;;
   esac
 }
+# Extract and validate a decision-key slug from text whose leading [key=...]
+# token holds it: prints the slug between the first [key= and the next ] and
+# returns 0, or returns 1 on an invalid slug charset. Pure read of its argument;
+# the single owner of the decision-key slug charset, so both accepted positions
+# (before and after the colon) validate identically. Callers gate on a leading
+# [key= token before calling.
+_fm_decision_slug() {  # <text-whose-first-[key=...]-token-holds-the-slug>
+  local k=${1#*\[key=}
+  k=${k%%\]*}
+  case "$k" in
+    ''|*[!A-Za-z0-9._-]*) return 1 ;;
+    *) printf '%s' "$k" ;;
+  esac
+}
 _fm_decision_key() {  # <status-line> -> key slug, or "default" when no token
-  local prefix=${1%%:*} k
+  local prefix=${1%%:*} note
+  # Canonical position: a [key=<slug>] token between the verb and the colon.
   case "$prefix" in
     *\[key=*\]*)
-      k=${prefix#*\[key=}
-      k=${k%%\]*}
-      case "$k" in
-        ''|*[!A-Za-z0-9._-]*) return 1 ;;
-        *) printf '%s' "$k" ;;
+      _fm_decision_slug "$prefix" && return 0
+      return 1
+      ;;
+  esac
+  # Fallback position: a leading [key=<slug>] at the start of the note (after
+  # the colon, optional leading whitespace), so a worker's natural
+  # "needs-decision: [key=x] ..." still folds to key x and interoperates with a
+  # "resolved: [key=x] ..." close at the same position. A line with no colon
+  # has no note, so it keeps the historical "default".
+  case "$1" in
+    *:*)
+      note=$(status_line_note "$1")
+      case "$note" in
+        \[key=*\]*) _fm_decision_slug "$note" ;;
+        *) printf 'default' ;;
       esac
       ;;
     *) printf 'default' ;;

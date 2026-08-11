@@ -215,6 +215,83 @@ test_over_long_decision_note_is_capped_with_a_marker() {
   pass "an over-long open decision is cut to its per-item budget with the shared truncation marker"
 }
 
+# Workers naturally write the [key=<slug>] token AFTER the colon
+# ("needs-decision: [key=x] ..."). fm-classify-lib.sh's _fm_decision_key accepts
+# that position as a fallback so such a line still folds to key x (not "default")
+# and interoperates with a matching "resolved: [key=x] ..." close. These cases
+# exercise the real fold through the real drain script, like every case above.
+
+test_after_colon_key_position_opens_a_decision() {
+  local dir state out
+  dir=$(make_case after-colon-open)
+  state="$dir/state"
+  out="$dir/drain.out"
+  # The key token sits after the colon, where workers put it. It must surface
+  # under its named key so fm-send --resolve-key <after-colon> can close it.
+  printf 'needs-decision: [key=after-colon] pick REST or RPC\n' > "$state/task-after.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an after-colon open"
+
+  grep -F 'task-after' "$out" | grep -F '[key=after-colon]' | grep -F 'pick REST or RPC' >/dev/null \
+    || fail "an after-colon [key=...] token did not surface under its named key: $(cat "$out")"
+  pass "a [key=...] token after the colon opens a decision under that key"
+}
+
+test_after_colon_resolution_closes_it() {
+  local dir state out
+  dir=$(make_case after-colon-resolve)
+  state="$dir/state"
+  out="$dir/drain.out"
+  printf 'needs-decision: [key=after-colon] pick REST or RPC\n' > "$state/task-after2.status"
+  printf 'resolved: [key=after-colon] went with REST\n' >> "$state/task-after2.status"
+  printf 'done: shipped\n' >> "$state/task-after2.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after an after-colon resolution"
+
+  if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
+    fail "an after-colon resolved [key=X] still printed as open: $(cat "$out")"
+  fi
+  pass "an after-colon resolved [key=X] closes the keyed decision"
+}
+
+test_before_colon_open_is_closed_by_after_colon_resolve() {
+  local dir state out
+  dir=$(make_case cross-position)
+  state="$dir/state"
+  out="$dir/drain.out"
+  # Open with the canonical before-colon token, close with the after-colon
+  # token. Both must yield the same key so the two positions interoperate
+  # regardless of which side the writer used.
+  printf 'needs-decision [key=cross]: pick REST or RPC\n' > "$state/task-cross.status"
+  printf 'resolved: [key=cross] went with REST\n' >> "$state/task-cross.status"
+  printf 'done: shipped\n' >> "$state/task-cross.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a cross-position open/close"
+
+  if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
+    fail "a before-colon open was not closed by an after-colon resolved: $(cat "$out")"
+  fi
+  pass "the before-colon and after-colon key positions interoperate"
+}
+
+test_invalid_slug_after_colon_is_rejected_not_folded_to_default() {
+  local dir state out
+  dir=$(make_case after-colon-invalid)
+  state="$dir/state"
+  out="$dir/drain.out"
+  # An invalid slug (here a space) after the colon must reject the line - it
+  # opens NO decision, and in particular never silently folds to "default".
+  # If it folded to default, an OPEN DECISIONS row would appear here.
+  printf 'needs-decision: [key=bad slug] should not open\n' > "$state/task-bad.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an invalid after-colon slug"
+
+  if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
+    fail "an invalid after-colon slug opened a decision instead of being rejected: $(cat "$out")"
+  fi
+  pass "an invalid slug after the colon is rejected, never folded to default"
+}
+
 test_buried_decision_still_surfaces
 test_over_long_decision_note_is_capped_with_a_marker
 test_explicit_resolution_closes_it
@@ -224,3 +301,7 @@ test_no_open_decisions_prints_nothing
 test_open_decision_surfaces_even_with_an_unrelated_queued_wake
 test_buried_decision_surfaces_on_the_empty_queue_fast_path
 test_status_symlink_is_not_followed
+test_after_colon_key_position_opens_a_decision
+test_after_colon_resolution_closes_it
+test_before_colon_open_is_closed_by_after_colon_resolve
+test_invalid_slug_after_colon_is_rejected_not_folded_to_default
