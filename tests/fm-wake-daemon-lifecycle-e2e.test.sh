@@ -40,12 +40,24 @@ TMP_ROOT=$(fm_test_tmproot fm-wake-daemon-e2e)
 # always-on standalone triage is covered by fm-watch-triage.test.sh. fakebin
 # shadows tmux. Echoes nothing; the caller reads $out.
 run_watcher_once() {
-  local state=$1 fakebin=$2 out=$3
+  local state=$1 fakebin=$2 out=$3 cap=${4:-50}
   mkdir -p "$state"
   date '+%s' > "$state/.afk"
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  wait_for_exit "$!" 50
+  wait_for_exit "$!" "$cap"
+}
+
+# Publish a pending:downtime recovery marker, the state lock-recovery leaves
+# after a real watcher gap. Used to seed a genuine downtime generation without
+# having to SIGKILL a watcher (which would run its own cleanup).
+publish_downtime() {  # <state>
+  local state=$1
+  FM_STATE_OVERRIDE="$state" bash -c '
+    # shellcheck disable=SC1090,SC1091
+    . "$1/fm-wake-lib.sh"
+    fm_recovery_marker_publish "'"$state"'/.watcher-down" downtime
+  ' _ "$ROOT/bin"
 }
 
 ack_handled_wakes() {  # <state> <drain-stderr>
@@ -167,5 +179,72 @@ test_stale_pane_transient_persistent_resume() {
   pass "lifecycle: stale pane transient self-handles, persistent escalates once and clears, resumed clears quietly"
 }
 
+# --- Phase 3: away-daemon rapid restart does not loop rearm-resurface --------
+# The away-supervisor daemon runs the watcher as a one-shot and restarts it in a
+# tight loop. Each recovery generation must resurface exactly once: the first
+# restart surfaces the downtime, and an immediate second restart (before the
+# handling drain) must NOT re-fire for the same generation. Otherwise every
+# daemon poll cycle escalates an identical rearm-resurface into the supervisor
+# pane. A fresh downtime generation after the handling drain must still resurface.
+test_rearm_resurface_is_idempotent_per_generation() {
+  local dir state fakebin out drain_out drain_err
+  dir=$(make_supercase wd-rearm-idempotent)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  drain_out="$dir/drain.out"
+  drain_err="$dir/drain.err"
+
+  # Seed genuine downtime: a durable wake queued during the gap plus the
+  # pending:downtime recovery marker lock-recovery leaves behind.
+  append_wake "$state" check fixture 'check: fixture wake queued during downtime'
+  publish_downtime "$state"
+  case "$(cat "$state/.watcher-down")" in pending:downtime:*) ;; \
+    *) fail "seed did not publish a pending:downtime marker" ;; esac
+
+  # First one-shot restart surfaces the downtime exactly once and claims
+  # handling for this generation so the next arm sees action=wait.
+  run_watcher_once "$state" "$fakebin" "$out" \
+    || fail "first restart after downtime did not exit"
+  grep -F 'check: rearm-resurface' "$out" >/dev/null \
+    || fail "first restart after downtime did not resurface: $(cat "$out")"
+  case "$(cat "$state/.watcher-down" 2>/dev/null || true)" in
+    pending:handling:*) ;;
+    *) fail "resurface left marker '$(cat "$state/.watcher-down")' instead of pending:handling" ;;
+  esac
+
+  # Rapid second restart with NO handling drain between, mimicking the daemon's
+  # tight loop. The watcher finds no new work and must NOT re-fire for the same
+  # generation. It polls instead of exiting, so cap the wait and assert no
+  # resurface reason was emitted.
+  : > "$out"
+  run_watcher_once "$state" "$fakebin" "$out" 25
+  ! grep -F 'check: rearm-resurface' "$out" >/dev/null \
+    || fail "second restart re-fired rearm-resurface for the same generation (feedback loop)"
+
+  # The ordinary handling drain still consumes this recovery generation and the
+  # queued durable wake, exactly as a non-away handling turn does.
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2> "$drain_err" \
+    || fail "drain after resurface failed"
+  grep "$(printf '\tcheck\tfixture\t')" "$drain_out" >/dev/null \
+    || fail "durable wake queued during downtime was not drained after resurface"
+  ack_handled_wakes "$state" "$drain_err" || fail "resurface acknowledgement failed"
+  case "$(cat "$state/.watcher-down" 2>/dev/null || true)" in
+    acked:*) ;;
+    *) fail "drain did not acknowledge the resurfaced generation: $(cat "$state/.watcher-down")" ;;
+  esac
+
+  # A fresh genuine downtime generation must still resurface exactly once: the
+  # ordinary single-restart behavior is preserved.
+  publish_downtime "$state"
+  run_watcher_once "$state" "$fakebin" "$out" \
+    || fail "restart after fresh downtime did not exit"
+  grep -F 'check: rearm-resurface' "$out" >/dev/null \
+    || fail "fresh downtime generation did not resurface"
+
+  pass "lifecycle: rearm-resurface is idempotent per generation; fresh downtime still resurfaces once"
+}
+
 test_routine_then_terminal_after_restart
 test_stale_pane_transient_persistent_resume
+test_rearm_resurface_is_idempotent_per_generation
