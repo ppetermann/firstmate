@@ -795,7 +795,7 @@ spawn_herdr_presentation_order_lock_acquire() {
 }
 
 clear_relaunch_harness_wiring() {
-  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path
+  local harness=$1 wt=$2 state=$3 id=$4 token auth_path path
   # The wiring arms above match on harness PREFIXES, because a task launched
   # from a raw command records that command's basename rather than the exact
   # adapter name. The retirement tables are keyed by the exact adapter, so the
@@ -804,16 +804,7 @@ clear_relaunch_harness_wiring() {
   # unrecognized value resolves to no adapter, which is also the case in which
   # no wiring was armed to begin with.
   harness=$(fm_control_harness_family "$harness") || harness=
-  token_path=$(fm_control_harness_turnend_token_path "$harness" "$state" "$id") || return 1
-  # The `-s` guard is load-bearing, not redundant with `-f`: the token is written
-  # with a plain redirect, so a crash between truncate and write leaves a
-  # zero-byte file, and an empty token names no registry entry - the same
-  # nothing-to-revoke case as no token file at all. A present, non-empty but
-  # unreadable token still fails closed, because it would strand a live entry.
-  token=
-  if [ -n "$token_path" ] && [ -f "$token_path" ] && [ -s "$token_path" ]; then
-    IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
-  fi
+  token=$(fm_control_harness_turnend_token_read "$harness" "$state" "$id") || return 1
   auth_path=$(fm_control_harness_turnend_auth_path "$harness" "$token") || return 1
   if [ -n "$auth_path" ]; then
     rm -f -- "$auth_path" || return 1

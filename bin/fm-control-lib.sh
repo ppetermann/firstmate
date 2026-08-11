@@ -239,3 +239,29 @@ fm_control_harness_turnend_auth_path() {  # <harness> <token>
     *) return 0 ;;
   esac
 }
+
+# Read a harness's per-task turn-end token safely, printing the token (or nothing)
+# to stdout. This is the ONE owner of the empty-token guard that teardown's grok
+# and kimi retirement (bin/fm-teardown.sh) and spawn's relaunch-wiring cleanup
+# (bin/fm-spawn.sh) must apply identically.
+#
+# fm_control_harness_turnend_token_path names where the token lives; this reads
+# it. A missing token file, an empty token_path (any harness whose turn-end hook
+# is not global-and-token-gated, so token_path declines to name one), and a
+# ZERO-BYTE token file are all the same nothing-to-revoke case: the token is
+# written with a plain redirect, which truncates before the token lands, so a
+# crash or kill in that window leaves an empty file; treating its EOF as a read
+# failure would abort teardown before any state is removed and the task could
+# never be torn down again. A token that is present and non-empty but unreadable
+# still fails closed (returns 1), because that one really would strand a live
+# global registry entry. The path lookup's own argument-validation failure
+# (empty state or id) propagates as nonzero so a caller's `|| return 1` still
+# fires. Prints the token (possibly empty) on success.
+fm_control_harness_turnend_token_read() {  # <harness> <state-dir> <id>
+  local harness=${1-} state=${2-} id=${3-} token_path token=''
+  token_path=$(fm_control_harness_turnend_token_path "$harness" "$state" "$id") || return 1
+  if [ -n "$token_path" ] && [ -f "$token_path" ] && [ -s "$token_path" ]; then
+    IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
+  fi
+  printf '%s' "$token"
+}
