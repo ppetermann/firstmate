@@ -652,6 +652,7 @@ remove_grok_turnend_auth() {
   path=$(fm_control_harness_turnend_auth_path grok "$token") || return 1
   [ -n "$path" ] || return 0
   rm -f -- "$path"
+  fm_control_harness_turnend_maybe_retire_global grok "$SCRIPT_DIR" || true
 }
 
 remove_kimi_turnend_auth() {
@@ -660,6 +661,7 @@ remove_kimi_turnend_auth() {
   path=$(fm_control_harness_turnend_auth_path kimi "$token") || return 1
   [ -n "$path" ] || return 0
   rm -f -- "$path"
+  fm_control_harness_turnend_maybe_retire_global kimi "$SCRIPT_DIR" || true
 }
 
 retire_busy_state() {

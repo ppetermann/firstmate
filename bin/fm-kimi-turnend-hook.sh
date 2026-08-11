@@ -7,6 +7,12 @@
 # and remove excises only that region. Missing, malformed, symlinked, partially
 # marked, or otherwise surprising config is refused without a config write.
 #
+# remove refuses when the registry directory is non-empty, so a teardown of one
+# task can never sweep another task's auth token via shutil.rmtree. The teardown
+# path (bin/fm-control-lib.sh fm_control_harness_turnend_maybe_retire_global)
+# counts the registry first and calls remove only when it is empty; the guard
+# here is the backstop against the spawn-teardown race.
+#
 # The installed Stop hook always exits 0 and stays silent. It reads cwd from the
 # hook payload, checks for a .fm-kimi-turnend pointer before registry work, and
 # touches a task turn-end marker only when the pointer names a Firstmate-created
@@ -210,11 +216,17 @@ def validate_firstmate_files_for_remove() -> None:
         info = os.lstat(REGISTRY)
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
             refuse(f"Firstmate registry is not a regular directory at {REGISTRY}.")
-        for name in os.listdir(REGISTRY):
+        entries = os.listdir(REGISTRY)
+        for name in entries:
             path = os.path.join(REGISTRY, name)
             child = os.lstat(path)
             if not TOKEN_NAME.fullmatch(name) or stat.S_ISLNK(child.st_mode) or not stat.S_ISREG(child.st_mode):
                 refuse(f"Firstmate registry contains an unexpected entry at {path}.")
+        if entries:
+            refuse(
+                "Firstmate registry is not empty; refusing to remove the global "
+                "hook while tasks are still active."
+            )
 
 
 try:
