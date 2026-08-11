@@ -276,17 +276,18 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
     'check: process-event result captured: remote-reply-ios:7'
   append_wake "$state" check startup-network 'check: startup-network'
 
+  # start_rearm_arm returns as soon as the arm reports the watcher started, but
+  # the recovery wake is emitted later, inside that watcher's first poll pass,
+  # after its own startup work. Wait for the arm to close instead of asserting a
+  # fixed latency for that gap: a re-arm with nothing to recover stays live
+  # indefinitely, so the bounded wait still separates the two outcomes, while a
+  # slower or busier machine is no longer misread as a watcher that stayed live.
+  # wait_for_exit reaps a timed-out child itself, so this path leaves none behind.
   start_rearm_arm "$home" "$state" "$fakebin" "$armout"
-  sleep 0.25
-  if is_live_non_zombie "$ARM_PID"; then
-    # End the fixture through an ordinary actionable status transition so this
-    # failing pre-fix path leaves no child behind.
-    printf 'done: fixture cleanup\n' > "$state/cleanup.status"
-    wait_for_exit "$ARM_PID" 80 || true
-    fail "re-arm stayed live instead of surfacing durable wakes and the still-open remote decision"
-  fi
-  wait "$ARM_PID"
+  wait_for_exit "$ARM_PID" 80
   status=$?
+  [ "$status" -ne 124 ] \
+    || fail "re-arm stayed live instead of surfacing durable wakes and the still-open remote decision"
   expect_code 0 "$status" "re-arm re-surface wake must close successfully"
   grep -F 'check: rearm-resurface' "$armout" >/dev/null \
     || fail "re-arm did not report the durable recovery wake: $(cat "$armout")"
@@ -646,6 +647,61 @@ test_downtime_marker_does_not_follow_symlink() {
   pass "watch-arm: downtime marker publication does not follow symlinks"
 }
 
+test_interrupted_arm_stops_a_watcher_that_ignores_sigterm() {
+  local dir home state bindir armout f child status i
+  dir=$(make_case arm-interrupt-stalled-watcher)
+  home="$dir/home"
+  state="$dir/state"
+  bindir="$dir/bin"
+  armout="$dir/arm.out"
+  mkdir -p "$home/data" "$bindir"
+
+  # Mirror the real bin/ as symlinks so the arm runs its own code against its
+  # own libraries, then replace only the watcher it forks with one that refuses
+  # SIGTERM. That is the stalled-shutdown shape: the arm's interrupt must still
+  # complete instead of blocking forever on a child that will not exit.
+  for f in "$ROOT"/bin/*; do
+    ln -s "$f" "$bindir/$(basename "$f")"
+  done
+  rm -f "$bindir/fm-watch.sh"
+  cat > "$bindir/fm-watch.sh" <<'SH'
+#!/usr/bin/env bash
+trap '' TERM
+while :; do sleep 0.05; done
+SH
+  chmod +x "$bindir/fm-watch.sh"
+
+  PATH="$dir/fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
+    FM_ARM_CONFIRM_TIMEOUT=60 FM_ARM_CHILD_STOP_GRACE_SECS=1 \
+    "$bindir/fm-watch-arm.sh" > "$armout" 2>&1 &
+  ARM_PID=$!
+
+  child=
+  i=0
+  while [ "$i" -lt 100 ]; do
+    child=$(ps -eo pid,ppid | awk -v a="$ARM_PID" '$2==a{print $1}' | head -1)
+    [ -n "$child" ] && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -n "$child" ] || fail "the arm never forked a watcher to interrupt"
+
+  kill -TERM "$ARM_PID" 2>/dev/null || fail "could not interrupt the arm"
+  wait_for_exit "$ARM_PID" 120
+  status=$?
+  [ "$status" -ne 124 ] \
+    || fail "an interrupted arm blocked forever on a watcher that ignores SIGTERM"
+
+  i=0
+  while [ "$i" -lt 50 ] && kill -0 "$child" 2>/dev/null; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  ! kill -0 "$child" 2>/dev/null \
+    || fail "the interrupted arm left its stalled watcher running"
+  pass "watch-arm: an interrupted arm stops a watcher that ignores SIGTERM"
+}
+
 test_attached_arm_reports_the_delivered_wake
 test_attached_arm_reports_the_delivered_wake_after_drain
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
@@ -658,3 +714,4 @@ test_recovery_consumption_serializes_queue_publication
 test_restart_preserves_recovery_across_reused_pid_lock
 test_markerless_legacy_queue_is_recovered_on_arm
 test_downtime_marker_does_not_follow_symlink
+test_interrupted_arm_stops_a_watcher_that_ignores_sigterm

@@ -58,15 +58,21 @@ fm_signal_wait_reap() {
   wait "$pid" 2>/dev/null || true
 }
 
+# Reaped wait status of the child the last fm_signal_stop_child call stopped.
+# A caller that records the stopped child's outcome (a cycle ledger, a log line)
+# reads this instead of a second wait, because the reap already happened here.
+FM_SIGNAL_STOP_STATUS=
+
 fm_signal_stop_child() {  # <pid> <grace-seconds>
   local pid=$1 grace=$2 ticks=0 limit
+  FM_SIGNAL_STOP_STATUS=
   case "$grace" in
     ''|*[!0-9]*) grace=1 ;;
   esac
   [ "$grace" -gt 0 ] || grace=1
   limit=$((grace * 20))  # 50ms ticks
   if ! kill -0 "$pid" 2>/dev/null; then
-    wait "$pid" 2>/dev/null || true
+    fm_signal_reap_status "$pid"
     return 0
   fi
   kill -TERM "$pid" 2>/dev/null || true
@@ -79,9 +85,18 @@ fm_signal_stop_child() {  # <pid> <grace-seconds>
   done
   if kill -0 "$pid" 2>/dev/null; then
     kill -KILL "$pid" 2>/dev/null || true
-    wait "$pid" 2>/dev/null || true
+    fm_signal_reap_status "$pid"
     return 1
   fi
-  wait "$pid" 2>/dev/null || true
+  fm_signal_reap_status "$pid"
   return 0
+}
+
+# shellcheck disable=SC2034 # FM_SIGNAL_STOP_STATUS is read by the separately linted callers of fm_signal_stop_child.
+fm_signal_reap_status() {  # <pid>
+  if wait "$1" 2>/dev/null; then
+    FM_SIGNAL_STOP_STATUS=0
+  else
+    FM_SIGNAL_STOP_STATUS=$?
+  fi
 }
