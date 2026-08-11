@@ -232,26 +232,43 @@ test_after_colon_key_position_opens_a_decision() {
 
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an after-colon open"
 
-  grep -F 'task-after' "$out" | grep -F '[key=after-colon]' | grep -F 'pick REST or RPC' >/dev/null \
+  # The drain prints the fold's key in a normalized position, before the verb
+  # ("<task> [key=<key>] <verb>: <note>"), and omits it entirely for "default".
+  # Asserting that rendered prefix is what distinguishes a genuine key-x fold
+  # from a default fold that merely echoes the token back inside the note.
+  grep -F 'task-after [key=after-colon] needs-decision:' "$out" >/dev/null \
     || fail "an after-colon [key=...] token did not surface under its named key: $(cat "$out")"
+  grep -F 'pick REST or RPC' "$out" >/dev/null \
+    || fail "the after-colon open lost its note: $(cat "$out")"
   pass "a [key=...] token after the colon opens a decision under that key"
 }
 
-test_after_colon_resolution_closes_it() {
+test_after_colon_open_is_closed_only_by_its_own_key() {
   local dir state out
   dir=$(make_case after-colon-resolve)
   state="$dir/state"
   out="$dir/drain.out"
   printf 'needs-decision: [key=after-colon] pick REST or RPC\n' > "$state/task-after2.status"
-  printf 'resolved: [key=after-colon] went with REST\n' >> "$state/task-after2.status"
+  # A bare unkeyed resolution opens/closes only "default", so it must NOT close
+  # a decision the after-colon token named: the decision stays open.
+  printf 'resolved: unrelated close\n' >> "$state/task-after2.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after an unkeyed resolution"
+
+  grep -F 'task-after2 [key=after-colon] needs-decision:' "$out" >/dev/null \
+    || fail "a bare unkeyed resolved: cleared an after-colon keyed decision: $(cat "$out")"
+
+  # The matching close - the "resolved [key=<key>]: ..." form bin/fm-send.sh
+  # writes for --resolve-key - does close it, so the two positions interoperate.
+  printf 'resolved [key=after-colon]: answered: went with REST\n' >> "$state/task-after2.status"
   printf 'done: shipped\n' >> "$state/task-after2.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after an after-colon resolution"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after the matching resolution"
 
   if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
-    fail "an after-colon resolved [key=X] still printed as open: $(cat "$out")"
+    fail "the matching resolved [key=X] did not close the after-colon decision: $(cat "$out")"
   fi
-  pass "an after-colon resolved [key=X] closes the keyed decision"
+  pass "an after-colon keyed decision is closed only by its own key, not by a bare resolved:"
 }
 
 test_before_colon_open_is_closed_by_after_colon_resolve() {
@@ -302,6 +319,6 @@ test_open_decision_surfaces_even_with_an_unrelated_queued_wake
 test_buried_decision_surfaces_on_the_empty_queue_fast_path
 test_status_symlink_is_not_followed
 test_after_colon_key_position_opens_a_decision
-test_after_colon_resolution_closes_it
+test_after_colon_open_is_closed_only_by_its_own_key
 test_before_colon_open_is_closed_by_after_colon_resolve
 test_invalid_slug_after_colon_is_rejected_not_folded_to_default
