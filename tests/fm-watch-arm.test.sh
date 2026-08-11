@@ -679,7 +679,7 @@ SH
   child=
   i=0
   while [ "$i" -lt 100 ]; do
-    child=$(ps -eo pid,ppid | awk -v a="$ARM_PID" '$2==a{print $1}' | head -1)
+    child=$(ps -eo pid,ppid,args | awk -v a="$ARM_PID" '$2==a && /fm-watch\.sh/{print $1}' | head -1)
     [ -n "$child" ] && break
     sleep 0.1
     i=$((i + 1))

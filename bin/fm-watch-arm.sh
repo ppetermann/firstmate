@@ -79,13 +79,12 @@ case "${OSTYPE:-}" in
   *) ARM_CONFIRM_DEFAULT=10 ;;
 esac
 CONFIRM_TIMEOUT=${FM_ARM_CONFIRM_TIMEOUT:-$ARM_CONFIRM_DEFAULT}
-# Seconds an interrupted arm allows its watcher child to honor SIGTERM before
-# the kill backstop. This is deliberately far longer than the daemon's own
-# shutdown grace, and far above the watcher's own FM_SIGNAL_GRACE linger: a
-# stopping watcher persists its downtime recovery state from its exit cleanup,
-# and killing it mid-shutdown would drop durable recovery evidence. The backstop
-# is not a deadline for normal shutdown - it exists only so a watcher that never
-# finishes cannot leave this arm, the harness-tracked task, impossible to stop.
+# Seconds an interrupted arm allows its watcher child to honor SIGTERM before the kill backstop.
+# A stopping watcher persists its downtime recovery state from its exit cleanup, so killing it mid-shutdown would drop durable recovery evidence.
+# This is deliberately far above the watcher's own FM_SIGNAL_GRACE linger, and it deliberately does not match the much shorter default bin/fm-supervise-daemon.sh passes when it stops the same fm-watch.sh child through the same fm_signal_stop_child primitive.
+# That divergence is intentional and is a statement about this path only: an interrupted arm must leave its watcher time to finish that exit cleanup, so the daemon's shutdown grace is not evidence about what this path requires.
+# Measured here: a 2s grace and then a 10s grace both reproducibly broke tests/fm-watch-arm.test.sh's test_interrupted_handling_is_redrained_on_rearm - which passes on unmodified main - by killing the watcher mid-shutdown and dropping the durable downtime marker, while 120s passed repeatedly.
+# The backstop is not a deadline for normal shutdown - it exists only so a watcher that never finishes cannot leave this arm, the harness-tracked task, impossible to stop.
 CHILD_STOP_GRACE=${FM_ARM_CHILD_STOP_GRACE_SECS:-120}
 # Poll interval while attached to an existing healthy watcher.
 ATTACH_POLL=${FM_ARM_ATTACH_POLL:-0.5}
