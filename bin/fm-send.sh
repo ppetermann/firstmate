@@ -15,9 +15,10 @@
 # submit or reports an inconclusive send. If a swallowed Enter is positively
 # confirmed, fm-send exits NON-ZERO so the caller knows the steer did not land
 # instead of silently leaving an unsubmitted instruction. Only an exact `empty`
-# verdict succeeds; every other verdict is reported verbatim with a plain-English
-# clause saying whether the endpoint showed a turn starting, so an unconfirmed
-# send is never blindly resent into an endpoint that already received it.
+# verdict succeeds; every other verdict is reported verbatim, and a `pending` /
+# `pending-unproven` verdict additionally says in plain English that the text is
+# still sitting unsubmitted in the composer, so an unconfirmed send is never
+# blindly resent into an endpoint that already received it.
 # Submission dispatches through the target's recorded backend; the tmux adapter
 # shares its composer/submit core with the away-mode daemon via bin/fm-tmux-lib.sh.
 # Tune with FM_SEND_RETRIES (default 3) / FM_SEND_SLEEP (0.4).
@@ -514,14 +515,10 @@ else
       if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
         fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
       fi
-      # An unconfirmed verdict is not one undifferentiated failure: say whether
-      # the endpoint showed a turn starting, so a resend cannot silently
-      # double-deliver a steer that actually landed.
+      # An unconfirmed verdict is not one undifferentiated failure: a proven
+      # pending composer still holds the text, so say so rather than letting a
+      # resend stack a second copy on top of the first.
       case "$verdict" in
-        *-turn-started)
-          verdict_hint=" The endpoint started a turn, so the text may well have landed; inspect it before resending." ;;
-        *-no-delivery)
-          verdict_hint=" The composer was unreadable and the endpoint appeared idle, so there is no delivery evidence and no turn started; confirm the endpoint before resending." ;;
         pending|pending-unproven)
           verdict_hint=" The text is still sitting unsubmitted in the composer; clear it before resending." ;;
         *) verdict_hint= ;;
