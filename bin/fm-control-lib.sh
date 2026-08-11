@@ -240,6 +240,60 @@ fm_control_harness_turnend_auth_path() {  # <harness> <token>
   esac
 }
 
+# The per-harness registry directory under which each task's turn-end auth token
+# lives. This is the authority the global hooks themselves read: a non-empty
+# registry means at least one task still uses the harness's global hook, so the
+# global hook files must stay. fm_control_harness_turnend_auth_path composes
+# `<registry_dir>/<token>` for a single entry; this function returns the
+# directory itself, which fm_control_harness_turnend_maybe_retire_global counts.
+fm_control_harness_turnend_registry_dir() {  # <harness>
+  local harness=${1-}
+  case "$harness" in
+    grok) printf '%s\n' "${GROK_HOME:-$HOME/.grok}/hooks/fm-turn-end.d" ;;
+    kimi) printf '%s\n' "$HOME/.kimi-code/fm-turn-end.d" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Maybe retire a harness's global turn-end hook files when the last task using
+# that harness is torn down. Called from fm-teardown.sh after the task's own
+# auth token is removed. Counts the registry entries; if zero, removes the
+# global hook files so they do not persist as permanent cruft in the operator's
+# home directory.
+#
+# Concurrency safety (no explicit lock needed): grok's spawn always rewrites the
+# hook script and json after creating its auth token, so a teardown that removes
+# the hook between a concurrent spawn's auth creation and hook write is
+# harmless - the spawn writes the hook back. kimi's `remove` subcommand refuses
+# when the registry is non-empty, so a spawn that creates a token between the
+# count and the remove call causes the remove to refuse, preserving the hook.
+# The spawn then re-runs install after creating its auth token to recreate the
+# hook if it was removed.
+#
+# grok's hook files are removed directly; kimi delegates to its installer's
+# symmetric `remove` subcommand so the marker-delimited config.toml edit stays
+# surgical. Returns 0 silently when the registry still holds entries, when the
+# registry is missing, or when the harness has no global hook.
+fm_control_harness_turnend_maybe_retire_global() {  # <harness> <script_dir>
+  local harness=${1-} script_dir=${2-} registry count
+  registry=$(fm_control_harness_turnend_registry_dir "$harness") 2>/dev/null || return 0
+  [ -n "$registry" ] || return 0
+  [ -d "$registry" ] || return 0
+  count=$(find "$registry" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | wc -l)
+  [ "$count" -eq 0 ] || return 0
+  case "$harness" in
+    grok)
+      rm -f -- "${GROK_HOME:-$HOME/.grok}/hooks/fm-turn-end.sh" \
+               "${GROK_HOME:-$HOME/.grok}/hooks/fm-turn-end.json"
+      rmdir -- "$registry" 2>/dev/null || true
+      ;;
+    kimi)
+      "$script_dir/fm-kimi-turnend-hook.sh" remove 2>/dev/null || true
+      ;;
+  esac
+  return 0
+}
+
 # Read a harness's per-task turn-end token safely, printing the token (or nothing)
 # to stdout. This is the ONE owner of the empty-token guard that teardown's grok
 # and kimi retirement (bin/fm-teardown.sh) and spawn's relaunch-wiring cleanup

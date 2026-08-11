@@ -436,6 +436,47 @@ test_kimi_teardown_removes_pointer_and_registry_token() {
   pass "fm-teardown: Kimi task pointer and registry token are removed"
 }
 
+test_kimi_last_task_teardown_removes_global_hook_then_respawn_reinstalls() {
+  local id rec out rc hook config id2
+  id=kimi-teardown-retire-z9
+  rec=$(make_spawn_case teardown-retire "$id")
+  read_spawn_record "$rec"
+  out=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id")
+  rc=$?
+  expect_code 0 "$rc" "Kimi spawn should succeed before last-task teardown"
+  hook="$HOME_DIR/.kimi-code/fm-turn-end.sh"
+  config="$HOME_DIR/.kimi-code/config.toml"
+  assert_present "$hook" "Kimi hook script should exist after spawn"
+  assert_grep 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config" \
+    "Kimi config region should exist after spawn"
+
+  HOME="$HOME_DIR" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
+    FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
+    FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
+    FM_SPAWN_NO_GUARD=1 PATH="$FAKEBIN_DIR:$BASE_PATH" \
+    "$TEARDOWN" "$id" --force >/dev/null 2>&1 || fail "Kimi last-task teardown failed"
+
+  assert_absent "$hook" "Kimi hook script survived last-task teardown"
+  assert_absent "$HOME_DIR/.kimi-code/fm-turn-end.d" \
+    "Kimi registry dir survived last-task teardown"
+  ! grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config" \
+    || fail "Kimi config region survived last-task teardown"
+
+  id2=kimi-respawn-z10
+  mkdir -p "$HOME_DIR/data/$id2"
+  printf 'brief for kimi respawn\n' > "$HOME_DIR/data/$id2/brief.md"
+  out=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id2")
+  rc=$?
+  expect_code 0 "$rc" "Kimi re-spawn after global hook removal should succeed"
+  assert_contains "$out" "spawned $id2 harness=kimi" \
+    "Kimi re-spawn did not report success after global hook removal"
+  assert_present "$HOME_DIR/.kimi-code/fm-turn-end.sh" \
+    "Kimi re-spawn did not reinstall the hook script"
+  assert_grep 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config" \
+    "Kimi re-spawn did not reinstall the config region"
+  pass "Kimi last-task teardown retires global hook; a fresh spawn reinstalls it"
+}
+
 test_kimi_falls_back_to_expanded_home_binary() {
   local id rec out rc launch fallback
   id=kimi-fallback-z4
@@ -665,6 +706,7 @@ test_kimi_launch_then_send_is_verified
 test_kimi_hook_is_silent_and_requires_registered_workspace_token
 test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation
 test_kimi_teardown_removes_pointer_and_registry_token
+test_kimi_last_task_teardown_removes_global_hook_then_respawn_reinstalls
 test_kimi_falls_back_to_expanded_home_binary
 test_kimi_missing_binary_refuses_before_pane_creation
 test_kimi_unconfirmed_delivery_fails_loudly

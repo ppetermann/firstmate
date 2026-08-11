@@ -2491,12 +2491,24 @@ EOF
       # registry. The installer above owns the format-preserving config edit and
       # the always-zero, silent hook script.
       KIMI_AUTH_DIR="$HOME/.kimi-code/fm-turn-end.d"
+      # A concurrent teardown of the last kimi task may have removed the global
+      # hook and registry (via fm-kimi-turnend-hook.sh remove) between the
+      # install in __KIMIBIN__ and here. Recreate the directory so mktemp
+      # succeeds, create this task's auth token, then re-run install: it is
+      # idempotent and recreates the hook script and config entry if they were
+      # removed, so the token just written is never left without its hook.
+      mkdir -p "$KIMI_AUTH_DIR"
       old_umask=$(umask)
       umask 077
       auth_file=$(mktemp "$KIMI_AUTH_DIR/fm.XXXXXXXXXXXX")
       umask "$old_umask"
       printf '%s\n' "$TURNEND" > "$auth_file"
       printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.kimi-turnend-token"
+      "$FM_ROOT/bin/fm-kimi-turnend-hook.sh" install || {
+        rm -f -- "$auth_file"
+        echo "error: refusing Kimi spawn because the global turn-end hook could not be ensured after auth-token creation" >&2
+        exit 1
+      }
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-kimi-turnend"
       exclude_path '.fm-kimi-turnend'
       ;;

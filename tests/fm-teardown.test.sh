@@ -775,6 +775,163 @@ test_unreadable_turnend_token_refuses_before_removing_state() {
   pass "an unreadable non-empty turn-end token still fails teardown before any state removal"
 }
 
+# Install grok's global hook files (hook script + json + registry dir) so teardown's
+# maybe-retire has something to remove. Args: case_dir
+install_grok_global_hook() {
+  local case_dir=$1 grok_home auth_dir
+  grok_home="$case_dir/harness-home/.grok"
+  auth_dir="$grok_home/hooks/fm-turn-end.d"
+  mkdir -p "$auth_dir"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$grok_home/hooks/fm-turn-end.sh"
+  printf '{"hooks":{"Stop":[]}}\n' > "$grok_home/hooks/fm-turn-end.json"
+}
+
+# Install kimi's global hook via the real installer so remove validates cleanly.
+# Args: case_dir
+install_kimi_global_hook() {
+  local case_dir=$1 home config_dir
+  home="$case_dir/harness-home"
+  config_dir="$home/.kimi-code"
+  mkdir -p "$config_dir"
+  printf '# Kimi test config\ndefault_model = "test"\n' > "$config_dir/config.toml"
+  HOME="$home" "$ROOT/bin/fm-kimi-turnend-hook.sh" install \
+    || fail "kimi hook install failed during test setup"
+}
+
+# The last grok/kimi task teardown removes the global hook files, not just the
+# per-task registry entry. For each harness: install the global hook, populate
+# the registry with exactly one entry matching the task's token, run teardown,
+# and assert the global files are gone. A fresh spawn after removal reinstalls.
+test_last_turnend_task_teardown_removes_global_hook() {
+  local harness case_dir auth_dir token_path rc grok_home config_dir
+  for harness in grok kimi; do
+    case_dir=$(make_case "retire-last-$harness")
+    write_meta "$case_dir" local-only ship
+    token_path="$case_dir/state/task-x1.$harness-turnend-token"
+    printf 'fm.abcdefabcdef\n' > "$token_path"
+    auth_dir=$(turnend_auth_dir "$case_dir" "$harness")
+    if [ "$harness" = grok ]; then
+      install_grok_global_hook "$case_dir"
+    else
+      install_kimi_global_hook "$case_dir"
+    fi
+    mkdir -p "$auth_dir"
+    : > "$auth_dir/fm.abcdefabcdef"
+
+    set +e
+    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 0 "$rc" "retire-last-$harness: teardown should succeed"
+    assert_absent "$auth_dir/fm.abcdefabcdef" \
+      "retire-last-$harness: registry entry survived teardown"
+
+    if [ "$harness" = grok ]; then
+      grok_home="$case_dir/harness-home/.grok"
+      assert_absent "$grok_home/hooks/fm-turn-end.sh" \
+        "retire-last-$harness: grok hook script survived last-task teardown"
+      assert_absent "$grok_home/hooks/fm-turn-end.json" \
+        "retire-last-$harness: grok hook json survived last-task teardown"
+      assert_absent "$grok_home/hooks/fm-turn-end.d" \
+        "retire-last-$harness: grok registry dir survived last-task teardown"
+    else
+      config_dir="$case_dir/harness-home/.kimi-code"
+      assert_absent "$config_dir/fm-turn-end.sh" \
+        "retire-last-kimi: kimi hook script survived last-task teardown"
+      assert_absent "$config_dir/fm-turn-end.d" \
+        "retire-last-kimi: kimi registry dir survived last-task teardown"
+      ! grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config_dir/config.toml" \
+        || fail "retire-last-kimi: config.toml Firstmate region survived last-task teardown"
+    fi
+  done
+  pass "last grok/kimi task teardown retires the global hook files"
+}
+
+# A non-last teardown (other tasks' tokens still in the registry) preserves the
+# global hook files. For each harness: install the global hook, populate the
+# registry with TWO entries, run teardown (removes one), and assert the global
+# files survive along with the remaining entry.
+test_non_last_turnend_task_teardown_preserves_global_hook() {
+  local harness case_dir auth_dir token_path rc grok_home config_dir
+  for harness in grok kimi; do
+    case_dir=$(make_case "retire-nonlast-$harness")
+    write_meta "$case_dir" local-only ship
+    token_path="$case_dir/state/task-x1.$harness-turnend-token"
+    printf 'fm.abcdefabcdef\n' > "$token_path"
+    auth_dir=$(turnend_auth_dir "$case_dir" "$harness")
+    if [ "$harness" = grok ]; then
+      install_grok_global_hook "$case_dir"
+    else
+      install_kimi_global_hook "$case_dir"
+    fi
+    mkdir -p "$auth_dir"
+    : > "$auth_dir/fm.abcdefabcdef"
+    : > "$auth_dir/fm.ghijklghijkl"
+
+    set +e
+    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 0 "$rc" "retire-nonlast-$harness: teardown should succeed"
+    assert_absent "$auth_dir/fm.abcdefabcdef" \
+      "retire-nonlast-$harness: removed task's entry survived teardown (should not)"
+    assert_present "$auth_dir/fm.ghijklghijkl" \
+      "retire-nonlast-$harness: remaining task's entry was swept by teardown"
+
+    if [ "$harness" = grok ]; then
+      grok_home="$case_dir/harness-home/.grok"
+      assert_present "$grok_home/hooks/fm-turn-end.sh" \
+        "retire-nonlast-$harness: grok hook script was removed while tasks remain"
+      assert_present "$grok_home/hooks/fm-turn-end.json" \
+        "retire-nonlast-$harness: grok hook json was removed while tasks remain"
+    else
+      config_dir="$case_dir/harness-home/.kimi-code"
+      assert_present "$config_dir/fm-turn-end.sh" \
+        "retire-nonlast-kimi: kimi hook script was removed while tasks remain"
+      grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config_dir/config.toml" \
+        || fail "retire-nonlast-kimi: config.toml Firstmate region was removed while tasks remain"
+    fi
+  done
+  pass "non-last grok/kimi task teardown preserves the global hook files"
+}
+
+# Kimi's remove subcommand refuses when the registry is non-empty, so a
+# spawn-teardown race can never sweep another task's auth token via rmtree.
+test_kimi_hook_remove_refuses_nonempty_registry() {
+  local home config_dir hook_dir registry rc out
+  home="$TMP_ROOT/kimi-remove-nonempty"
+  config_dir="$home/.kimi-code"
+  hook_dir="$config_dir"
+  registry="$config_dir/fm-turn-end.d"
+  mkdir -p "$config_dir"
+  printf '# Kimi test config\ndefault_model = "test"\n' > "$config_dir/config.toml"
+  HOME="$home" "$ROOT/bin/fm-kimi-turnend-hook.sh" install \
+    || fail "kimi hook install failed during test setup"
+  mkdir -p "$registry"
+  : > "$registry/fm.aaaaaaaaaaaa"
+
+  set +e
+  out=$(HOME="$home" "$ROOT/bin/fm-kimi-turnend-hook.sh" remove 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "kimi remove accepted a non-empty registry"
+  assert_contains "$out" "not empty" "kimi remove non-empty refusal lacked its reason"
+  assert_present "$registry/fm.aaaaaaaaaaaa" \
+    "kimi remove deleted a registry entry despite refusing"
+  assert_present "$hook_dir/fm-turn-end.sh" \
+    "kimi remove deleted the hook script despite refusing"
+
+  rm -f "$registry/fm.aaaaaaaaaaaa"
+  set +e
+  HOME="$home" "$ROOT/bin/fm-kimi-turnend-hook.sh" remove 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "kimi remove should succeed once the registry is empty"
+  assert_absent "$hook_dir/fm-turn-end.sh" \
+    "kimi remove did not remove the hook script after the registry emptied"
+  pass "kimi remove refuses a non-empty registry and succeeds once it is empty"
+}
+
 test_no_mistakes_origin_remote_allows() {
   local case_dir rc
   case_dir=$(make_case nm-origin)
@@ -2763,6 +2920,9 @@ test_empty_status_after_abort_refuses_unconfirmed
 test_not_found_status_after_abort_confirms_completion
 test_another_branchs_parked_run_is_never_touched
 test_own_autonomous_run_is_left_alone
+test_last_turnend_task_teardown_removes_global_hook
+test_non_last_turnend_task_teardown_preserves_global_hook
+test_kimi_hook_remove_refuses_nonempty_registry
 test_leaked_worktree_process_is_reaped
 test_leaked_tasktmp_process_is_reaped
 test_lsof_absent_reaps_tmux_process_group

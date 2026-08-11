@@ -117,6 +117,42 @@ EOF
   pass "grok teardown removes pointer and token state"
 }
 
+test_grok_last_task_teardown_removes_global_hook() {
+  local rec case_dir home proj wt fakebin grok_home id out status token hook hook_json
+  rec=$(make_spawn_case retire-global)
+  IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
+$rec
+EOF
+  out=$(run_grok_spawn "$home" "$proj" "$wt" "$fakebin" "$grok_home" "$id")
+  status=$?
+  expect_code 0 "$status" "grok spawn should succeed before last-task teardown"
+  hook="$grok_home/hooks/fm-turn-end.sh"
+  hook_json="$grok_home/hooks/fm-turn-end.json"
+  assert_present "$hook" "grok hook script should exist after spawn"
+  assert_present "$hook_json" "grok hook json should exist after spawn"
+
+  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    GROK_HOME="$grok_home" PATH="$fakebin:$PATH" \
+    "$TEARDOWN" "$id" --force >/dev/null 2>&1 \
+    || fail "grok last-task teardown failed"
+
+  assert_absent "$hook" "grok hook script survived last-task teardown"
+  assert_absent "$hook_json" "grok hook json survived last-task teardown"
+  assert_absent "$grok_home/hooks/fm-turn-end.d" \
+    "grok registry dir survived last-task teardown"
+
+  mkdir -p "$home/data/grok-respawn-x2"
+  printf 'brief\n' > "$home/data/grok-respawn-x2/brief.md"
+  out=$(run_grok_spawn "$home" "$proj" "$wt" "$fakebin" "$grok_home" "grok-respawn-x2")
+  status=$?
+  expect_code 0 "$status" "grok re-spawn after global hook removal should succeed"
+  assert_present "$grok_home/hooks/fm-turn-end.sh" \
+    "grok re-spawn did not reinstall the hook script"
+  assert_present "$grok_home/hooks/fm-turn-end.json" \
+    "grok re-spawn did not reinstall the hook json"
+  pass "grok last-task teardown removes global hook; a fresh spawn reinstalls it"
+}
+
 test_fm_lock_recognizes_grok_holder() {
   local home fakebin out
   home="$TMP_ROOT/lock-home"
@@ -139,4 +175,5 @@ SH
 
 test_grok_hook_requires_registered_token
 test_grok_teardown_removes_pointer_and_token
+test_grok_last_task_teardown_removes_global_hook
 test_fm_lock_recognizes_grok_holder
