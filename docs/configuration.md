@@ -237,9 +237,11 @@ Those inherited values are defaults and rules only; `fm-spawn` still permits a c
 `config/secondmate-harness` is not inherited because secondmates do not launch secondmates.
 For grok, `fm-spawn.sh` installs one firstmate-owned global turn-end hook under `$GROK_HOME/hooks/`, or `~/.grok/hooks/` when `GROK_HOME` is unset, and drops a per-task `.fm-grok-turnend` pointer in the worktree, with teardown removing the task token and pointer.
 For Kimi crews, `fm-spawn.sh` runs `fm-kimi-turnend-hook.sh install`, drops a per-task `.fm-kimi-turnend` pointer in the worktree, and records the matching private registry token for teardown.
+Both global hooks are retired rather than left installed forever: when removing a task token empties that harness's hook registry directory - `$GROK_HOME/hooks/fm-turn-end.d/` for grok, `~/.kimi-code/fm-turn-end.d/` for Kimi - teardown removes that harness's global hook files, so an empty fleet leaves nothing behind in the captain's harness home.
+The registry is the authority the hooks themselves read, so a torn-down task never counts as still using the hook, and each spawn installs the hook files again after writing its own registry token, so a teardown racing a spawn cannot leave a new task without its hook.
 Kimi continues to use the captain's normal Kimi home, including the existing config, skills, and memory; Firstmate does not create an isolated Kimi home.
 The Kimi installer requires an existing regular non-symlink `~/.kimi-code/config.toml`, `python3` with `tomllib`, and `jq`; it validates but never serializes the captain's TOML and refuses before writing when the config is missing, malformed, or surprising or when either tool requirement is unavailable.
-Its `remove` action excises only the marker-delimited Firstmate region and removes Firstmate's hook files.
+Its `remove` action excises only the marker-delimited Firstmate region and removes Firstmate's hook files, and it refuses while the registry still holds task tokens, so one task's teardown can never revoke another task's hook.
 For Pi and pi-signed secondmate launches, `fm-spawn.sh` starts the selected executable with `-e` pointed at the secondmate home's own tracked `.pi/extensions/fm-primary-pi-watch.ts` and `.pi/extensions/fm-primary-turnend-guard.ts`, both already present from the secondmate home's git worktree.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
