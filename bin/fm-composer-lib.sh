@@ -229,7 +229,8 @@ fm_composer_strip_ghost() {
       return p + 1
     }
     # fg38_is_dark: 1 when the SGR 38 foreground starting at param p is a
-    # TRUECOLOR (38;2 / 38:2) whose luminance is below lumamax; 0 otherwise
+    # TRUECOLOR (38;2 / 38:2) whose luminance is at or below lumamax (the bound
+    # is inclusive, see the header); 0 otherwise
     # (a 38;5 palette colour, a bright truecolor, or a malformed run).
     function fg38_is_dark(a, p, k, lumamax,   spec, nf, f, r, g, b) {
       spec = a[p]

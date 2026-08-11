@@ -204,6 +204,15 @@ The strict blank-row posture held live (a blank shell row deferred injection), a
 Kimi was not installed on the verification machine; its bordered shape is pinned by the portable byte-capture regressions in `tests/fm-composer-lib.test.sh`, which also carry the other five adapters' capability profiles for every harness under both a UTF-8 locale and `LC_ALL=C`.
 This guard is the refresh command after any harness upgrade; rerun it and update the versions above rather than trusting this table across releases.
 
+A second live guard covers the transition this matrix does not:
+
+```sh
+FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh
+```
+
+It drives every installed harness through empty, unsubmitted-text, and empty-again verdicts on tmux, so a vendor change that erases the difference between a cleared composer and one still holding an unsent steer fails there instead of in delivery.
+Its Herdr counterpart, which adds the dead-shell control and the known-gap list, runs under [Away-mode transport](#away-mode-transport) below.
+
 `zellij action dump-screen --pane-id <id> --ansi` was verified at zellij 0.44.0 to preserve ANSI styling (real Claude Code rendered inside a zellij pane dumped `ESC[m` `❯` U+00A0 for its idle composer row), which is the capability the zellij composer classifier reads.
 
 ## Herdr
@@ -647,7 +656,7 @@ At the lab's 54 columns both of claude's rules are plain, so the separator pair 
 The wide-pane labelled shape, where the rescue is load-bearing, is pinned by the portable cases in `tests/fm-backend-herdr.test.sh` and by Scenario E instead.
 The guard cannot itself redraw the wide-pane label, so it does not fail against the pre-fix reader; the portable cases and Scenario E are what fail pre-fix, and the guard covers the vendor drift neither of them can see.
 Its dead-shell control, a pane in the same session running only a login shell, read `unknown` with no native agent record, so the emptiness above was not bought by weakening the refusal that keeps an escalation out of a shell.
-It also launched opencode 1.18.16 and re-confirmed the left-rail composer limitation recorded in [`docs/herdr-backend.md`](../herdr-backend.md) still reads `unknown`, so away-mode delivery to opencode on Herdr remains unverified.
+It also launched opencode 1.18.16 and re-confirmed the left-rail composer limitation recorded in [`docs/herdr-backend.md`](../herdr-backend.md) still read `unknown` against the Herdr-local scan of the time; the shared classifier has since taken that shape over, so away-mode delivery to opencode on Herdr stays unverified only until this guard runs again.
 That is the guard's one known-gap entry, and the guard fails asking for the entry to be removed if a listed harness starts reading correctly, so the list cannot outlive the limitation.
 Herdr names its backspace key `backspace` and refuses tmux's `BSpace` with `invalid_key`.
 

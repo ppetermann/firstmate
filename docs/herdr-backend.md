@@ -321,7 +321,8 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 - OpenCode 1.18.4 can accept Enter while busy without clearing the composer.
   The tmux backend has a busy-queue fallback, but Herdr still reports this case as submit pending and needs a separate adapter fix.
 - OpenCode draws a left-rail composer with no right border and no corner rows.
-  The tmux reader recognizes that container, but Herdr's structural scan still matches only paired borders and bare agent prompt glyphs, so an OpenCode composer under Herdr stays unknown and its submits stay unconfirmed.
+  That is no longer a Herdr-local shape gap: the shared classifier owns the left-bar shape for every backend, and `tests/fm-composer-lib.test.sh` pins an idle OpenCode composer reading `empty` under Herdr's exact capability descriptor.
+  It has not been re-measured against real Herdr since classification was unified, so away-mode delivery to OpenCode on Herdr stays unverified; `tests/fm-herdr-composer-drift-live-e2e.test.sh` still lists `opencode` as a known gap and fails asking for that entry's removal once the shape reads correctly live.
 - Only tmux and Herdr can host the away-mode supervisor terminal.
 
 ## Regression entry points
