@@ -185,7 +185,7 @@ family_for_basename() {
     fm-grok-stop-live-e2e.test.sh|fm-harness-liveness-drift-live-e2e.test.sh|\
     fm-muse-signals-live-e2e.test.sh|\
     fm-herdr-version-floor-live-e2e.test.sh|\
-    fm-composer-drift-live-e2e.test.sh|\
+    fm-composer-drift-live-e2e.test.sh|fm-herdr-composer-drift-live-e2e.test.sh|\
     fm-opencode-primary-live-e2e.test.sh|fm-pi-primary-live-e2e.test.sh|\
     fm-sessionstart-hook-live-e2e.test.sh|\
     fm-quota-array-dispatch-live-e2e.test.sh|fm-send-secondmate-marker-herdr-e2e.test.sh)
@@ -855,6 +855,10 @@ families_for_changed_path() {
       printf '%s\n' real-herdr-gated
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit
+      # The herdr composer reader locates the composer STRUCTURALLY (herdr has
+      # no cursor primitive), so it reads a frame each harness VENDOR draws and
+      # also selects the opt-in installed-harness drift guard.
+      printf '%s\n' live-harness-optin
       ;;
     bin/fm-herdr-session-cleanup.sh)
       printf '%s\n' session-bootstrap

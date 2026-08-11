@@ -64,21 +64,8 @@ export PATH
 "$REAL_TMUX" -L "$SOCKET" new-session -d -s "$SESSION" -n control -x 80 -y 24 -c "$LAB/wt" \
   || fail "could not start the private tmux server"
 
-# Mirror bin/fm-spawn.sh's own resolution order so this guard covers the same
-# binary firstmate would actually launch.
-resolve_harness_binary() {  # <harness>
-  local harness=$1 candidate
-  candidate=$(command -v "$harness" 2>/dev/null || true)
-  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
-    printf '%s\n' "$candidate"
-    return 0
-  fi
-  if [ "$harness" = kimi ] && [ -n "${HOME:-}" ] && [ -x "$HOME/.kimi-code/bin/kimi" ]; then
-    printf '%s\n' "$HOME/.kimi-code/bin/kimi"
-    return 0
-  fi
-  return 1
-}
+# shellcheck source=tests/harness-drift-helpers.sh
+. "$ROOT/tests/harness-drift-helpers.sh"
 
 wait_for_state() {  # <target> <wanted> -> 0 when reached
   local target=$1 wanted=$2 i=0
@@ -90,23 +77,10 @@ wait_for_state() {  # <target> <wanted> -> 0 when reached
   return 1
 }
 
-# A pane that has not drawn its TUI yet is mostly blank, and a blank cursor row
-# legitimately classifies as an empty composer. Waiting for a drawn screen
-# BEFORE the first verdict is what stops this guard from passing vacuously
-# against a harness that never finished starting.
-wait_for_drawn() {  # <target>
-  local target=$1 i=0 rows
-  while [ "$i" -lt "$SETTLE" ]; do
-    rows=$("$REAL_TMUX" -L "$SOCKET" capture-pane -p -t "$target" -S 0 -E - 2>/dev/null \
-      | grep -c '[^[:space:]]' || true)
-    if [ "${rows:-0}" -ge 3 ]; then
-      sleep 2   # let the first full frame settle before reading a verdict
-      return 0
-    fi
-    sleep 0.5
-    i=$((i + 1))
-  done
-  return 1
+# The tmux-side screen read that the shared fm_drift_wait_for_drawn polls
+# (tests/harness-drift-helpers.sh owns the drawn-screen policy itself).
+fm_drift_capture() {  # <target>
+  "$REAL_TMUX" -L "$SOCKET" capture-pane -p -t "$1" -S 0 -E - 2>/dev/null
 }
 
 composer_row() {  # <target> - the cursor row, for a failure message
@@ -118,10 +92,10 @@ composer_row() {  # <target> - the cursor row, for a failure message
 CHECKED=0
 SKIPPED=
 
-# The verified adapters, in the order .agents/skills/harness-adapters/SKILL.md
-# records them. An adapter that gains a verified launch path belongs here too.
-for harness in claude codex opencode pi pi-signed grok kimi muse; do
-  if ! bin_path=$(resolve_harness_binary "$harness"); then
+# The verified adapters, owned by tests/harness-drift-helpers.sh so a newly
+# verified adapter cannot be added to one live guard and left out of another.
+for harness in "${FM_DRIFT_HARNESSES[@]}"; do
+  if ! bin_path=$(fm_drift_resolve_harness_binary "$harness"); then
     SKIPPED="$SKIPPED $harness"
     note "skip: $harness is not installed on this machine, so its composer shape is unverified here"
     continue
@@ -139,7 +113,7 @@ for harness in claude codex opencode pi pi-signed grok kimi muse; do
     || fail "$harness ($version): could not launch a window for the composer probe"
 
   # 0. The TUI must actually be on screen before any verdict counts.
-  wait_for_drawn "$target" || fail \
+  fm_drift_wait_for_drawn "$target" "$SETTLE" || fail \
     "$harness ($version): the pane never drew a TUI, so no composer verdict here would mean anything"
 
   # 1. An idle harness must present an affirmatively EMPTY composer. Without

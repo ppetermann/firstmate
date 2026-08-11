@@ -151,10 +151,26 @@ EOF
 # to report its own agent state, verified empirically against real herdr 0.7.1
 # in an isolated session.
 LOOP_SCRIPT="$STATE_DIR/supervisor-loop.sh"
+# The single owner of the `rule` shape's frame width: the fixture draws both
+# rules this wide and Scenario E refuses any pane narrower than it.
+FM_RULE_COLUMNS=53
 cat > "$LOOP_SCRIPT" <<'LOOP'
 #!/usr/bin/env bash
 MARK=$'\xE2\x81\xA3'
 LOG="$1"
+# <shape>: `bordered` (default) draws the single-row "│ > buf │" box; `rule`
+# draws claude's RULE-DELIMITED composer - a labelled top rule, a bare `❯` row,
+# and a plain `─` closing rule - pinned to fixed rows so nothing scrolls.
+# <frame-row>: the absolute row the `rule` shape's TOP rule is drawn on. The
+# caller derives it from the pane's MEASURED height, because a frame pinned
+# below the pane's last row is clamped onto that row and the three frame rows
+# overwrite each other.
+# <rule-columns>: how wide both rules are drawn. The caller owns this constant
+# and refuses a pane narrower than it, because a wrapped closing rule puts a
+# second plain rule row on screen and completes a separator pair.
+SHAPE="${2:-bordered}"
+FRAME_ROW="${3:-18}"
+RULE_COLUMNS="${4:-53}"
 AGENT_SOURCE=fm-test-supervisor
 AGENT_LABEL=fm-test-supervisor
 report_agent_state() {  # <idle|working>
@@ -167,6 +183,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 report_agent_state idle
+[ "$SHAPE" = rule ] && printf '\033[2J'
 
 _buf=
 # redraw: keep the composer visually pinned to ONE terminal row regardless of
@@ -181,15 +198,35 @@ _buf=
 # a separate interactively-typed `tput cols`), so trusting it here silently
 # let content overflow the real width and wrap across two rows. 40 is
 # comfortably under every real pane width observed on this machine.
-redraw() {
-  local avail=40 shown tail_n
+_shown() {
+  local avail=40 tail_n
   if [ "${#_buf}" -gt "$avail" ]; then
     tail_n=$((avail - 3))
-    shown="...${_buf: -$tail_n}"
+    printf '...%s' "${_buf: -$tail_n}"
   else
-    shown="$_buf"
+    printf '%s' "$_buf"
   fi
-  printf '\r\033[K│ > %s │' "$shown"
+}
+# claude's frame, drawn at fixed rows so the composer never scrolls off and no
+# other plain `─` row can appear above it to complete a separator pair by
+# accident. The TOP rule carries a label exactly as claude's does once the pane
+# is wide enough to inline the in-progress todo, so it is NOT a plain rule and
+# the pair stays incomplete - the shape that read `unknown` and wedged every
+# away-mode escalation.
+RULE_LABEL=" Run tests ──"
+TOP_RULE="$(printf '─%.0s' $(seq 1 $((RULE_COLUMNS - ${#RULE_LABEL}))))$RULE_LABEL"
+BOT_RULE="$(printf '─%.0s' $(seq 1 "$RULE_COLUMNS"))"
+redraw() {
+  local shown
+  shown=$(_shown)
+  if [ "$SHAPE" = rule ]; then
+    printf '\033[%d;1H\033[K%s' "$FRAME_ROW" "$TOP_RULE"
+    printf '\033[%d;1H\033[K❯ %s' "$((FRAME_ROW + 1))" "$shown"
+    printf '\033[%d;1H\033[K%s' "$((FRAME_ROW + 2))" "$BOT_RULE"
+    printf '\033[%d;%dH' "$((FRAME_ROW + 1))" "$((3 + ${#shown}))"
+  else
+    printf '\r\033[K│ > %s │' "$shown"
+  fi
 }
 submit_line() {
   local _line=$_buf _c _hex
@@ -201,7 +238,9 @@ submit_line() {
   _hex=$(printf '%s' "$_line" | od -An -tx1 | tr -d ' \n')
   printf '%s\t%s\t%s\n' "$_hex" "$_line" "$_c" >> "$LOG"
   _buf=
-  printf '\r\033[K\n'
+  # The rule shape owns absolute rows, so it must never emit a newline: one
+  # scroll would move the frame out from under the structural reader.
+  [ "$SHAPE" = rule ] || printf '\r\033[K\n'
   redraw
   # Report a real idle->working->idle cycle around the submission, exactly
   # like a real harness's agent_status - this is the signal
@@ -521,10 +560,122 @@ test_scenario_d_max_defer() {
   pass "real herdr Scenario D: a persistently pending composer raises the max-defer wedge alarm, preserves the buffer, and never crashes the daemon"
 }
 
+# --- Scenario E: claude's RULE-DELIMITED composer with a labelled top rule ---
+# The captain's real away-mode failure, end to end. claude delimits its composer
+# with a horizontal rule above and below; once the pane is wide enough it inlines
+# the in-progress todo into the TOP rule, so that rule stops being a plain `─`
+# run, the separator pair never completes, and claude's own CLOSING rule sat
+# below the composer as an unmatched separator. The reader took that as proof the
+# composer row was stale and answered `unknown` - and because the injector
+# requires an affirmative `empty`, EVERY escalation deferred to the max-defer
+# wedge alarm while the pane was idle and perfectly injectable (three episodes on
+# 2026-08-08 alone, 935s/2473s/1545s undelivered).
+#
+# This drives the real daemon over the real herdr transport against that exact
+# frame. Run against the pre-fix reader it reproduces the wedge: composer_state
+# stays `unknown`, no digest is ever submitted, and .subsuper-inject-wedged is
+# raised. It therefore fails loudly if the structural rescue is ever lost.
+test_scenario_e_rule_delimited_composer() {
+  local ids _tab_id pane_id target verdict saved_target pane_layout pane_height pane_width frame_row
+  reset_state
+
+  ids=$(fm_backend_herdr_create_task "$CONTAINER" "fm-afk-e2e-rule" /tmp) \
+    || fail "Scenario E: could not create the rule-delimited composer pane"
+  read -r _tab_id pane_id <<EOF
+$ids
+EOF
+  [ -n "$pane_id" ] || fail "Scenario E: create_task returned no pane id"
+  target="$SESSION:$pane_id"
+
+  local ready=false samples=0 _i
+  for _i in $(seq 1 100); do
+    if fm_backend_herdr_cli "$SESSION" pane process-info --pane "$pane_id" 2>/dev/null | jq -e '
+      .result.process_info as $process
+      | ($process.foreground_processes | length == 1)
+        and ($process.foreground_processes[0].pid == $process.shell_pid)' >/dev/null 2>&1; then
+      samples=$((samples + 1))
+      [ "$samples" -ge 10 ] && { ready=true; break; }
+    else
+      samples=0
+    fi
+    sleep 0.1
+  done
+  [ "$ready" = true ] || fail "Scenario E: the rule-delimited pane's shell did not become ready"
+
+  # The `rule` shape owns ABSOLUTE cursor rows and draws a frame FM_RULE_COLUMNS
+  # wide, so BOTH pane dimensions must be measured before it is drawn, and both
+  # refusals are worded in fixture/geometry terms, deliberately apart from the
+  # captain's-wedge assertion, so a mis-sized pane can never be misdiagnosed as
+  # the regression this scenario exists to detect.
+  #   height - in a pane shorter than the frame the terminal clamps all three
+  #     printf targets onto the last row and they overwrite each other, so the
+  #     verdict below would read `unknown` for a fixture that never drew the
+  #     shape. The frame origin is derived from the measured height.
+  #   width - in a narrower pane the closing rule WRAPS, and its remainder lands
+  #     on the row below as a second plain rule. That completes a separator pair
+  #     around the composer row, so the reader answers from the untouched
+  #     matched-pair branch and the scenario would pass green through a path the
+  #     pre-fix reader handled too, proving nothing about the rescue it exists
+  #     to pin.
+  pane_layout=$(fm_backend_herdr_cli "$SESSION" pane layout --pane "$pane_id" 2>/dev/null \
+    | jq -r --arg pane "$pane_id" \
+      '.result.layout.panes[]? | select(.pane_id == $pane) | "\(.rect.height) \(.rect.width)"' 2>/dev/null | head -1)
+  read -r pane_height pane_width <<EOF
+$pane_layout
+EOF
+  case "${pane_height:-}" in ''|*[!0-9]*) pane_height=0 ;; esac
+  case "${pane_width:-}" in ''|*[!0-9]*) pane_width=0 ;; esac
+  [ "$pane_height" -ge 12 ] || fail \
+    "Scenario E FIXTURE GEOMETRY (not a composer regression): 'herdr pane layout' reports height '$pane_height' for the lab pane, which is unreadable or too short to hold the three-row rule-delimited frame at absolute cursor rows. Repair the fixture's geometry; do not read this as the away-mode wedge."
+  [ "$pane_width" -ge "$FM_RULE_COLUMNS" ] || fail \
+    "Scenario E FIXTURE GEOMETRY (not a composer regression): 'herdr pane layout' reports width '$pane_width' for the lab pane, which is unreadable or narrower than the fixture's $FM_RULE_COLUMNS-column frame, so the closing rule would wrap into a second plain rule row and complete a separator pair the reader answers from without the rescue. Repair the fixture's geometry; do not read this as the away-mode wedge."
+  frame_row=$((pane_height - 5))
+
+  fm_backend_herdr_send_text_line "$target" "bash '$LOOP_SCRIPT' '$LOG_FILE' rule $frame_row $FM_RULE_COLUMNS" \
+    || fail "Scenario E: could not start the rule-delimited composer fixture"
+  sleep 2
+
+  # The frame must be exactly the failing one: an idle composer that the reader
+  # can now affirm as EMPTY. Asserting it here means a later delivery failure
+  # cannot be mistaken for a fixture that never drew the shape.
+  verdict=$(fm_backend_herdr_composer_state "$target")
+  [ "$verdict" = empty ] || fail \
+    "Scenario E: an idle claude-style rule-delimited composer reads '$verdict', not empty - the away-mode injector refuses to inject into anything but an affirmative empty, so every escalation would defer until the max-defer alarm (this is the captain's wedge)"
+
+  saved_target=$SUPERVISOR_TARGET
+  SUPERVISOR_TARGET=$target
+  afk_enter "$STATE_DIR"
+  start_daemon
+
+  echo "done: PR https://example.test/pr/500" > "$STATE_DIR/fake-c1.status"
+  sleep 8
+
+  local marker_count digest_line user_count
+  marker_count=$(awk -F '\t' '{ hex=$1; count += gsub(/e281a3/, "", hex) } END { print count + 0 }' "$LOG_FILE")
+  [ "$marker_count" -eq 1 ] \
+    || fail "Scenario E: expected exactly 1 escalation delivered into the rule-delimited composer, got $marker_count (0 means the wedge is back: the reader could not affirm the composer empty and the daemon deferred)"
+  digest_line=$(grep 'Supervisor escalate' "$LOG_FILE" | head -1)
+  case "$digest_line" in
+    *injection) ;;
+    *) fail "Scenario E: digest misclassified (expected injection): $digest_line" ;;
+  esac
+  user_count=$(grep -c $'\tuser$' "$LOG_FILE" || true)
+  [ "$user_count" -eq 0 ] \
+    || fail "Scenario E: expected 0 user lines, got $user_count (a spurious Enter submitted an empty line?)"
+  [ ! -s "$STATE_DIR/.subsuper-inject-wedged" ] \
+    || fail "Scenario E: the max-defer wedge alarm was raised even though the composer was injectable"
+
+  stop_daemon
+  SUPERVISOR_TARGET=$saved_target
+  fm_backend_herdr_kill "$target" 2>/dev/null || true
+  pass "real herdr Scenario E: an away-mode escalation is delivered into claude's rule-delimited composer whose top rule carries an inline label"
+}
+
 test_scenario_a
 test_scenario_b
 test_scenario_c
 test_scenario_d_max_defer
+test_scenario_e_rule_delimited_composer
 
 echo "all real-herdr afk injection e2e tests passed"
 

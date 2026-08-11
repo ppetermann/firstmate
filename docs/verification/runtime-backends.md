@@ -523,6 +523,7 @@ ok - forced teardown retains a nested secondmate home and its grandchild's Herdr
 Real captures verified these active distinctions:
 
 - Claude and Codex use bare `❯` and `›` agent composers.
+  Claude's row carries further rule-delimited structure this reader depends on; [Away-mode transport](#away-mode-transport) below owns that shape and the delivery failure it caused.
 - Unicode blank padding around a prompt glyph is padding, not typed input, because no shell trim treats U+00A0 as whitespace.
 - OpenCode uses a left-rail composer container with no right border and no corner rows.
 - Pi uses content between complete separator rows and requires exact native Pi identity.
@@ -589,6 +590,74 @@ FM_AFK_PI_HERDR_E2E=1 HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
 
 Observed guarantees: pending composer input refused injection and raised one alert; idle Pi accepted one marked escalation; the return gate refused ordinary work while a live blocker remained; resolving the blocker allowed the return flow.
 The dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
+
+#### claude's rule-delimited composer (2026-08-10, claude 2.1.226 on Herdr 0.8.0)
+
+claude delimits its composer with a horizontal rule above and below rather than a box.
+While both rules are plain `─` runs they form a complete separator pair enclosing the composer row, and the reader was already correct.
+Once the pane is wide enough claude inlines its in-progress todo into the TOP rule, which stops that rule being plain, leaves claude's own CLOSING rule unmatched below the live composer, and made the reader answer `unknown`.
+The away-mode injector requires an affirmative `empty`, so every escalation deferred to the max-defer wedge alarm on an idle, injectable pane.
+
+Measured read-only on the captain's pane at 107 columns:
+
+```text
+row 1  ───────────────…─────────── Run tests ──   (107 cols, NOT a plain rule)
+row 2  ❯<U+00A0>                                  (ESC[38;2;153;153;153m)
+row 3  ───────────────…──────────────────────────  (107 cols, plain rule)
+row 4    ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents · esc to interrupt
+```
+
+A headless lab session has no attached client and its panes are fixed at the default grid, measured as 54 columns on Herdr 0.8.0 (`herdr pane layout` reported `{"height":23,"width":54,"x":26,"y":1}`, and `tput cols` inside the pane agreed).
+`COLUMNS`, a wide controlling PTY, and `herdr pane zoom` all left that unchanged, and at 54 columns claude renders the same todo as separate rows above a plain top rule.
+The wide-pane label therefore cannot be redrawn in an isolated lab; the guard below pins the verdicts and the structural invariants instead.
+
+The reader keeps the composer's verdict only when both the closing rule is the composer row's immediate successor and `herdr agent get` names a known non-Pi agent.
+Both signals were confirmed live: `agent get` reported `claude` for a launched claude pane and returned no agent for a plain shell pane in the same session.
+
+The identity half rests on an exited agent LOSING that record, measured against a real exit rather than against a pane that never hosted an agent.
+Method: a claude pane launched in an isolated lab session, read with `fm_backend_herdr_composer_state` and `herdr agent get` before and after its `/exit` quit command.
+
+| Moment | `composer_state` | `agent get` |
+| --- | --- | --- |
+| claude running, idle composer | `empty` | `agent=claude`, `agent_status=idle` |
+| ~8s after the quit command | `unknown` | agent absent, status absent |
+| 20s after the quit command | `unknown` | agent absent, status absent |
+
+That first post-exit sample was taken at about 8 seconds, which bounds the drop only loosely.
+Three further consecutive runs tightened it: the record was already absent at the FIRST sample, taken 0.05 seconds after `pane process-info` showed the pane's shell back in the foreground, so no clearing lag was observed at all.
+The guard still polls for the record to clear rather than reading it once, because Herdr's agent state is event-driven (`pane.agent_status_changed`) and a slower or loaded machine is not bound by these measurements.
+
+`pane process-info` returned the foreground process to the shell (foreground pid equal to `shell_pid`, name `zsh`), and the screen after exit showed only the shell prompt because claude restored the normal screen buffer.
+So no stale glyph row and no rule survived at all, and Herdr had already dropped the record: two independent reasons the rescue cannot fire on an exited agent.
+
+Both ways of submitting that quit command were measured, and both quit claude cleanly, each settling the pane back to its shell, dropping the native agent record, and leaving `composer_state` reading `unknown`: Herdr's atomic `pane run`, and the popup-safe order of a literal send, a 1.2 second settle, then a retried Enter.
+The guard uses the popup-safe order regardless, because a `/`-prefixed send opens a completion popup this repo already guards against everywhere else, not because the atomic path was ever observed failing.
+
+```sh
+tests/fm-afk-inject-herdr-e2e.test.sh
+FM_COMPOSER_DRIFT=1 tests/fm-herdr-composer-drift-live-e2e.test.sh
+```
+
+Scenario E of the injection e2e drives the real daemon over the real Herdr transport against the captain's exact frame.
+Against the pre-fix reader it reproduced the wedge (`reads 'unknown', not empty`); with the fix it delivered exactly one escalation and raised no wedge alarm.
+
+The drift guard launches every installed harness in an isolated lab session and holds each to its empty, pending, and empty-again verdict checks plus the structural frame.
+At the lab's 54 columns both of claude's rules are plain, so the separator pair completes and the reader answers without the rescue at all; the guard observes the frame there but deliberately does not gate on the adjacency and native-identity invariants, because asserting them where the reader does not consult them would abort claiming the wedge is back for a pane the same run had just affirmed as `empty`.
+The wide-pane labelled shape, where the rescue is load-bearing, is pinned by the portable cases in `tests/fm-backend-herdr.test.sh` and by Scenario E instead.
+The guard cannot itself redraw the wide-pane label, so it does not fail against the pre-fix reader; the portable cases and Scenario E are what fail pre-fix, and the guard covers the vendor drift neither of them can see.
+Its dead-shell control, a pane in the same session running only a login shell, read `unknown` with no native agent record, so the emptiness above was not bought by weakening the refusal that keeps an escalation out of a shell.
+It also launched opencode 1.18.16 and re-confirmed the left-rail composer limitation recorded in [`docs/herdr-backend.md`](../herdr-backend.md) still reads `unknown`, so away-mode delivery to opencode on Herdr remains unverified.
+That is the guard's one known-gap entry, and the guard fails asking for the entry to be removed if a listed harness starts reading correctly, so the list cannot outlive the limitation.
+Herdr names its backspace key `backspace` and refuses tmux's `BSpace` with `invalid_key`.
+
+Observed against installed harnesses as of this commit: the dead-shell control, claude's empty, pending and empty-again verdicts, the frame observation above, and opencode's standing gap.
+NOT yet observed: the guard's exited-agent control is newly added and has never run as part of a full guard run, so read claude's pass as covering the verdicts and the frame and never that control.
+The premise that control checks is evidence-backed by the measurement table above, and from the next run on the guard re-checks it live for every harness whose quit command it has measured, reporting a harness without one as skipped rather than assuming it.
+
+This section records durable facts, exact versions, and the commands that reproduce them, and deliberately does not quote the guards' own run-note text.
+The repo asks a maintainer-verification record to carry exact dates, versions, commands and output, and this one still does for every GUARANTEE.
+What is left out on purpose is incidental per-run note wording, which supports no guarantee and goes stale the moment the guard rephrases itself; the guard owns its output, and duplicating it here is what kept this record wrong.
+These commands are what refresh this record; run them after every claude or Herdr upgrade rather than trusting the versions above.
 
 ## Zellij
 
