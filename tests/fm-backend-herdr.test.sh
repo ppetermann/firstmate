@@ -2987,7 +2987,7 @@ test_busy_state_unknown_on_no_agent() {
 test_composer_state_bare_prompt_is_empty() {
   local dir log resp fb out
   dir="$TMP_ROOT/composer-bare"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '  ╭────────────────────────╮\n  │ ❯                      │\n  ╰──────── Composer ─────╯\n\n  Shift+Tab:mode\n' > "$resp/1.out"
+  printf '  ╭────────────────────────╮\n  │ ❯                      │\n  ╰──────── Composer ──────╯\n\n  Shift+Tab:mode\n' > "$resp/1.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
@@ -2995,21 +2995,21 @@ test_composer_state_bare_prompt_is_empty() {
   pass "fm_backend_herdr_composer_state: a bare '❯' composer row reads empty"
 }
 
-test_composer_state_ghost_placeholder_is_empty() {
+test_composer_state_styled_placeholder_draft_is_pending() {
   local dir log resp fb out
   dir="$TMP_ROOT/composer-ghost"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '  ╭────────────────────────╮\n  │ ❯ Type a message...    │\n  ╰──────── Composer ─────╯\n' > "$resp/1.out"
+  printf '  ╭────────────────────────╮\n  │ ❯ Type a message...    │\n  ╰──────── Composer ──────╯\n' > "$resp/1.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
-  [ "$out" = empty ] || fail "the known ghost placeholder 'Type a message...' should read as empty, got '$out'"
-  pass "fm_backend_herdr_composer_state: the ghost placeholder text reads empty, not pending"
+  [ "$out" = pending ] || fail "bright placeholder-like text in a styled capture should remain pending, got '$out'"
+  pass "fm_backend_herdr_composer_state: bright placeholder-like text stays pending rather than being mistaken for an idle ghost"
 }
 
 test_composer_state_real_text_is_pending() {
   local dir log resp fb out
   dir="$TMP_ROOT/composer-pending"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '  ╭────────────────────────╮\n  │ ❯ hello captain         │\n  ╰──────── Composer ─────╯\n\n  Enter:send\n' > "$resp/1.out"
+  printf '  ╭────────────────────────╮\n  │ ❯ hello captain        │\n  ╰──────── Composer ──────╯\n\n  Enter:send\n' > "$resp/1.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
@@ -3028,7 +3028,7 @@ test_composer_state_real_text_is_pending() {
 test_composer_state_popup_placeholder_fill_is_pending() {
   local dir log resp fb out
   dir="$TMP_ROOT/composer-popup-placeholder"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '  ╭──────────────────────────────────────╮\n  │ ❯ /compact compaction instructions    │\n  ╰──────────────── Composer ─────────────╯\n\n  Enter:send\n' > "$resp/1.out"
+  printf '  ╭──────────────────────────────────────╮\n  │ ❯ /compact compaction instructions   │\n  ╰──────────────── Composer ────────────╯\n\n  Enter:send\n' > "$resp/1.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
@@ -3273,23 +3273,31 @@ test_composer_state_claude_labelled_top_rule_is_empty() {
 # The other half of the same live composer, pinned by name because it is the
 # shape the pane shows whenever no todo is in progress and it must never depend
 # on the rescue above: both rules are plain, so they form a complete separator
-# pair that ENCLOSES the composer row and the verdict is reached without
-# consulting native identity at all. Asserted at the captain's real 107-column
-# width with the real U+00A0 padding, and asserted to make NO agent call, so a
-# future change that quietly routed this shape through the identity-dependent
-# path would fail here rather than silently narrowing when away mode works.
+# pair that ENCLOSES the composer row. Asserted at the captain's real 107-column
+# width with the real U+00A0 padding.
+#
+# The guarded property is INDEPENDENCE from identity, not the absence of a probe.
+# The shared classifier disambiguates a glyph row sitting inside a separator pair
+# (pi's own composer region is exactly such a region) by asking for identity once,
+# so the call count is an implementation detail that legitimately changed. What
+# must never change is that this shape still reaches `empty` when the probe finds
+# nothing at all: if it silently became identity-DEPENDENT, away-mode delivery
+# would start failing on exactly the panes where the probe is unavailable, which
+# is the narrowing the original zero-call assertion was written to catch.
 test_composer_state_claude_plain_rule_delimited_is_empty() {
-  local out nbsp calls
+  local out nbsp
   nbsp=$(printf '\302\240')
   out=$(HERDR_CLAUDE_RULE_TOP=plain herdr_claude_rule_state plain-empty "❯$nbsp" \
     '{"result":{"agent":{"agent":"claude","agent_status":"working"}}}')
   [ "$out" = empty ] || fail "claude's rule-delimited composer between two PLAIN rules must read empty, got '$out'"
-  calls=$(grep -c $'\x1f''agent'$'\x1f''get' "$TMP_ROOT/composer-claude-rule-plain-empty/log" || true)
-  [ "$calls" -eq 0 ] || fail "a complete separator pair encloses the composer row, so this shape must need no native identity call, made $calls"
+  # The same frame with NO native agent record at all: an enclosed bare agent
+  # glyph is its own container proof, so the verdict must not depend on identity.
+  out=$(HERDR_CLAUDE_RULE_TOP=plain herdr_claude_rule_state plain-empty-noidentity "❯$nbsp" '')
+  [ "$out" = empty ] || fail "the enclosed PLAIN rule-delimited composer must still read empty with no native identity available, got '$out' - this shape has become identity-dependent, which silently narrows away-mode delivery"
   out=$(HERDR_CLAUDE_RULE_TOP=plain herdr_claude_rule_state plain-pending '❯ ship the fix captain' \
     '{"result":{"agent":{"agent":"claude","agent_status":"working"}}}')
   [ "$out" = pending ] || fail "real unsubmitted text between two plain rules must still read pending, got '$out'"
-  pass "fm_backend_herdr_composer_state: claude's PLAIN rule-delimited composer reads empty without consulting native identity, and still reads pending with text"
+  pass "fm_backend_herdr_composer_state: claude's PLAIN rule-delimited composer reads empty without depending on native identity, and still reads pending with text"
 }
 
 test_composer_state_claude_labelled_top_rule_needs_native_identity() {
@@ -3413,7 +3421,7 @@ test_composer_state_claude_dim_ghost_row_with_real_text_is_pending() {
 test_composer_state_grok_dark_truecolor_placeholder_is_empty() {
   local dir log resp fb out
   dir="$TMP_ROOT/composer-grok-truecolor-ghost"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '  \x1b[38;2;86;82;110m\xe2\x95\xad\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x95\xae\x1b[39m\n  \x1b[38;2;86;82;110m\xe2\x94\x82\x1b[38;2;224;222;244m \xe2\x9d\xaf \x1b[38;2;50;47;70mType a message...\x1b[38;2;86;82;110m \xe2\x94\x82\x1b[39m\n  \x1b[38;2;86;82;110m\xe2\x95\xb0\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x95\xaf\x1b[39m\n' > "$resp/1.out"
+  printf '  \x1b[38;2;86;82;110m\xe2\x95\xad\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x95\xae\x1b[39m\n  \x1b[38;2;86;82;110m\xe2\x94\x82\x1b[38;2;224;222;244m \xe2\x9d\xaf \x1b[38;2;50;47;70mType a message...\x1b[38;2;86;82;110m \xe2\x94\x82\x1b[39m\n  \x1b[38;2;86;82;110m\xe2\x95\xb0\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x95\xaf\x1b[39m\n' > "$resp/1.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
@@ -3425,7 +3433,7 @@ test_composer_state_grok_dark_truecolor_placeholder_is_empty() {
 test_composer_state_grok_bright_truecolor_real_text_is_pending() {
   local dir log resp fb out
   dir="$TMP_ROOT/composer-grok-truecolor-real"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '  \x1b[38;2;86;82;110m\xe2\x94\x82\x1b[38;2;224;222;244m \xe2\x9d\xaf fix the login bug \x1b[38;2;86;82;110m\xe2\x94\x82\x1b[39m\n' > "$resp/1.out"
+  printf '  \x1b[38;2;86;82;110m\xe2\x95\xad\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x95\xae\x1b[39m\n  \x1b[38;2;86;82;110m\xe2\x94\x82\x1b[38;2;224;222;244m \xe2\x9d\xaf fix the login bug \x1b[38;2;86;82;110m\xe2\x94\x82\x1b[39m\n  \x1b[38;2;86;82;110m\xe2\x95\xb0\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x95\xaf\x1b[39m\n' > "$resp/1.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
@@ -3797,8 +3805,9 @@ test_dispatch_composer_state_routes_by_backend() {
   # fm_backend_composer_state (the generic per-backend composer/pending-input
   # classifier the away-mode daemon dispatches through - bin/fm-supervise-daemon.sh's
   # pane_input_pending) must route to each backend's OWN named classifier with
-  # the target passed through unchanged, fall back to unknown for a backend with
-  # no named classifier (zellij), and unknown for an unrecognized backend name.
+  # the target passed through unchanged - every backend has one now, all thin
+  # wrappers over the shared fm_composer_classify_screen - and report unknown
+  # for an unrecognized backend name.
   # Sourced-guards are pre-set so fm_backend_source no-ops and these stubs are
   # never clobbered by the real per-backend files trying (and failing) a live call.
   (
@@ -3811,13 +3820,14 @@ test_dispatch_composer_state_routes_by_backend() {
     fm_tmux_composer_state() { [ "$1" = "sess:win" ] || fail "tmux composer_state got wrong target: $1"; printf 'pending'; }
     fm_backend_herdr_composer_state() { [ "$1" = "default:w1:p2" ] || fail "herdr composer_state got wrong target: $1"; printf 'empty'; }
     fm_backend_orca_composer_state() { [ "$1" = "term-1" ] || fail "orca composer_state got wrong target: $1"; printf 'empty'; }
+    fm_backend_zellij_composer_state() { [ "$1" = "sess:7" ] || fail "zellij composer_state got wrong target: $1"; printf 'empty'; }
     [ "$(fm_backend_composer_state tmux sess:win)" = pending ] || fail "composer_state did not dispatch to the tmux classifier"
     [ "$(fm_backend_composer_state herdr default:w1:p2)" = empty ] || fail "composer_state did not dispatch to the herdr classifier"
     [ "$(fm_backend_composer_state orca term-1)" = empty ] || fail "composer_state did not dispatch to the orca classifier"
-    [ "$(fm_backend_composer_state zellij sess:win)" = unknown ] || fail "composer_state should report unknown for zellij (no named classifier yet)"
+    [ "$(fm_backend_composer_state zellij sess:7)" = empty ] || fail "composer_state did not dispatch to the zellij classifier"
     [ "$(fm_backend_composer_state bogus x)" = unknown ] || fail "composer_state should report unknown for an unrecognized backend"
   ) || fail "composer_state dispatch subshell failed"
-  pass "fm_backend_composer_state dispatches tmux/herdr/orca to their named classifiers, unknown for zellij/unrecognized backends"
+  pass "fm_backend_composer_state dispatches every backend to its named thin classifier, unknown for unrecognized backends"
 }
 
 test_scripts_route_explicit_target_through_meta_backend() {
@@ -4492,7 +4502,7 @@ test_busy_state_working_maps_to_busy
 test_busy_state_done_and_blocked_map_to_idle
 test_busy_state_unknown_on_no_agent
 test_composer_state_bare_prompt_is_empty
-test_composer_state_ghost_placeholder_is_empty
+test_composer_state_styled_placeholder_draft_is_pending
 test_composer_state_real_text_is_pending
 test_composer_state_popup_placeholder_fill_is_pending
 test_composer_state_unknown_on_capture_failure

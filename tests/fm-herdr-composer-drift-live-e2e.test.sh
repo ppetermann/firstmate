@@ -107,11 +107,11 @@ PROBE=fmdrift
 # green. A listed harness is still launched and still read: the gap must still
 # be there, and a listed harness that starts reading correctly FAILS this guard
 # asking for its entry to be removed, so the list cannot quietly outlive the
-# gap it documents.
-#   opencode - the left-rail composer limitation docs/herdr-backend.md already
-#     records under its "Active limits" heading. Re-confirmed here against
-#     opencode 1.18.16 on herdr 0.8.0.
-HERDR_COMPOSER_KNOWN_GAPS=${FM_HERDR_COMPOSER_KNOWN_GAPS:-opencode}
+# gap it documents. The list is EMPTY today - every installed harness is held to
+# the full contract below - and `FM_HERDR_COMPOSER_KNOWN_GAPS` sets it (a
+# space-separated harness list) when a vendor release breaks a shape and the
+# reader has not caught up yet.
+HERDR_COMPOSER_KNOWN_GAPS=${FM_HERDR_COMPOSER_KNOWN_GAPS:-}
 
 is_known_gap() {  # <harness>
   case " $HERDR_COMPOSER_KNOWN_GAPS " in *" $1 "*) return 0 ;; esac
@@ -172,36 +172,38 @@ fm_drift_capture() {  # <target>
 # rule rows that window holds, as the reader's own structural scan sees them.
 # Printed as "<glyph_row> <rule_row> <rule_count>", 0 for absent.
 #
-# This reuses the reader's OWN predicates (fm_backend_herdr_pi_separator_row and
-# FM_BACKEND_HERDR_BARE_PROMPT_RE) over the reader's own capture rather than
-# restating them: a guard with its own idea of what counts as a rule would take
-# the "not rule-delimited" branch below - skipping both structural assertions
-# while still reporting green - against a harness the reader still treats as
-# rule-delimited. The separator predicate trims the trailing carriage return
-# herdr ends each captured row with, as whitespace, exactly as the reader does.
+# This reuses the classifier's OWN predicates (_fm_composer_pi_separator_row,
+# fm_composer_normalize_trim_var, and fm_composer_leading_agent_glyph_var) over
+# the reader's own capture rather than restating them: a guard with its own idea
+# of what counts as a rule would take the "not rule-delimited" branch below -
+# skipping both structural assertions while still reporting green - against a
+# harness the reader still treats as rule-delimited. The shared normalize-trim
+# absorbs the trailing carriage return herdr ends each captured row with,
+# exactly as the classifier's own scan does before testing the same predicate.
 #
 # The glyph row deliberately tracks the BARE shape ONLY, even though the
-# reader's structural scan also recognizes bordered rows: the rescue this guard
-# pins applies only to the bare agent-glyph row (bin/backends/herdr.sh gates it
-# on `shape = bare`), and asserting adjacency about a bordered row the reader
-# never routes through that branch would hold a harness to an invariant the
-# reader does not have. The two are one decision, so a change to either shape
-# gate must move both together.
+# classifier's scan also recognizes bordered rows: the rescue this guard pins
+# applies only to the bare agent-glyph row (bin/fm-composer-lib.sh gates it on
+# `FM_COMPOSER_SELECTED_KIND = bare`), and asserting adjacency about a bordered
+# row the classifier never routes through that branch would hold a harness to an
+# invariant it does not have. The two are one decision, so a change to either
+# shape gate must move both together.
 composer_frame_rows() {  # <target>
-  local target=$1 cap line plain row=0 glyph=0 rule=0 rules=0
-  cap=$(fm_backend_herdr_capture_ansi "$target" "$FM_BACKEND_HERDR_COMPOSER_LINES" 2>/dev/null) || cap=
+  # shellcheck disable=SC2034 # `lead` is an out-varname set by name inside
+  # fm_composer_leading_agent_glyph_var; only its return status is read here.
+  local target=$1 cap line plain row=0 glyph=0 rule=0 rules=0 lead
+  cap=$(fm_backend_herdr_capture_ansi "$target" "$FM_COMPOSER_CAPTURE_LINES" 2>/dev/null) || cap=
   while IFS= read -r line; do
     row=$((row + 1))
-    plain=$(fm_backend_herdr_strip_ansi "$line")
-    if fm_backend_herdr_pi_separator_row "$plain"; then
+    plain=$(printf '%s\n' "$line" | fm_composer_strip_ansi)
+    fm_composer_normalize_trim_var plain
+    if _fm_composer_pi_separator_row "$plain"; then
       rule=$row
       rules=$((rules + 1))
       continue
     fi
-    plain="${plain#"${plain%%[![:space:]]*}"}"
-    plain="${plain%"${plain##*[![:space:]]}"}"
     [ -n "$plain" ] || continue
-    if printf '%s' "$plain" | grep -qE "$FM_BACKEND_HERDR_BARE_PROMPT_RE"; then
+    if fm_composer_leading_agent_glyph_var lead "$plain"; then
       glyph=$row
     fi
   done < <(printf '%s\n' "$cap")

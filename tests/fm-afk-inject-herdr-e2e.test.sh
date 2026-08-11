@@ -131,12 +131,13 @@ read -r _FAKE_TAB_ID FAKE_CREW_PANE_ID <<EOF
 $FAKE_CREW_IDS
 EOF
 
-# --- deterministic bordered-composer loop, drawn in the scratch pane ---------
-# Mirrors tests/fm-afk-inject-e2e.test.sh's supervisor-loop.sh, but draws a
-# "│ > <buf> │" border so the bordered branch of
-# fm_backend_herdr_composer_state recognizes it, exactly like a bordered-TUI
-# harness composer. ALSO registers itself as a real herdr agent via `herdr
-# pane report-agent` and reports idle/working transitions around each
+# --- deterministic bare-composer loop, drawn in the scratch pane -------------
+# Mirrors tests/fm-afk-inject-e2e.test.sh's supervisor-loop.sh, but draws the
+# shared classifier's positively identified bare-agent shape (`❯ <buf>`). This
+# remains readable under the strict blank-row posture without pretending that
+# one side-bordered row is a complete composer box. ALSO registers itself as a
+# real herdr agent via `herdr pane report-agent` and reports idle/working
+# transitions around each
 # submission: fm_backend_herdr_send_text_submit's confirmation is now native
 # agent-state (agent get), not composer content (docs/herdr-backend.md
 # "Native agent-state submit confirmation"), so a synthetic pane that only
@@ -168,7 +169,7 @@ LOG="$1"
 # <rule-columns>: how wide both rules are drawn. The caller owns this constant
 # and refuses a pane narrower than it, because a wrapped closing rule puts a
 # second plain rule row on screen and completes a separator pair.
-SHAPE="${2:-bordered}"
+SHAPE="${2:-bare}"
 FRAME_ROW="${3:-18}"
 RULE_COLUMNS="${4:-53}"
 AGENT_SOURCE=fm-test-supervisor
@@ -225,7 +226,7 @@ redraw() {
     printf '\033[%d;1H\033[K%s' "$((FRAME_ROW + 2))" "$BOT_RULE"
     printf '\033[%d;%dH' "$((FRAME_ROW + 1))" "$((3 + ${#shown}))"
   else
-    printf '\r\033[K│ > %s │' "$shown"
+    printf '\r\033[K❯ %s' "$shown"
   fi
 }
 submit_line() {
@@ -344,6 +345,7 @@ reset_state() {
          "$STATE_DIR"/.subsuper-* \
          "$STATE_DIR"/.wake-queue* \
          "$STATE_DIR"/.watch.lock* \
+         "$STATE_DIR"/.watcher-down* \
          "$STATE_DIR"/.last-* \
          "$STATE_DIR"/.hash-* \
          "$STATE_DIR"/.count-* \

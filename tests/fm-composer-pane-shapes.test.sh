@@ -283,9 +283,9 @@ test_unbounded_box_stays_unknown() {
 test_rail_placeholder_at_the_luminance_bound() {
   local ghost_target real_target ghost_state real_state
   ghost_target=$(paint rail-ghost \
-    "  $RAIL\\n  $RAIL  \\033[38;2;128;128;128mAsk anything...\\033[0m\\n  $RAIL\\n  $RAIL  Build\\n" 2)
+    "  $RAIL\\n  $RAIL  \\033[38;2;128;128;128mAsk anything...\\033[0m\\n  $RAIL\\n  $RAIL  Build \302\267 model-name\\n" 2)
   real_target=$(paint rail-real \
-    "  $RAIL\\n  $RAIL  \\033[38;2;238;238;238mreal typed steer\\033[0m\\n  $RAIL\\n  $RAIL  Build\\n" 2)
+    "  $RAIL\\n  $RAIL  \\033[38;2;238;238;238mreal typed steer\\033[0m\\n  $RAIL\\n  $RAIL  Build \302\267 model-name\\n" 2)
   ghost_state=$(fm_tmux_composer_state "$ghost_target")
   real_state=$(fm_tmux_composer_state "$real_target")
   [ "$ghost_state" = empty ] \
