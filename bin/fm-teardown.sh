@@ -641,35 +641,22 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   [ -z "$T_ORCA" ] || T=$T_ORCA
 fi
 
-# Where a harness's firstmate-owned global turn-end registry entry lives is
-# owned by bin/fm-control-lib.sh, so teardown and the control plane's relaunch
-# retire the same artifact rather than each carrying its own copy of the path.
-#
-# The `-s` guard below is load-bearing, not redundant with `-f`. The token is
-# written with a plain redirect, which truncates before the token lands, so a
-# crash in that window leaves a ZERO-BYTE file. An empty token names no registry
-# entry, so it is the same nothing-to-revoke case as no token file at all;
-# treating its EOF as a read failure aborts teardown before any state is removed
-# and the task can never be torn down again. A token that is present and
-# non-empty but unreadable still fails closed, because that one really would
-# strand a live registry entry.
+# The path a harness's turn-end registry entry lives at and the empty-token-safe
+# read of the per-task token that names it are both owned by
+# bin/fm-control-lib.sh (fm_control_harness_turnend_token_read), so teardown and
+# the control plane's relaunch revoke the same entry the same way instead of
+# each carrying its own copy of the path or the guard.
 remove_grok_turnend_auth() {
-  local state_dir=$1 id=$2 token_path token='' path
-  token_path=$(fm_control_harness_turnend_token_path grok "$state_dir" "$id") || return 1
-  if [ -n "$token_path" ] && [ -f "$token_path" ] && [ -s "$token_path" ]; then
-    IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
-  fi
+  local state_dir=$1 id=$2 token path
+  token=$(fm_control_harness_turnend_token_read grok "$state_dir" "$id") || return 1
   path=$(fm_control_harness_turnend_auth_path grok "$token") || return 1
   [ -n "$path" ] || return 0
   rm -f -- "$path"
 }
 
 remove_kimi_turnend_auth() {
-  local state_dir=$1 id=$2 token_path token='' path
-  token_path=$(fm_control_harness_turnend_token_path kimi "$state_dir" "$id") || return 1
-  if [ -n "$token_path" ] && [ -f "$token_path" ] && [ -s "$token_path" ]; then
-    IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
-  fi
+  local state_dir=$1 id=$2 token path
+  token=$(fm_control_harness_turnend_token_read kimi "$state_dir" "$id") || return 1
   path=$(fm_control_harness_turnend_auth_path kimi "$token") || return 1
   [ -n "$path" ] || return 0
   rm -f -- "$path"

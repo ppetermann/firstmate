@@ -602,6 +602,85 @@ test_turnend_auth_paths_are_owned_by_the_control_adapter() {
   pass "fm-control-lib: one owner resolves each harness's turn-end registry entry, and refuses a malformed token"
 }
 
+# fm_control_harness_turnend_token_read is the one owner of the empty-token guard
+# shared by teardown's grok and kimi retirement and spawn's relaunch-wiring
+# cleanup. Pin its contract directly: absent token, a non-token-gated harness,
+# zero-byte token (the crash-window fix), populated token, and the present but
+# unreadable non-empty token that must still fail closed, plus the empty-args
+# case that propagates the path lookup's nonzero so a caller's `|| return 1`
+# fires identically to the former inline sites.
+test_turnend_token_read_owns_the_empty_token_guard() {
+  local dir state token rc harness
+  dir=$(fm_test_tmproot fm-turnend-token-read)
+  state="$dir/state"
+  mkdir -p "$state"
+  token=$(fm_control_harness_turnend_token_read grok "$state" absent) \
+    || fail "absent grok token should succeed, got nonzero"
+  [ -z "$token" ] || fail "absent token should read empty, got '$token'"
+  token=$(fm_control_harness_turnend_token_read claude "$state" x) \
+    || fail "a non-token-gated harness should succeed"
+  [ -z "$token" ] || fail "a non-token-gated harness should read empty, got '$token'"
+
+  for harness in grok kimi; do
+    : > "$state/tk.$harness-turnend-token"
+    token=$(fm_control_harness_turnend_token_read "$harness" "$state" tk) \
+      || fail "zero-byte $harness token should succeed (the crash-window fix)"
+    [ -z "$token" ] || fail "zero-byte $harness token should read empty, got '$token'"
+
+    printf 'fm.deadbeefdead\n' > "$state/tk.$harness-turnend-token"
+    token=$(fm_control_harness_turnend_token_read "$harness" "$state" tk) \
+      || fail "populated $harness token should succeed"
+    [ "$token" = "fm.deadbeefdead" ] \
+      || fail "populated $harness token mismatch, got '$token'"
+
+    printf 'fm.unreachable\n' > "$state/tk.$harness-turnend-token"
+    chmod 000 "$state/tk.$harness-turnend-token"
+    if [ -r "$state/tk.$harness-turnend-token" ]; then
+      chmod 600 "$state/tk.$harness-turnend-token"
+      echo "skip: file modes do not deny reads here (running privileged); cannot stage an unreadable $harness token"
+      continue
+    fi
+    # The read runs in-process (the function is sourced), so redirect stderr to
+    # keep the "Permission denied" diagnostic out of the test's own stderr.
+    fm_control_harness_turnend_token_read "$harness" "$state" tk >/dev/null 2>&1
+    rc=$?
+    chmod 600 "$state/tk.$harness-turnend-token"
+    expect_code 1 "$rc" "unreadable $harness token must fail closed, got $rc"
+  done
+
+  # An empty state or id propagates the path lookup's nonzero; capture the return
+  # directly (this file runs under set -u, not set -e, so no errexit toggling).
+  fm_control_harness_turnend_token_read grok "" x >/dev/null 2>&1
+  rc=$?
+  expect_code 1 "$rc" "empty state must propagate the path lookup failure"
+  pass "fm-control-lib: fm_control_harness_turnend_token_read owns the empty-token guard for every call site"
+}
+
+# The empty-token guard's third call site is clear_relaunch_harness_wiring in
+# bin/fm-spawn.sh (the relaunch-wiring cleanup), alongside teardown's grok and
+# kimi retirement. A zero-byte token file is the crash-window case the relaunch
+# cleanup must tolerate rather than wedge on, exactly as teardown does; the
+# per-task wiring is still retired because that path cleanup is independent of
+# the token read.
+test_empty_prior_turnend_token_does_not_wedge_relaunch() {
+  local harness dir id rc out
+  for harness in grok kimi; do
+    id="et-$harness"
+    dir=$(new_case "emptytok-$harness" "$id")
+    add_ship_task "$dir" "$id" "$harness"
+    printf 'zsh' > "$dir/fake/command"
+    : > "$dir/home/state/$id.$harness-turnend-token"
+    printf 'token=fm.emptyempty\n' > "$dir/wt/.fm-$harness-turnend"
+    out=$(run_spawn "$dir" "$id" --relaunch --harness claude 2>&1); rc=$?
+    expect_code 0 "$rc" "relaunch with a zero-byte $harness token should succeed, not wedge"$'\n'"$out"
+    [ ! -e "$dir/home/state/$id.$harness-turnend-token" ] \
+      || fail "relaunch must still retire an empty $harness token's state file"
+    [ ! -e "$dir/wt/.fm-$harness-turnend" ] \
+      || fail "relaunch must still retire an empty $harness token's worktree pointer"
+  done
+  pass "fm-spawn --relaunch: a zero-byte prior turn-end token does not wedge the wiring cleanup"
+}
+
 test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
   local dir home out rc
   dir=$(new_case smpin sm3)
@@ -1315,6 +1394,8 @@ test_relaunch_onto_an_unverified_harness_is_refused
 test_prior_harness_turnend_registry_entry_is_cleared
 test_wiring_removal_failure_refuses_before_replacement_arm
 test_turnend_auth_paths_are_owned_by_the_control_adapter
+test_turnend_token_read_owns_the_empty_token_guard
+test_empty_prior_turnend_token_does_not_wedge_relaunch
 test_secondmate_relaunch_picks_up_the_configured_harness_pin
 test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
