@@ -594,6 +594,10 @@ fm_afk_launch_stop() {
       fm_afk_launch_log "failed to signal away-mode daemon pid=$pid"
       result=1
     fi
+    # 10s, an order of magnitude above the shutdown bound bin/fm-supervise-daemon.sh
+    # guarantees for every parked state. Exceeding it means the daemon is not
+    # shutting down as designed, so this refuses below rather than escalating to
+    # a kill that would skip its escalation flush.
     for _ in $(seq 1 40); do
       fm_pid_alive "$pid" || break
       sleep 0.25

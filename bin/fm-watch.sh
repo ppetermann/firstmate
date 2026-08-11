@@ -85,6 +85,11 @@ mkdir -p "$STATE"
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
+# Signal-responsive waiting. Every terminal wait of a supervision cycle goes
+# through this library so the away-mode daemon's SIGTERM reaches this watcher
+# when it is sent rather than when the wait ends; see its header.
+# shellcheck source=bin/fm-signal-wait-lib.sh
+. "$SCRIPT_DIR/fm-signal-wait-lib.sh"
 
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
@@ -626,6 +631,24 @@ heartbeat_scan_finds_actionable() {
   return 1
 }
 
+# Where the backgrounded event reader's record lands while fm_signal_wait keeps
+# this watcher answerable to a signal. Mirrors the check path's FM_CHECK_OUTPUT
+# so watcher_cleanup removes it on any exit.
+FM_EVENT_WAIT_OUTPUT=
+
+fm_event_wait_output_open() {
+  fm_event_wait_output_cleanup
+  FM_EVENT_WAIT_OUTPUT=$(mktemp "$STATE/.fm-event-wait.XXXXXX") || {
+    FM_EVENT_WAIT_OUTPUT=
+    return 1
+  }
+}
+
+fm_event_wait_output_cleanup() {
+  [ -z "$FM_EVENT_WAIT_OUTPUT" ] || rm -f -- "$FM_EVENT_WAIT_OUTPUT"
+  FM_EVENT_WAIT_OUTPUT=
+}
+
 # event_wait_or_sleep: the terminal wait of each supervision cycle. For a home
 # with push-capable windows (herdr), it replaces the blind `sleep POLL` with a
 # bounded wait on the backend's native transition stream, so a crew going
@@ -638,7 +661,7 @@ heartbeat_scan_finds_actionable() {
 # supervision cycle: the reader is a short-lived subprocess of THIS watcher, not
 # a second watcher, so every guard/beacon/arm/turn-end mechanism is unchanged.
 event_wait_or_sleep() {
-  local w b session first_backend="" first_session="" rec rc
+  local w b session first_backend="" first_session="" rec rc reader_pid
   local windows=()
   while IFS= read -r w; do
     b=$(window_backend "$w")
@@ -660,7 +683,7 @@ event_wait_or_sleep() {
   done < <(recorded_windows)
 
   if [ "${#windows[@]}" -eq 0 ]; then
-    sleep "$POLL"
+    fm_signal_sleep "$POLL"
     return
   fi
 
@@ -676,12 +699,26 @@ event_wait_or_sleep() {
     _event_cap_fails=0
   fi
   if [ "$_event_cap_ok" != 1 ]; then
-    sleep "$POLL"
+    fm_signal_sleep "$POLL"
     return
   fi
 
-  rec=$(FM_BACKEND_EVENTS_CAPABILITY_CONFIRMED=1 fm_backend_wait_transition "$first_backend" "$first_session" "$POLL" "$STATE" "${windows[@]}")
+  # The bounded event wait runs as a background child read through
+  # fm_signal_wait, not as a foreground command substitution: a command
+  # substitution would hold this watcher's trapped SIGTERM for the whole budget,
+  # which is exactly what kept away-mode shutdown waiting on the watcher. The
+  # reader keeps its own subshell isolation and its rc contract either way.
+  if ! fm_event_wait_output_open; then
+    fm_signal_sleep "$POLL"
+    return
+  fi
+  FM_BACKEND_EVENTS_CAPABILITY_CONFIRMED=1 fm_backend_wait_transition \
+    "$first_backend" "$first_session" "$POLL" "$STATE" "${windows[@]}" > "$FM_EVENT_WAIT_OUTPUT" &
+  reader_pid=$!
+  fm_signal_wait "$reader_pid"
   rc=$?
+  rec=$(cat "$FM_EVENT_WAIT_OUTPUT" 2>/dev/null || true)
+  fm_event_wait_output_cleanup
   case "$rc" in
     0)
       _event_cap_fails=0
@@ -693,7 +730,7 @@ event_wait_or_sleep() {
       # pure polling for the rest of this watcher process.
       _event_cap_fails=$((_event_cap_fails + 1))
       [ "$_event_cap_fails" -ge "$EVENT_CAP_FAIL_MAX" ] && _event_cap_ok=0
-      sleep "$POLL"
+      fm_signal_sleep "$POLL"
       ;;
     *)
       # 1: a clean full-budget wait with no actionable edge - the reader already
@@ -760,6 +797,11 @@ watcher_cleanup() {
     fi
   fi
   fm_active_check_stop || cleanup_status=1
+  # An interrupted signal-responsive wait still owns a live child (a poll sleep
+  # or the event reader); reap it and drop its record file before releasing the
+  # lock, so a signalled exit leaves no more behind than a quiet one.
+  fm_signal_wait_reap
+  fm_event_wait_output_cleanup
   fm_check_output_cleanup
   fm_custom_check_snapshot_cleanup
   if [ "$owns_lock" -eq 1 ] \
@@ -931,7 +973,7 @@ while :; do
   # signature for an already-pending file (last write wins below).
   pending=$(scan_signals)
   if [ -n "$pending" ]; then
-    sleep "$SIGNAL_GRACE"
+    fm_signal_sleep "$SIGNAL_GRACE"
     pending=$(printf '%s\n%s' "$pending" "$(scan_signals)")
     files=""
     while IFS=$(printf '\t') read -r sf sig f; do
