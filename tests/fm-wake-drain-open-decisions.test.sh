@@ -215,6 +215,142 @@ test_over_long_decision_note_is_capped_with_a_marker() {
   pass "an over-long open decision is cut to its per-item budget with the shared truncation marker"
 }
 
+# Workers naturally write the [key=<slug>] token AFTER the colon
+# ("needs-decision: [key=x] ..."). fm-classify-lib.sh's _fm_decision_key accepts
+# that position as a fallback so such a line still folds to key x (not "default")
+# and interoperates with a matching "resolved: [key=x] ..." close. These cases
+# exercise the real fold through the real drain script, like every case above.
+
+test_after_colon_key_position_opens_a_decision() {
+  local dir state out
+  dir=$(make_case after-colon-open)
+  state="$dir/state"
+  out="$dir/drain.out"
+  # The key token sits after the colon, where workers put it. It must surface
+  # under its named key so fm-send --resolve-key <after-colon> can close it.
+  printf 'needs-decision: [key=after-colon] pick REST or RPC\n' > "$state/task-after.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an after-colon open"
+
+  # The drain prints the fold's key in a normalized position, before the verb
+  # ("<task> [key=<key>] <verb>: <note>"), and omits it entirely for "default".
+  # Asserting that rendered prefix is what distinguishes a genuine key-x fold
+  # from a default fold that merely echoes the token back inside the note.
+  grep -F 'task-after [key=after-colon] needs-decision:' "$out" >/dev/null \
+    || fail "an after-colon [key=...] token did not surface under its named key: $(cat "$out")"
+  grep -F 'pick REST or RPC' "$out" >/dev/null \
+    || fail "the after-colon open lost its note: $(cat "$out")"
+  pass "a [key=...] token after the colon opens a decision under that key"
+}
+
+test_after_colon_open_is_closed_only_by_its_own_key() {
+  local dir state out
+  dir=$(make_case after-colon-resolve)
+  state="$dir/state"
+  out="$dir/drain.out"
+  printf 'needs-decision: [key=after-colon] pick REST or RPC\n' > "$state/task-after2.status"
+  # A bare unkeyed resolution opens/closes only "default", so it must NOT close
+  # a decision the after-colon token named: the decision stays open.
+  printf 'resolved: unrelated close\n' >> "$state/task-after2.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after an unkeyed resolution"
+
+  grep -F 'task-after2 [key=after-colon] needs-decision:' "$out" >/dev/null \
+    || fail "a bare unkeyed resolved: cleared an after-colon keyed decision: $(cat "$out")"
+
+  # The matching close - the "resolved [key=<key>]: ..." form bin/fm-send.sh
+  # writes for --resolve-key - does close it, so the two positions interoperate.
+  printf 'resolved [key=after-colon]: answered: went with REST\n' >> "$state/task-after2.status"
+  printf 'done: shipped\n' >> "$state/task-after2.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after the matching resolution"
+
+  if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
+    fail "the matching resolved [key=X] did not close the after-colon decision: $(cat "$out")"
+  fi
+  pass "an after-colon keyed decision is closed only by its own key, not by a bare resolved:"
+}
+
+test_before_colon_open_is_closed_by_after_colon_resolve() {
+  local dir state out
+  dir=$(make_case cross-position)
+  state="$dir/state"
+  out="$dir/drain.out"
+  # Open with the canonical before-colon token, close with the after-colon
+  # token. Both must yield the same key so the two positions interoperate
+  # regardless of which side the writer used.
+  printf 'needs-decision [key=cross]: pick REST or RPC\n' > "$state/task-cross.status"
+  printf 'resolved: [key=cross] went with REST\n' >> "$state/task-cross.status"
+  printf 'done: shipped\n' >> "$state/task-cross.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a cross-position open/close"
+
+  if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
+    fail "a before-colon open was not closed by an after-colon resolved: $(cat "$out")"
+  fi
+  pass "the before-colon and after-colon key positions interoperate"
+}
+
+# A malformed slug must never make the escalation disappear - a needs-decision a
+# worker stopped on is the one thing this fold exists to keep visible - and must
+# never land in the "default" bucket either, where it would overwrite or close
+# the historical unkeyed decision. Both positions fall back to the reserved
+# "invalid-key" bucket instead. The drain prefixes every non-default key, so the
+# rendered "[key=invalid-key]" is what shows which bucket the line folded into.
+
+test_invalid_slug_after_colon_surfaces_under_invalid_key() {
+  local dir state out
+  dir=$(make_case after-colon-invalid)
+  state="$dir/state"
+  out="$dir/drain.out"
+  printf 'needs-decision: [key=bad slug] should not vanish\n' > "$state/task-bad.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an invalid after-colon slug"
+
+  grep -F 'OPEN DECISIONS' "$out" >/dev/null \
+    || fail "an invalid after-colon slug made the escalation vanish: $(cat "$out")"
+  grep -F 'task-bad [key=invalid-key] needs-decision:' "$out" >/dev/null \
+    || fail "an invalid after-colon slug did not surface under invalid-key: $(cat "$out")"
+  pass "an invalid slug after the colon surfaces under the invalid-key bucket"
+}
+
+test_invalid_slug_before_colon_surfaces_under_invalid_key() {
+  local dir state out
+  dir=$(make_case before-colon-invalid)
+  state="$dir/state"
+  out="$dir/drain.out"
+  printf 'needs-decision [key=bad slug]: should not vanish\n' > "$state/task-bad2.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an invalid before-colon slug"
+
+  grep -F 'OPEN DECISIONS' "$out" >/dev/null \
+    || fail "an invalid before-colon slug made the escalation vanish: $(cat "$out")"
+  grep -F 'task-bad2 [key=invalid-key] needs-decision: should not vanish' "$out" >/dev/null \
+    || fail "an invalid before-colon slug did not surface under invalid-key: $(cat "$out")"
+  pass "an invalid slug before the colon surfaces under the invalid-key bucket"
+}
+
+test_invalid_slug_does_not_mask_a_real_default_decision() {
+  local dir state out
+  dir=$(make_case invalid-vs-default)
+  state="$dir/state"
+  out="$dir/drain.out"
+  # A rule-5 blocker is unkeyed, so it holds the "default" record. A later
+  # malformed escalation must not take that bucket over: were it to fold to
+  # "default" the fold would drop the blocker's record before re-adding its own,
+  # and the real blocker would silently disappear from OPEN DECISIONS.
+  printf 'blocked: real blocker here\n' > "$state/task-both.status"
+  printf 'needs-decision [key=bad slug]: should not vanish\n' >> "$state/task-both.status"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a mixed invalid/default stream"
+
+  grep -F 'task-both blocked: real blocker here' "$out" >/dev/null \
+    || fail "a malformed line masked the real unkeyed blocker: $(cat "$out")"
+  grep -F 'task-both [key=invalid-key] needs-decision: should not vanish' "$out" >/dev/null \
+    || fail "the malformed escalation did not surface under invalid-key: $(cat "$out")"
+  pass "a malformed key never masks a real unkeyed decision"
+}
+
 test_buried_decision_still_surfaces
 test_over_long_decision_note_is_capped_with_a_marker
 test_explicit_resolution_closes_it
@@ -224,3 +360,9 @@ test_no_open_decisions_prints_nothing
 test_open_decision_surfaces_even_with_an_unrelated_queued_wake
 test_buried_decision_surfaces_on_the_empty_queue_fast_path
 test_status_symlink_is_not_followed
+test_after_colon_key_position_opens_a_decision
+test_after_colon_open_is_closed_only_by_its_own_key
+test_before_colon_open_is_closed_by_after_colon_resolve
+test_invalid_slug_after_colon_surfaces_under_invalid_key
+test_invalid_slug_before_colon_surfaces_under_invalid_key
+test_invalid_slug_does_not_mask_a_real_default_decision
