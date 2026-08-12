@@ -160,6 +160,7 @@ status_is_paused_or_captain_held() {  # <status-line>
 # rule 6), so closure never depends on a busy worker's discipline.
 #
 # Decision key grammar (backward-compatible with the existing "<verb>: <note>"
+# Decision key grammar (backward-compatible with the existing "<verb>: <note>"
 # format): an OPTIONAL "[key=<slug>]" token names a decision so an
 # needs-decision/blocked open and its resolved/captain-held close can be paired.
 # Two positions are accepted, validated by the same slug charset in
@@ -180,11 +181,12 @@ status_is_paused_or_captain_held() {  # <status-line>
 # `fm-send --resolve-key invalid-key`) instead of vanishing, while its own
 # bucket keeps it from masking, overwriting, or closing a real unkeyed decision.
 # The canonical before-colon position wins when both are present. The parsers are
-# pure reads of a single line; the verb parser strips any key token before the
-# colon so the leading word is recovered cleanly.
+# pure reads of a single line. Status metadata may contain any number of
+# "[name=value]" tags before the colon, in any order, so verb parsing ends at
+# the first tag rather than special-casing "[key=...]".
 status_line_verb() {  # <status-line> -> leading verb word
   local v=${1%%:*}
-  v=${v%%\[key=*}
+  v=${v%%\[*}
   v=${v#"${v%%[![:space:]]*}"}
   v=${v%"${v##*[![:space:]]}"}
   printf '%s' "$v"
@@ -428,7 +430,7 @@ _fm_open_decisions_cursor_path() {  # <status-file>
   printf '%s/.%s.open-decisions-cursor' "$dir" "${base%.status}"
 }
 
-FM_OPEN_DECISIONS_FOLD_VERSION=5
+FM_OPEN_DECISIONS_FOLD_VERSION=6
 
 # Portable device:inode identity for the rotation/recreation check below.
 _fm_open_decisions_file_ident() {  # <file> -> "dev:inode", empty on I/O failure
