@@ -247,7 +247,8 @@ test_long_ids_sharing_prefix_derive_distinct_sessions() {
 # ---------------------------------------------------------------------------
 
 make_teardown_fake_root() {
-  local id=$1 fake="$TMP_ROOT/$id-root"
+  local id=$1
+  local fake="$TMP_ROOT/$id-root"
   mkdir -p "$fake/bin/backends" "$fake/state" "$fake/bin"
   ln -s "$TEARDOWN" "$fake/bin/fm-teardown.sh"
   ln -s "$ROOT/bin/fm-backend.sh" "$fake/bin/fm-backend.sh"
