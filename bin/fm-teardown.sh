@@ -664,6 +664,26 @@ remove_kimi_turnend_auth() {
   fm_control_harness_turnend_maybe_retire_global kimi "$SCRIPT_DIR" || true
 }
 
+# Best-effort: stop this task's own chrome-devtools-axi browser session so its
+# bridge process does not outlive the task. The session name is fm-<id>,
+# matching the env var exported by bin/fm-spawn.sh. A bridge outlives the
+# browser it was started with and keeps the connection mode it was started in,
+# which is itself a confusing failure source, so leaving it would leak a stale
+# per-task bridge. Never stops the "default" session (the captain's own), never
+# kills by pattern match across processes, and never fails or blocks teardown:
+# an absent tool, an already-stopped session, or any error proceeds unchanged.
+stop_task_chrome_devtools_session() {  # <id>
+  local id=$1 session
+  [ -n "$id" ] || return 0
+  session="fm-$id"
+  # Structural guard: the session name is always fm-<id>, never "default" (the
+  # captain's own session), but refuse defensively so no future change can
+  # reach the captain's browser.
+  [ "$session" != default ] || return 0
+  command -v chrome-devtools-axi >/dev/null 2>&1 || return 0
+  CHROME_DEVTOOLS_AXI_SESSION="$session" chrome-devtools-axi stop >/dev/null 2>&1 || true
+}
+
 retire_busy_state() {
   local state_dir=$1 id=$2 gen=${3:-}
   if [ -n "$gen" ]; then
@@ -2247,6 +2267,7 @@ cleanup_firstmate_home_children() {
     fi
     remove_grok_turnend_auth "$sub_state" "$child_id" || return 1
     remove_kimi_turnend_auth "$sub_state" "$child_id" || return 1
+    stop_task_chrome_devtools_session "$child_id"
     remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
     child_busy_gen=$(meta_value "$child_meta" busy_gen)
     if [ -z "$child_busy_gen" ]; then
@@ -2526,6 +2547,7 @@ fi
 remove_grok_turnend_auth "$STATE" "$ID" || exit 1
 remove_kimi_turnend_auth "$STATE" "$ID" || exit 1
 fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
+stop_task_chrome_devtools_session "$ID"
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
 [ -n "$TASK_TMP" ] && rm -rf "$TASK_TMP"
