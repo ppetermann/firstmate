@@ -149,6 +149,11 @@ For ship and scout work, `fm-spawn.sh` refuses to launch unless the resolved tas
 `fm-spawn.sh` also owns the base-freshness boundary for every fresh ship and scout: no worker starts until its clean task worktree matches the fetched tip of origin's resolved default branch, and any unsafe or unverifiable base stops the spawn.
 Its header owns the exact refusal mechanics, while `tests/fm-spawn-pool-base-freshen.test.sh` owns the portable regression coverage.
 
+Task isolation is not only filesystem-deep.
+`fm-spawn.sh` exports a per-task `CHROME_DEVTOOLS_AXI_SESSION` into the agent's shell before launch, so two crewmates driving a browser at once hold separate `chrome-devtools-axi` bridges instead of silently sharing one browser and one current page, and the captain's own default session is never touched.
+`fm-teardown.sh` stops that task's own session so its bridge does not outlive the task, best-effort and never blocking teardown.
+`fm_chrome_devtools_session_name` in `bin/fm-pr-lib.sh` is the single owner of the derived session name both sides must agree on, and `tests/fm-chrome-devtools-session.test.sh` owns the regression coverage.
+
 The firstmate repo has one extra exposure because it can dispatch crewmates to work on itself.
 Its operating checkout (`FM_ROOT`) and the disposable crewmate worktrees are all linked git worktrees of the same repository, so the valid discriminator is branch state, not whether the checkout is linked.
 The primary checkout is healthy on its default branch, and linked worktrees or secondmate homes are healthy at detached HEAD.
