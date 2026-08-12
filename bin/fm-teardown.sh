@@ -665,20 +665,21 @@ remove_kimi_turnend_auth() {
 }
 
 # Best-effort: stop this task's own chrome-devtools-axi browser session so its
-# bridge process does not outlive the task. The session name is fm-<id>,
-# matching the env var exported by bin/fm-spawn.sh. A bridge outlives the
-# browser it was started with and keeps the connection mode it was started in,
-# which is itself a confusing failure source, so leaving it would leak a stale
+# bridge process does not outlive the task. The session name comes from
+# fm_chrome_devtools_session_name (fm-pr-lib.sh), the same helper behind the
+# env var exported by bin/fm-spawn.sh. A bridge outlives the browser it was
+# started with and keeps the connection mode it was started in, which is
+# itself a confusing failure source, so leaving it would leak a stale
 # per-task bridge. Never stops the "default" session (the captain's own), never
 # kills by pattern match across processes, and never fails or blocks teardown:
 # an absent tool, an already-stopped session, or any error proceeds unchanged.
 stop_task_chrome_devtools_session() {  # <id>
   local id=$1 session
   [ -n "$id" ] || return 0
-  session="fm-$id"
-  # Structural guard: the session name is always fm-<id>, never "default" (the
-  # captain's own session), but refuse defensively so no future change can
-  # reach the captain's browser.
+  session=$(fm_chrome_devtools_session_name "$id")
+  # Structural guard: the derived name is always fm-prefixed, never "default"
+  # (the captain's own session), but refuse defensively so no future change
+  # can reach the captain's browser.
   [ "$session" != default ] || return 0
   command -v chrome-devtools-axi >/dev/null 2>&1 || return 0
   CHROME_DEVTOOLS_AXI_SESSION="$session" chrome-devtools-axi stop >/dev/null 2>&1 || true

@@ -2722,7 +2722,7 @@ spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
 # every caller shares the single default bridge and therefore ONE browser page.
 # Stopped by bin/fm-teardown.sh. Same send channel as GOTMPDIR so every backend
 # and harness inherits it before launch.
-spawn_send_text_line "$T" "export CHROME_DEVTOOLS_AXI_SESSION=fm-$ID"
+spawn_send_text_line "$T" "export CHROME_DEVTOOLS_AXI_SESSION=$(fm_chrome_devtools_session_name "$ID")"
 # Send through the exact channel that already ships GOTMPDIR, so every backend
 # and harness - ship, scout, and secondmate - gets it before launch. Skipped
 # entirely when trace context is off.

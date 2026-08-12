@@ -109,6 +109,32 @@ fm_task_id_creation_valid() {
   [ "${#id}" -le 64 ]
 }
 
+# Per-task chrome-devtools-axi session name. The tool accepts 1-64 chars from
+# [A-Za-z0-9._-] and task ids are valid up to 64 chars, so the plain fm-<id>
+# form can reach 67 and be rejected by every chrome-devtools-axi call. Short
+# ids (the overwhelming majority) keep the readable fm-<id> form; longer ids
+# fall back to a truncated prefix plus a hash of the full id, capped at 64
+# chars, still deterministic per task id, and still fm-prefixed so the name
+# can never be "default" (the captain's own session). bin/fm-spawn.sh (the
+# export into the pane) and bin/fm-teardown.sh (the session stop) must both
+# derive through this one helper or the two sides stop agreeing and the
+# per-task bridge leaks.
+fm_chrome_devtools_session_name() {
+  local id=${1-} hash
+  if [ "${#id}" -le 61 ]; then
+    printf 'fm-%s' "$id"
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    hash=$(printf '%s' "$id" | shasum -a 256 | awk '{print substr($1,1,8)}')
+  elif command -v sha256sum >/dev/null 2>&1; then
+    hash=$(printf '%s' "$id" | sha256sum | awk '{print substr($1,1,8)}')
+  else
+    hash=$(printf '%s' "$id" | cksum | awk '{printf "%08x", $1}')
+  fi
+  printf 'fm-%s-%s' "${id:0:52}" "$hash"
+}
+
 # GitLab serves self-hosted instances, so the host is part of the identity
 # rather than a constant. It is accepted only as a lowercase DNS name with no
 # userinfo, port, or trailing dot, which keeps one canonical spelling per MR.

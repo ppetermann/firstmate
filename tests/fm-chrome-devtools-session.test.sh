@@ -178,6 +178,67 @@ EOF
   pass "distinct task ids produce distinct chrome-devtools-axi session names"
 }
 
+# chrome-devtools-axi rejects session names longer than 64 chars, and task ids
+# are valid up to 64 chars, so the plain fm-<id> form can exceed the limit. A
+# maximum-length task id must still get a session name the tool accepts
+# (1-64 chars from [A-Za-z0-9._-]), and teardown must stop exactly the session
+# spawn exported - the round trip is the contract that keeps the bridge from
+# leaking.
+test_max_length_task_id_gets_valid_session_and_round_trips() {
+  local name rec home proj wt fakebin launchlog id out status sess
+  local fake tfakebin log stopped
+  name="long-$(printf 'a%.0s' {1..56})"
+  rec=$(make_spawn_case "$name")
+  IFS='|' read -r home proj wt fakebin launchlog id <<EOF
+$rec
+EOF
+  [ "${#id}" -eq 64 ] || fail "fixture task id should be 64 chars (got ${#id})"
+  out=$(run_spawn "$home" "$wt" "$fakebin" "$launchlog" "$id" "$proj" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "spawn with a 64-char task id should succeed"
+  sess=$(sed -n 's/^export CHROME_DEVTOOLS_AXI_SESSION=//p' "$launchlog" | head -1)
+  [ -n "$sess" ] || fail "spawn with a 64-char task id produced no session export"
+  printf '%s' "$sess" | grep -Eq '^[A-Za-z0-9._-]{1,64}$' \
+    || fail "session name for a 64-char task id is not accepted by chrome-devtools-axi ($sess, len ${#sess})"
+  case "$sess" in
+    fm-*) ;;
+    *) fail "session name for a 64-char task id lost its fm- prefix ($sess)" ;;
+  esac
+  fake=$(make_teardown_fake_root "$id")
+  tfakebin=$(fm_fakebin "$TMP_ROOT/$id-fakebin")
+  log="$TMP_ROOT/$id-cdaxi.log"
+  : > "$log"
+  write_fake_chrome_devtools_axi "$tfakebin"
+  out=$(FM_FAKE_CDAXI_LOG="$log" run_teardown "$fake" "$tfakebin" "$id")
+  status=$?
+  expect_code 0 "$status" "teardown with a 64-char task id should complete"
+  stopped=$(sed -n 's/ stop$//p' "$log" | head -1)
+  [ "$stopped" = "$sess" ] \
+    || fail "teardown stopped '$stopped' but spawn exported '$sess' - the bridge leaks"
+  pass "a 64-char task id round-trips one valid session through spawn and teardown"
+}
+
+# Two long task ids that agree on the truncated prefix must still derive two
+# different session names, or two concurrent workers with near-identical long
+# ids silently share one browser again.
+test_long_ids_sharing_prefix_derive_distinct_sessions() {
+  local prefix a b sa sb
+  prefix=$(printf 'p%.0s' {1..60})
+  a="${prefix}-ax"
+  b="${prefix}-bx"
+  sa=$(bash -c '. "$1/bin/fm-pr-lib.sh"; fm_chrome_devtools_session_name "$2"' _ "$ROOT" "$a") \
+    || fail "session derivation failed for long id a"
+  sb=$(bash -c '. "$1/bin/fm-pr-lib.sh"; fm_chrome_devtools_session_name "$2"' _ "$ROOT" "$b") \
+    || fail "session derivation failed for long id b"
+  printf '%s' "$sa" | grep -Eq '^[A-Za-z0-9._-]{1,64}$' \
+    || fail "derived session for long id a is invalid ($sa)"
+  printf '%s' "$sb" | grep -Eq '^[A-Za-z0-9._-]{1,64}$' \
+    || fail "derived session for long id b is invalid ($sb)"
+  [ "$sa" != "$sb" ] \
+    || fail "two long ids sharing a prefix derived the same session ($sa)"
+  pass "long task ids sharing a truncated prefix derive distinct sessions"
+}
+
 # ---------------------------------------------------------------------------
 # Teardown side: fake FM_HOME with the real teardown symlinked in and a
 # nonexistent worktree so the dirty/treehouse guards skip straight to the
@@ -311,6 +372,8 @@ test_teardown_completes_when_stop_fails() {
 test_ship_spawn_exports_per_task_session
 test_scout_spawn_exports_per_task_session
 test_distinct_task_ids_produce_distinct_sessions
+test_max_length_task_id_gets_valid_session_and_round_trips
+test_long_ids_sharing_prefix_derive_distinct_sessions
 test_teardown_stops_own_session_never_default
 test_teardown_completes_when_tool_missing
 test_teardown_completes_when_stop_fails
