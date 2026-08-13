@@ -2148,6 +2148,109 @@ kimi_spawn_fail() {  # <detail>
   echo "error: $1; inspect window $T" >&2
 }
 
+# Claude launch-readiness gate: the post-launch check that stops fm-spawn from
+# reporting success for a claude worker parked on its first-run trust dialog.
+# Until the directory is trusted claude reads nothing and does nothing, so a
+# wedged worker was indistinguishable from a working one - the launch seeded a
+# busy record at once, and fm-crew-state reported that seed as "working". This
+# gate detects the trust dialog on the live endpoint, accepts it the way
+# harness-adapters documents (Enter, the preselected "Yes" choice), and
+# confirms the agent then started processing the brief, all within a bounded
+# window. On failure it reports loudly instead of printing plain success and
+# tears nothing down (firstmate decides what happens next). It is the claude
+# analogue of the kimi readiness-then-deliver path above and of
+# fm_remote_readiness_ensure for remote secondmates.
+claude_capture() {
+  fm_backend_capture "$BACKEND" "$T" 120 "$W" 2>/dev/null || true
+}
+
+# Detect claude's first-run project-trust dialog from the rendered pane. This
+# is a SECONDARY aid: its only job is to clear a known blocker quickly so the
+# agent can reach the point the real readiness signal (claude_busy_hook_fired
+# below) fires. The prompt text is the vendor's and can change without warning
+# (the captain, 2026-08-13), so no single string is load-bearing: this reads
+# more than one independent fragment and lets any one carry the detection, and
+# if a future rewording matches none of them the gate still FAILS LOUDLY -
+# the prompt is never cleared, the hook never fires, and claude_wait_for_ready
+# reports "did not confirm brief processing" rather than printing success. That
+# is the version-drift protection: readiness, not prompt recognition, decides.
+# Verified against the fragments rendered by Claude Code 2.1.231 (2026-08-13).
+claude_trust_prompt_visible() {  # <pane-capture>
+  case "$1" in
+    *"trust this folder"*|*"trust this project"*) return 0 ;;
+    *"project you created or one you trust"*) return 0 ;;
+  esac
+  return 1
+}
+
+# Processing confirmation through the busy-state protocol (bin/fm-busy-lib.sh):
+# claude's UserPromptSubmit hook advancing the record past the seeded fm-spawn
+# entry proves claude received and started processing the prompt. This is a
+# protocol fact (claude's own hook system), not a rendered string, so it is the
+# preferred signal class for the question "did the agent start processing?".
+# Available only when busy-state hooks are armed (crewmates and scouts); a
+# claude secondmate has no per-task hooks, so its gate falls back to
+# consecutive clean captures in claude_wait_for_ready. fm_busy_record_read
+# prints "<state> <source> <event> <seq>" for a valid current-gen record, or an
+# error label that never contains the hook source.
+claude_busy_hook_fired() {
+  [ -n "${BUSY_GEN:-}" ] || return 1
+  local rec
+  rec=$(fm_busy_record_read "$STATE_REAL" "$ID" 2>/dev/null || true)
+  case "$rec" in
+    *" claude-hook "*) return 0 ;;
+  esac
+  return 1
+}
+
+claude_spawn_fail() {  # <detail>
+  printf 'failed: %s\n' "$1" >> "$STATE/$ID.status"
+  echo "error: $1; inspect window $T" >&2
+}
+
+# Bounded readiness wait. Sets CLAUDE_READY_REASON before returning non-zero.
+# The fast path (a worktree claude already trusts) sees the busy hook fire
+# within seconds and returns with only that many polls of added latency. If the
+# trust dialog appears the gate accepts it once with Enter and keeps polling.
+# A secondmate (no busy hooks) instead requires FM_CLAUDE_CLEAN_POLLS
+# consecutive trust-prompt-free captures before accepting, enough for a
+# still-rendering dialog to appear without adding unbounded latency to the
+# common trusted-home case.
+claude_wait_for_ready() {
+  CLAUDE_READY_REASON=
+  local pane enter_sent=0 clean=0 i=0
+  local max=${FM_CLAUDE_READY_POLLS:-60} interval=${FM_CLAUDE_POLL_INTERVAL:-0.5}
+  local clean_needed
+  if [ -n "${BUSY_GEN:-}" ]; then clean_needed=0; else clean_needed=${FM_CLAUDE_CLEAN_POLLS:-6}; fi
+  while [ "$i" -lt "$max" ]; do
+    if [ -n "${BUSY_GEN:-}" ] && claude_busy_hook_fired; then
+      return 0
+    fi
+    pane=$(claude_capture)
+    if claude_trust_prompt_visible "$pane"; then
+      clean=0
+      if [ "$enter_sent" -eq 0 ]; then
+        spawn_send_key "$T" Enter
+        enter_sent=1
+      fi
+    else
+      clean=$((clean + 1))
+      if [ "$clean_needed" -gt 0 ] && [ "$clean" -ge "$clean_needed" ]; then
+        return 0
+      fi
+    fi
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  pane=$(claude_capture)
+  if claude_trust_prompt_visible "$pane"; then
+    CLAUDE_READY_REASON="claude trust dialog is showing and could not be cleared"
+  else
+    CLAUDE_READY_REASON="claude did not confirm brief processing within the readiness window"
+  fi
+  return 1
+}
+
 if [ "$RELAUNCH" -eq 1 ]; then
   # No worktree is acquired: the recorded one is reused as-is. What must be
   # proven instead is that the adopted endpoint's shell is actually sitting in
@@ -2773,6 +2876,12 @@ if [ "$HARNESS" = kimi ]; then
   fi
   if ! kimi_wait_for_delivery; then
     kimi_spawn_fail "kimi brief pointer delivery was not confirmed"
+    exit 1
+  fi
+fi
+if [ "$HARNESS" = claude ] && [ "${FM_CLAUDE_TRUST_GATE:-1}" = 1 ]; then
+  if ! claude_wait_for_ready; then
+    claude_spawn_fail "$CLAUDE_READY_REASON"
     exit 1
   fi
 fi

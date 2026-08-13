@@ -34,6 +34,13 @@ FM_TEST_LIB_SOURCED=1
 # strips this to verify real refusal.
 export FM_GATE_REFUSE_BYPASS=1
 
+# Most tests that spawn claude through fm-spawn exercise other spawn mechanics
+# (dispatch profiles, control, trace context) with a fake tmux that does not
+# model the trust dialog, so disable the claude launch-readiness gate for the
+# suite by default. tests/fm-claude-trust-gate.test.sh overrides this locally to
+# exercise the gate itself. In production the gate is always on (default 1).
+export FM_CLAUDE_TRUST_GATE=0
+
 # Resolve the repo root from this library's own location. Consumed by sourcing
 # test files, not by this library, so it reads as "unused" here.
 # shellcheck disable=SC2034

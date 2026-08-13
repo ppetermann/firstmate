@@ -178,9 +178,15 @@ The shared symptom is a healthy-looking pane with no work in progress, so each a
 | Interrupt | single Escape |
 | Skill invocation | `/<skill>` (e.g. `/no-mistakes`) |
 
-First launch in a fresh worktree, or first ever on a machine, may show a trust or bypass-permissions confirmation.
-After every spawn, peek the pane within about 20 seconds.
-If such a dialog is showing, accept it from an active firstmate session using `FM_HOME=<this-firstmate-home> bin/fm-send.sh <window> --key Enter`, or the choice the dialog requires, unless `FM_HOME` is already set to the active firstmate home; verify the brief started processing.
+First launch in a fresh worktree may show a project-trust confirmation ("Is this a project you created or one you trust?" with "Yes, I trust this folder" preselected, accepted by Enter; verified on Claude Code 2.1.231).
+`bin/fm-spawn.sh` gates every claude launch against this dialog automatically, and no manual peek or Enter is needed for a crewmate, scout, or secondmate.
+Readiness is the gate's PRIMARY signal: its real question is "did the agent start processing the brief?", not "is the prompt on screen?".
+For a crewmate or scout, processing is confirmed through the busy-state hook protocol (claude's `UserPromptSubmit` advancing the seeded record past the `fm-spawn` entry), a protocol fact rather than a rendered string, so that path is version-drift-safe.
+Trust-prompt recognition is only a secondary aid that clears a known blocker so processing can start: it reads more than one independent rendered fragment and lets any one carry the detection, so no single vendor string is load-bearing.
+If a future rewording matches no fragment, the prompt is never cleared, the hook never fires, and the gate fails loudly ("did not confirm brief processing") instead of printing success; that is the version-drift protection, and `tests/fm-claude-trust-gate.test.sh` covers it alongside the cleared, fast-path, unclearable, and no-hammer cases.
+The gate is bounded and tears nothing down: on failure it reports clearly and leaves the endpoint and task record for firstmate to act on.
+A claude secondmate has no per-task hooks, so its path clears the dialog if present and waits for the pane to settle clear of it; that removes the known trust blocker but cannot positively confirm processing the way the crewmate hook can, and closing that gap would need a positive secondmate readiness signal in a later pass.
+The equivalent trust dialogs for codex and pi (below) are not yet gated and still require a manual accept on first launch.
 
 Claude renders a predicted-next-prompt suggestion as dim/faint text inside an otherwise-empty composer after a turn completes.
 A plain `tmux capture-pane` cannot tell that ghost text apart from typed text.
