@@ -924,19 +924,6 @@ while :; do
   # generic recovery reason, so give that owner first refusal.
   resurface_after_downtime
 
-  # The existing poll loop also owns the bounded inactive-outcome cadence.
-  # This is mechanical and silent unless a durable terminal-outcome obligation
-  # was created, so quiet cycles never wake firstmate or consume model tokens.
-  inactive_out=
-  if inactive_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
-    if [ -n "$inactive_out" ]; then
-      wake "check: inactive-outcome"
-    fi
-  else
-    triage_log "inactive-outcome reconciliation unavailable"
-  fi
-
   # Slow per-task checks (firstmate writes these, e.g. a merged-PR poll).
   # Time-based via .last-check mtime so the cadence survives watcher restarts.
   # Evaluated BEFORE the signal scan: wake() exits the cycle, so a check placed
@@ -1229,6 +1216,27 @@ EOF
       fi
     fi
   done < <(recorded_windows)
+
+  # Bounded inactive-outcome reconciliation. This is the lowest-priority wake
+  # source in the cycle - a slow-cadence backstop for long-inactive terminal
+  # outcomes the per-pane signal/stale triage above owns - so it runs after
+  # that triage rather than ahead of it. The scan is a subprocess chain whose
+  # latency must never gate the time-critical first-sight pause/stale recheck:
+  # a dead agent under a declared pause depends on that recheck landing within
+  # one bounded poll, and a watcher replaced mid-poll before the append loses
+  # the surface entirely. wake() exits the cycle, so when an actionable
+  # per-pane wake already fired this poll the scan defers to the next poll -
+  # negligible on its 900s cadence, the same deferral the heartbeat below it
+  # has always accepted.
+  inactive_out=
+  if inactive_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
+    if [ -n "$inactive_out" ]; then
+      wake "check: inactive-outcome"
+    fi
+  else
+    triage_log "inactive-outcome reconciliation unavailable"
+  fi
 
   # Heartbeat: the watcher runs a cheap fleet-scan at a regular cadence no matter
   # what. Time-based via .last-heartbeat mtime; interval doubles per consecutive

@@ -330,9 +330,14 @@ test_nonterminal_and_captain_held_states_do_not_report() {
 
 # The actual watcher poll invokes the helper, while an idle secondmate remains
 # exempt from wedge escalation and emits no false wake.
+# The turn-ended marker is primed like the status: the scan runs after the
+# per-pane triage now, so an unprimed marker would surface the ordinary
+# swallowed-finish signal wake before the scan's own result ever lands.
 test_watcher_hook_and_idle_secondmate_exemption() {
   local out pid i
-  make_world watcher; write_child "$MAIN" child 'done: green'; prime_seen "$MAIN/state" "$MAIN/state/child.status"
+  make_world watcher; write_child "$MAIN" child 'done: green'
+  prime_seen "$MAIN/state" "$MAIN/state/child.status"
+  prime_seen "$MAIN/state" "$MAIN/state/child.turn-ended"
   out="$WORLD/watch.out"
   PATH="$WORLD/fakebin:$PATH" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" \
     FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \

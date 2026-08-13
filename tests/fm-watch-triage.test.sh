@@ -882,6 +882,77 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   pass "exited declared-pause and captain-held panes use bounded pause cadence while a live decision gate still surfaces once"
 }
 
+# The inactive-outcome reconciliation scan must never gate the first-sight
+# pause/stale triage. The scan is a subprocess chain the poll loop owns, so
+# placing it ahead of the per-pane triage makes its latency delay (and, for a
+# watcher replaced mid-poll, silently erase) the bounded dead-agent recheck -
+# the 2026-08 regression where a dead agent under a declared pause lost its
+# only surface. This pins the ordering deterministically: a second, long-done
+# child makes every scan-reaching poll pay a fixed multi-second state read, so
+# a watcher that wrongly runs the scan first wakes on the inactive outcome
+# before the pause recheck, while the correct order fires the recheck without
+# passing through the scan at all.
+test_inactive_scan_does_not_gate_dead_agent_pause_recheck() {
+  local dir state fakebin out capture_file statusf window key pane_hash sig pid back first rows slow_inactive
+  dir=$(make_case inactive-scan-gate); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
+  window="test:fm-held"
+  slow_inactive="$dir/slow-inactive-crew-state.sh"
+
+  # The dead-agent declared-pause fixture, exactly as the case above: a paused
+  # status past its re-surface threshold behind a confidently dead agent.
+  printf 'idle bare shell after agent exit\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
+  printf 'paused: held per captain while an external decision is pending\n' > "$statusf"
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
+  else touch -m -d "@$back" "$statusf"; fi
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle bare shell after agent exit")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  # A second, long-inactive done child that qualifies for the scan, whose
+  # authoritative state read sleeps past the recheck's whole latency budget.
+  # Its pane verdict stays provably working so the stale triage stays quiet.
+  printf 'window=firstmate:fm-zzdone\nkind=ship\nharness=codex\nspawn_gen=scan-slow.1\n' \
+    > "$state/zzdone.meta"
+  printf 'done: shipped\n' > "$state/zzdone.status"
+  back=$(( $(date +%s) - 120 ))
+  if [ "$(uname)" = Darwin ]; then
+    touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$state/zzdone.meta" "$state/zzdone.status"
+  else
+    touch -m -d "@$back" "$state/zzdone.meta" "$state/zzdone.status"
+  fi
+  sig=$(seen_sig "$state/zzdone.status"); printf '%s' "$sig" > "$state/.seen-zzdone_status"
+  cat > "$slow_inactive" <<'SH'
+#!/usr/bin/env bash
+sleep 4
+printf 'state: done · source: fake\n'
+SH
+  chmod +x "$slow_inactive"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
+    FM_FAKE_CREW_STATE_zzdone='state: working · source: run-step · validating (running)' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$slow_inactive" \
+    FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || { reap "$pid"; fail "watcher did not surface the dead-agent pause recheck: $(cat "$out")"; }
+  grep -F "awaiting external" "$out" >/dev/null \
+    || fail "the surfaced wake was not the bounded paused recheck: $(cat "$out")"
+  first=$(head -n 1 "$state/.wake-queue" 2>/dev/null || true)
+  rows=$(awk 'END { print NR + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  printf '%s' "$first" | grep -F "awaiting external" >/dev/null \
+    || fail "the inactive-outcome scan woke ahead of the dead-agent pause recheck (first row: $first)"
+  [ "$rows" -eq 1 ] \
+    || fail "the first poll queued $rows wakes instead of only the dead-agent pause recheck"
+  pass "the inactive-outcome scan runs after the first-sight triage and never gates the dead-agent recheck"
+}
+
 test_secondmate_paused_resurfaces_in_normal_mode() {
   local dir state fakebin out capture_file statusf window key pane_hash sig pid back
   dir=$(make_case secondmate-paused-resurface); state="$dir/state"; fakebin="$dir/fakebin"
@@ -1955,6 +2026,7 @@ test_busy_pane_default_turn_age_bound_is_3600s
 test_nonterminal_stale_not_working_surfaced
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
+test_inactive_scan_does_not_gate_dead_agent_pause_recheck
 test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_nonpaused_stale_remains_suppressed
 test_secondmate_unpause_clears_pause_tracking
