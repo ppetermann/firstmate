@@ -16,6 +16,11 @@
 # captain-return route is covered by the same assertions, because
 # bin/fm-afk-return.sh stops away mode through this exact stop path.
 #
+# The stop-path evidence contract is pinned too: shutdown must never SIGKILL
+# the watcher out of the exit cleanup that persists its downtime recovery
+# marker, while the detached kill backstop still bounds a watcher that never
+# finishes.
+#
 # Isolation: a private tmux server (tmux -L), a tmux shim first on PATH so the
 # daemon's bare `tmux` calls reach it, a throwaway state dir, and the test pane
 # as the supervisor target. Nothing touches the live fleet.
@@ -38,9 +43,14 @@ chmod +x "$SHIM/tmux"
 
 DAEMON_PID=
 HOLDER_PID=
+STOPCASE_WATCHER_PID=
 shutdown_cleanup() {
   [ -z "$DAEMON_PID" ] || kill -KILL "$DAEMON_PID" 2>/dev/null || true
   [ -z "$HOLDER_PID" ] || kill -KILL "$HOLDER_PID" 2>/dev/null || true
+  if [ -n "$STOPCASE_WATCHER_PID" ]; then
+    kill -CONT "$STOPCASE_WATCHER_PID" 2>/dev/null || true
+    kill -KILL "$STOPCASE_WATCHER_PID" 2>/dev/null || true
+  fi
   "$REAL_TMUX" -L "$SOCKET" kill-server 2>/dev/null || true
   fm_test_cleanup
 }
@@ -51,6 +61,19 @@ trap shutdown_cleanup EXIT INT TERM
 # scenario below overran it before the fix and finishes in well under a second
 # after it, so nothing here depends on a tight timing margin.
 STOP_BUDGET_SECS=10
+
+# True when the watcher pid is gone or an unreaped orphan zombie: the daemon
+# exits before a slow-exiting watcher, so nothing is left to reap it and
+# kill -0 alone keeps succeeding on a process that is done.
+watcher_finished() {  # <pid>
+  local pid=$1 stat
+  kill -0 "$pid" 2>/dev/null || return 0
+  stat=$(ps -p "$pid" -o stat= 2>/dev/null || true)
+  case "$stat" in
+    Z*) return 0 ;;
+  esac
+  return 1
+}
 
 make_case() {  # <name> -> echoes the case dir with state/ and a supervisor pane
   local name=$1 dir
@@ -194,3 +217,58 @@ assert_stopped_cleanly "$dir" "with an undeliverable buffered escalation"
 assert_grep 'needs-decision: pick A or B' "$dir/state/.subsuper-escalations" \
   "shutdown discarded a buffered escalation it could not deliver"
 pass "an undeliverable buffered escalation survives shutdown for the return catch-up"
+
+# --- Scenario E: shutdown never SIGKILLs the watcher out of its exit cleanup --
+# A watcher frozen mid-cycle (SIGSTOP) holds SIGTERM pending until it resumes,
+# the same deferral a foreground sleep or backend call produces. The daemon's
+# stop must stay inside its budget WITHOUT killing the child: the downtime
+# recovery marker is written by the watcher's own exit cleanup, so a premature
+# SIGKILL destroys durable recovery evidence. The detached kill backstop waits
+# out the durable-safe grace instead, and the resumed watcher persists the
+# marker and exits on its own.
+dir=$(make_case stopped-watcher-marker)
+start_daemon "$dir" FM_POLL=15 FM_SIGNAL_GRACE=25
+await_log "$dir" 'daemon starting' "startup"
+await_watcher_cycle "$dir"
+STOPCASE_WATCHER_PID=$(cat "$dir/state/.watch.lock/pid" 2>/dev/null || true)
+kill -STOP "$STOPCASE_WATCHER_PID" 2>/dev/null || fail "could not freeze the daemon's watcher"
+assert_stopped_cleanly "$dir" "watcher frozen mid-cycle"
+kill -CONT "$STOPCASE_WATCHER_PID" 2>/dev/null || true
+i=0
+while [ "$i" -lt 300 ]; do
+  case "$(cat "$dir/state/.watcher-down" 2>/dev/null || true)" in
+    pending:downtime:*) break ;;
+  esac
+  sleep 0.1
+  i=$((i + 1))
+done
+case "$(cat "$dir/state/.watcher-down" 2>/dev/null || true)" in
+  pending:downtime:*) ;;
+  *) fail "shutdown destroyed the watcher's durable downtime recovery evidence" ;;
+esac
+watcher_finished "$STOPCASE_WATCHER_PID" \
+  || fail "the resumed watcher never exited after persisting its downtime marker"
+STOPCASE_WATCHER_PID=
+pass "shutdown spares a slow-exiting watcher's downtime recovery evidence"
+
+# --- Scenario F: the detached kill backstop still bounds a wedged watcher -----
+# A watcher that stays frozen past the durable-safe grace must still be killed:
+# the backstop moved out of the daemon's synchronous path, it did not
+# disappear. FM_WATCHER_STOP_GRACE_SECS shortens the grace so the case runs in
+# seconds; the daemon's own stop stays inside its budget throughout.
+dir=$(make_case stopped-watcher-backstop)
+start_daemon "$dir" FM_POLL=15 FM_SIGNAL_GRACE=25 FM_WATCHER_STOP_GRACE_SECS=2
+await_log "$dir" 'daemon starting' "startup"
+await_watcher_cycle "$dir"
+STOPCASE_WATCHER_PID=$(cat "$dir/state/.watch.lock/pid" 2>/dev/null || true)
+kill -STOP "$STOPCASE_WATCHER_PID" 2>/dev/null || fail "could not freeze the daemon's watcher"
+assert_stopped_cleanly "$dir" "watcher frozen past its grace"
+i=0
+while [ "$i" -lt 80 ] && ! watcher_finished "$STOPCASE_WATCHER_PID"; do
+  sleep 0.1
+  i=$((i + 1))
+done
+watcher_finished "$STOPCASE_WATCHER_PID" \
+  || fail "the detached kill backstop never bounded the wedged watcher"
+STOPCASE_WATCHER_PID=
+pass "the detached kill backstop still bounds a watcher frozen past its grace"

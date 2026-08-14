@@ -141,8 +141,11 @@
 #                                   not misread as pending input.
 #          FM_INJECT_CONFIRM_SLEEP  seconds between daemon submit checks
 #                                   (default 0.5)
-#          FM_WATCHER_STOP_GRACE_SECS seconds shutdown allows the watcher child
-#                                   to honor SIGTERM before killing it (default 2)
+#          FM_WATCHER_STOP_GRACE_SECS seconds the detached shutdown backstop
+#                                   lets the watcher child honor SIGTERM before
+#                                   killing it (default 120, the same
+#                                   durable-safe grace as the arm path's
+#                                   FM_ARM_CHILD_STOP_GRACE_SECS)
 #          FM_LOG_MAX_BYTES / FM_LOG_KEEP_LINES / FM_CRASH_*  log + crash guards
 #          FM_STATE_OVERRIDE        alternate state dir (testing)
 #          Logs each wake to state/.supervise-daemon.log (size-capped). Single
@@ -155,11 +158,13 @@
 # the idle wait after a non-wake watcher exit - because every one of those waits
 # goes through bin/fm-signal-wait-lib.sh; a plain foreground `sleep` would defer
 # the handler until it ended instead. The handler then flushes escalations,
-# stops the watcher with a BOUNDED stop rather than an open-ended `wait` on a
-# child that defers signals the same way, and releases the lock. Both properties
-# are what bin/fm-afk-launch.sh stop's fixed wait budget depends on: without
-# them a daemon parked in a long wait missed that budget, stop refused and
-# preserved lifecycle state, and away mode stayed up until a second attempt.
+# stops the watcher with a bounded stop rather than an open-ended `wait` on a
+# child that defers signals the same way - the kill backstop is detached, so
+# the daemon's own exit stays bounded while the child keeps the full
+# durable-safe grace to finish its exit cleanup - and releases the lock. Both
+# properties are what bin/fm-afk-launch.sh stop's fixed wait budget depends on:
+# without them a daemon parked in a long wait missed that budget, stop refused
+# and preserved lifecycle state, and away mode stayed up until a second attempt.
 set -u
 
 FM_DAEMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -240,11 +245,19 @@ CRASH_THRESHOLD_DEFAULT=10
 CRASH_WINDOW_DEFAULT=60
 CRASH_BACKOFF_DEFAULT=60
 CRASH_NORMAL_SLEEP_DEFAULT=5
-# How long shutdown waits for the watcher child to honor SIGTERM before killing
-# it. The watcher answers promptly through the same signal-responsive waits, so
-# this is a backstop against a watcher stuck in a backend call, not the normal
-# path: shutdown must stay bounded no matter what the child is doing.
-WATCHER_STOP_GRACE_SECS_DEFAULT=2
+# How long the detached shutdown backstop lets the watcher child honor SIGTERM
+# before killing it. The watcher persists its downtime recovery state from its
+# exit cleanup, so the grace must sit far above any SIGTERM deferral a live
+# watcher can hit (a foreground sleep or backend call); it matches the arm
+# path's FM_ARM_CHILD_STOP_GRACE_SECS for the same reason, under which 2s and
+# 10s graces both measured as dropping the durable marker. Shutdown itself
+# stays bounded: it waits only WATCHER_STOP_SYNC_WAIT_SECS for the child, then
+# hands the kill to the detached backstop.
+WATCHER_STOP_GRACE_SECS_DEFAULT=120
+# Fixed synchronous share of the stop: keeps the daemon's whole shutdown inside
+# the fixed budget bin/fm-afk-launch.sh stop waits for it, in every parked
+# state, no matter how long the child takes to finish its own exit cleanup.
+WATCHER_STOP_SYNC_WAIT_SECS=2
 LOG_MAX_BYTES_DEFAULT=1048576
 LOG_KEEP_LINES_DEFAULT=2000
 
@@ -1517,6 +1530,41 @@ fm_super_main() {
 
   # --- shutdown: flush buffered escalations, reap child, release lock -------
   local WATCHER_PID="" CUR_TMP=""
+  # Bounded watcher stop that never SIGKILLs the child out of its exit cleanup.
+  # The watcher persists its downtime recovery state (state/.watcher-down) from
+  # exactly that cleanup, so a kill inside the grace discards durable recovery
+  # evidence - the same measured hazard that keeps the arm path's backstop
+  # durable-safe (bin/fm-watch-arm.sh). This daemon's own shutdown must also
+  # stay inside the fixed budget bin/fm-afk-launch.sh stop waits, so it stops
+  # WAITING early and hands the kill to a detached backstop subshell: SIGTERM
+  # now, a short synchronous wait for the normal prompt exit, then the subshell
+  # gives the child the full durable-safe grace and kills only a pid whose
+  # identity still matches the one captured at handoff, so a reused pid can
+  # never be killed after this shell and its job table are gone.
+  watcher_stop_bounded() {  # <pid> <grace-seconds>
+    local pid=$1 grace=$2 ticks=0 limit identity deadline
+    case "$grace" in ''|*[!0-9]*|0) grace=$WATCHER_STOP_GRACE_SECS_DEFAULT ;; esac
+    kill -TERM "$pid" 2>/dev/null || true
+    limit=$((WATCHER_STOP_SYNC_WAIT_SECS * 20))
+    while [ "$ticks" -lt "$limit" ] && kill -0 "$pid" 2>/dev/null; do
+      sleep 0.05
+      ticks=$((ticks + 1))
+    done
+    kill -0 "$pid" 2>/dev/null || return 0
+    identity=$(fm_pid_identity "$pid" 2>/dev/null || true)
+    log "watcher still exiting ${WATCHER_STOP_SYNC_WAIT_SECS}s after SIGTERM; kill backstop armed at ${grace}s"
+    deadline=$(( $(date +%s) + grace ))
+    (
+      while [ "$(date +%s)" -lt "$deadline" ] && kill -0 "$pid" 2>/dev/null; do
+        sleep 0.2
+      done
+      if kill -0 "$pid" 2>/dev/null && [ -n "$identity" ] \
+        && [ "$(fm_pid_identity "$pid" 2>/dev/null || true)" = "$identity" ]; then
+        kill -KILL "$pid" 2>/dev/null || true
+        log "watcher did not exit within ${grace}s of SIGTERM; kill backstop fired"
+      fi
+    ) &
+  }
   cleanup() {
     trap - TERM INT
     # The interrupted wait this handler was reached from still owns a live sleep
@@ -1526,14 +1574,13 @@ fm_super_main() {
     escalate_flush "$STATE" 2>/dev/null || true
     if [ -n "${WATCHER_PID:-}" ]; then
       # Bounded, never an open-ended `wait`: the watcher normally answers SIGTERM
-      # at once through the same signal-responsive waits, but one stuck in a
-      # backend call must not hold this shutdown past the stopper's budget.
-      # Killing it discards nothing durable - the wake queue,
-      # the escalation buffer, and the watcher's singleton lock each have their
-      # own recovery path - so a bounded stop is strictly safer than waiting.
-      if ! fm_signal_stop_child "$WATCHER_PID" "$WATCHER_STOP_GRACE"; then
-        log "watcher did not exit within ${WATCHER_STOP_GRACE}s of SIGTERM; killed it to keep shutdown bounded"
-      fi
+      # at once through the same signal-responsive waits, but a watcher mid-way
+      # through a foreground sleep or backend call defers it, and SIGKILLing it
+      # there would destroy the downtime recovery state its exit cleanup has not
+      # persisted yet. watcher_stop_bounded keeps this shutdown inside the
+      # stopper's budget while the detached kill backstop waits out the full
+      # durable-safe grace.
+      watcher_stop_bounded "$WATCHER_PID" "$WATCHER_STOP_GRACE"
     fi
     if [ -n "${CUR_TMP:-}" ]; then
       rm -f "$CUR_TMP" 2>/dev/null || true
