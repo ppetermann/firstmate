@@ -371,6 +371,75 @@ test_ship_project_memory_wording() {
   pass "fm-brief.sh: ship project-memory wording carries the AGENTS.md authoring bar"
 }
 
+# PR-bearing DODs must state the required-review merge bar reviewer-neutrally:
+# the CI-green (no-mistakes) or PR-open (direct-PR) report stays, but on a
+# repository whose merge requires a review it is a milestone rather than the
+# finish, its findings are the worker's to address in one push per round, and a
+# push after approval dismisses the approval. The concrete reviewer is per-task
+# knowledge, so the scaffold must stay free of any specific review tool's name.
+test_pr_briefs_state_required_review_merge_bar() {
+  local home id brief
+  home="$TMP_ROOT/review-bar-home"
+  mkdir -p "$home/data"
+
+  id="brief-reviewbar-nm-f1"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_grep 'done: PR {url} checks green' "$brief" \
+    "no-mistakes DOD lost the CI-ready return point report"
+  assert_grep "the repository's required review" "$brief" \
+    "no-mistakes DOD lost the reviewer-neutral required-review bar"
+  assert_grep "milestone, not the finish" "$brief" \
+    "no-mistakes DOD no longer separates the CI-green milestone from the merge bar"
+  assert_grep "check the PR's review state before appending the report" "$brief" \
+    "no-mistakes DOD lost the pre-report review-state check"
+  assert_grep "land that round's fixes in a single push" "$brief" \
+    "no-mistakes DOD lost one-push-per-review-round batching"
+  assert_grep "dismisses the approval and costs another full review round" "$brief" \
+    "no-mistakes DOD lost the approval-dismissal consequence"
+  assert_grep "never start another validation run against an approved PR" "$brief" \
+    "no-mistakes DOD lost the second-run warning after approval"
+  assert_no_grep "You are finished." "$brief" \
+    "no-mistakes DOD still calls the CI-green report finished"
+  assert_no_grep "CodeRabbit" "$brief" \
+    "no-mistakes DOD hardcoded a specific review tool"
+
+  id="brief-reviewbar-dp-f2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_grep "addressing them is part of this task" "$brief" \
+    "direct-PR DOD lost relayed-review-findings ownership"
+  assert_grep "land one round of fixes in a single push" "$brief" \
+    "direct-PR DOD lost one-push-per-review-round batching"
+  assert_grep "dismisses the approval and costs another full review round" "$brief" \
+    "direct-PR DOD lost the approval-dismissal consequence"
+  assert_no_grep "CodeRabbit" "$brief" \
+    "direct-PR DOD hardcoded a specific review tool"
+  assert_no_grep "CI-ready return point" "$brief" \
+    "direct-PR DOD leaked the no-mistakes CI-ready language"
+  pass "fm-brief.sh: PR-bearing DODs state the required-review merge bar and approval-dismissal cost"
+}
+
+# A local-only task has no PR and no reviewer, so its DOD must not carry any
+# required-review or approval language from the PR-bearing modes.
+test_local_only_dod_carries_no_review_language() {
+  local home id brief
+  home="$TMP_ROOT/local-no-review-home"
+  mkdir -p "$home/data"
+  id="brief-local-noreview-f3"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode local-only >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_no_grep "required review" "$brief" \
+    "local-only DOD gained required-review language"
+  assert_no_grep "review state" "$brief" \
+    "local-only DOD gained review-state language"
+  assert_no_grep "dismisses the approval" "$brief" \
+    "local-only DOD gained approval-dismissal language"
+  assert_no_grep "CodeRabbit" "$brief" \
+    "local-only DOD hardcoded a specific review tool"
+  pass "fm-brief.sh: local-only DOD carries no review language"
+}
+
 test_herdr_lab_contract_is_explicit_and_complete() {
   local home id brief
   home="$TMP_ROOT/herdr-lab-home"
@@ -718,6 +787,8 @@ test_ship_mode_is_required_and_closed_set
 test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
 test_faster_paths_use_configured_authority_without_stacked_review
+test_pr_briefs_state_required_review_merge_bar
+test_local_only_dod_carries_no_review_language
 test_no_mistakes_dod_wording
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete

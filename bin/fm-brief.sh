@@ -36,6 +36,13 @@
 #                the configured merge authority approves, firstmate merges to local main
 # no-mistakes-prod-only is a registry policy, not a task mode; resolve it to one of
 # the three concrete modes at intake before calling this script.
+# PR-bearing definitions of done state the required-review merge bar
+# reviewer-neutrally ("the repository's required review"; the task text names
+# the concrete reviewer when there is one): the CI-green/PR-open report is a
+# milestone while that review is outstanding, its findings are the worker's to
+# address in one push per round, and any push after its approval dismisses the
+# approval and costs another review round. local-only has no PR and no
+# reviewer, so its DOD carries none of this.
 # The generated ship brief records the chosen mode as a fixed machine-readable
 # "Delivery contract: mode=<mode>" line. bin/fm-spawn.sh reads that line and refuses
 # to launch a ship task whose explicit --mode disagrees, so an adjusted brief and the
@@ -363,6 +370,8 @@ This task ships **direct-PR**: you raise the PR yourself, without the no-mistake
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
+When the repository requires a review before merge, firstmate relays its findings to you, and addressing them is part of this task; land one round of fixes in a single push.
+Once that review has approved, push nothing more: any new commit dismisses the approval and costs another full review round.
 EOF
     ;;
   local-only)
@@ -400,7 +409,12 @@ Two firstmate-specific rules layer on top of that guidance:
   When the decision comes back, feed it to the gate with \`no-mistakes axi respond\` and let the pipeline apply it - do not route the question to "the user" or implement the fix yourself.
 - Avoid \`--yes\`: it would silently bypass firstmate's authority check and any required captain escalation.
 
-After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done: PR {url} checks green\` and stop. You are finished.
+After /no-mistakes reports CI green (the CI-ready return point - report now so firstmate can tell the captain early, never silently monitoring the PR through to merge), append \`done: PR {url} checks green\` and stop.
+When the repository requires a review before merge, that report is a milestone, not the finish: the merge bar is CI green plus the repository's required review approving, so check the PR's review state before appending the report.
+If that review has already requested changes, do not append \`done:\` yet - addressing its findings is part of this task, so land that round's fixes in a single push and report at the next CI-ready return point.
+If its verdict arrives only after your report, firstmate will relay it to you, and addressing it stays part of this task rather than new work.
+Once that review has approved, push nothing more: any new commit dismisses the approval and costs another full review round, so never start another validation run against an approved PR.
+When no review bar applies, that report finishes your part; the merge itself stays with the configured merge authority.
 EOF
     ;;
 esac
