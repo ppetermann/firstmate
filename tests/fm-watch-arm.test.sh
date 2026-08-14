@@ -885,7 +885,35 @@ SH
   ! kill -0 "$child" 2>/dev/null \
     || fail "the interrupted arm left its stalled watcher running"
   STALLED_WATCHER_PID=
+  grep -q "$(printf '\treason=arm-interrupted-kill-backstop\t')" "$state/.watch-cycle-exits.log" \
+    || fail "the kill backstop was not distinguishable from a clean interrupt in the cycle ledger"
   pass "watch-arm: an interrupted arm stops a watcher that ignores SIGTERM"
+}
+
+# A clean interrupt and a kill-backstop stop must stay distinguishable in the
+# machine-read cycle ledger: the real watcher honors SIGTERM promptly, so its
+# row records exactly arm-interrupted and never the backstop reason.
+test_interrupted_arm_ledger_distinguishes_backstop_kill() {
+  local dir home state fakebin armout status
+  dir=$(make_case arm-interrupt-clean-watcher)
+  home="$dir/home"
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  mkdir -p "$home/data"
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/arm.out"
+  is_live_non_zombie "$ARM_PID" || fail "clean-interrupt fixture arm did not stay live"
+  kill -TERM "$ARM_PID" 2>/dev/null || fail "could not interrupt the clean-interrupt arm"
+  wait_for_exit "$ARM_PID" 120
+  status=$?
+  # The interrupted arm propagates its own signal exit (143); only a timeout
+  # means it failed to complete its stop.
+  [ "$status" -ne 124 ] || fail "clean-interrupt arm did not exit after SIGTERM"
+  grep -q "$(printf '\treason=arm-interrupted\t')" "$state/.watch-cycle-exits.log" \
+    || fail "a clean interrupt was not recorded as arm-interrupted"
+  ! grep -q "$(printf '\treason=arm-interrupted-kill-backstop\t')" "$state/.watch-cycle-exits.log" \
+    || fail "a clean interrupt was recorded as a kill-backstop stop"
+  pass "watch-arm: a clean interrupt records arm-interrupted, not the kill backstop"
 }
 
 test_attached_arm_reports_the_delivered_wake
@@ -903,3 +931,4 @@ test_handling_window_close_keeps_the_acknowledgement_valid
 test_moved_generation_acknowledgement_is_self_healing
 test_downtime_marker_does_not_follow_symlink
 test_interrupted_arm_stops_a_watcher_that_ignores_sigterm
+test_interrupted_arm_ledger_distinguishes_backstop_kill

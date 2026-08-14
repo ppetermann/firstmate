@@ -71,6 +71,7 @@ An interrupted arm always completes its own stop.
 It ends its watcher child through the shared bounded SIGTERM-then-kill stop instead of an unbounded wait, so a watcher stalled inside its own exit cleanup can never leave the harness-tracked arm impossible to stop.
 The grace before that kill backstop is `FM_ARM_CHILD_STOP_GRACE_SECS` in [`configuration.md`](configuration.md), and it is deliberately far above the watcher's own linger rather than a deadline for normal shutdown, because a normally stopping watcher persists its downtime recovery state from exactly that exit cleanup.
 `FM_WATCHER_STOP_GRACE_SECS` gives the daemon's detached shutdown backstop the same durable-safe grace when the away-mode daemon stops the same watcher, while the daemon itself stops waiting after a fixed short bound to stay inside the `fm-afk-launch.sh` stop budget.
+An interrupted arm whose kill backstop actually fired records the distinct cycle-ledger reason `arm-interrupted-kill-backstop`, so the accepted evidence-loss risk stays distinguishable from a clean `arm-interrupted` interrupt.
 
 The arm layer appends one tab-separated record per observed cycle to `state/.watch-cycle-exits.log`.
 Each record includes arm and watcher PIDs, start and end timestamps, exit code and signal, classified reason, beacon age, lock identity before and after close, and successor disposition.

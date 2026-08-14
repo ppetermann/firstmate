@@ -81,8 +81,7 @@ esac
 CONFIRM_TIMEOUT=${FM_ARM_CONFIRM_TIMEOUT:-$ARM_CONFIRM_DEFAULT}
 # Seconds an interrupted arm allows its watcher child to honor SIGTERM before the kill backstop.
 # A stopping watcher persists its downtime recovery state from its exit cleanup, so killing it mid-shutdown would drop durable recovery evidence.
-# This is deliberately far above the watcher's own FM_SIGNAL_GRACE linger, and it deliberately does not match the much shorter default bin/fm-supervise-daemon.sh passes when it stops the same fm-watch.sh child through the same fm_signal_stop_child primitive.
-# That divergence is intentional and is a statement about this path only: an interrupted arm must leave its watcher time to finish that exit cleanup, so the daemon's shutdown grace is not evidence about what this path requires.
+# This is deliberately far above the watcher's own FM_SIGNAL_GRACE linger, and it matches the durable-safe backstop grace bin/fm-supervise-daemon.sh gives the same fm-watch.sh child when the daemon stops it.
 # Measured here: a 2s grace and then a 10s grace both reproducibly broke tests/fm-watch-arm.test.sh's test_interrupted_handling_is_redrained_on_rearm - which passes on unmodified main - by killing the watcher mid-shutdown and dropping the durable downtime marker, while 120s passed repeatedly.
 # The backstop is not a deadline for normal shutdown - it exists only so a watcher that never finishes cannot leave this arm, the harness-tracked task, impossible to stop.
 CHILD_STOP_GRACE=${FM_ARM_CHILD_STOP_GRACE_SECS:-120}
@@ -457,15 +456,22 @@ fi
 # wake exit propagates out so the harness re-notifies firstmate.
 child=
 child_out=
+# Set by cleanup_child when its stop needed the kill backstop: 1 when the
+# watcher child did not honor SIGTERM within CHILD_STOP_GRACE and was SIGKILLed,
+# 0 on a prompt stop. Cycle-ledger rows read this so a backstop kill stays
+# distinguishable from a clean interrupt.
+child_stop_backstop=0
 cleanup_child() {
+  child_stop_backstop=0
   if [ -n "$child" ]; then
-    # Bounded stop, the same contract the supervise daemon's shutdown uses: a
-    # watcher that stalls inside its own exit cleanup must never leave this arm
-    # - the harness-tracked task - impossible to stop. fm_signal_stop_child
-    # sends SIGTERM, waits out the grace, then kills and reaps, so this always
-    # returns instead of blocking on a child that will not exit. It also reaps
-    # an already-dead child, publishing its status in FM_SIGNAL_STOP_STATUS.
-    fm_signal_stop_child "$child" "$CHILD_STOP_GRACE" || true
+    # Bounded stop: a watcher that stalls inside its own exit cleanup must never
+    # leave this arm - the harness-tracked task - impossible to stop.
+    # fm_signal_stop_child sends SIGTERM, waits out the grace, then kills and
+    # reaps, so this always returns instead of blocking on a child that will not
+    # exit. It also reaps an already-dead child, publishing its status in
+    # FM_SIGNAL_STOP_STATUS. A stop that needed the kill backstop records that
+    # in child_stop_backstop instead of being swallowed.
+    fm_signal_stop_child "$child" "$CHILD_STOP_GRACE" || child_stop_backstop=1
   fi
   if [ -n "$child_out" ]; then
     rm -f "$child_out" 2>/dev/null || true
@@ -474,10 +480,16 @@ cleanup_child() {
 
 # shellcheck disable=SC2329 # Invoked indirectly by the signal traps below.
 handle_arm_signal() {
-  local signal=$1 rc=$2
+  local signal=$1 rc=$2 reason=arm-interrupted
   trap - HUP TERM INT
   cleanup_child
-  cycle_log_append "$rc" "$signal" arm-interrupted none
+  if [ "$child_stop_backstop" -eq 1 ]; then
+    # The watcher would not stop for SIGTERM inside the durable-safe grace, so
+    # the kill backstop SIGKILLed it: the accepted evidence-loss risk must stay
+    # distinguishable from a clean interrupt in the machine-read cycle ledger.
+    reason=arm-interrupted-kill-backstop
+  fi
+  cycle_log_append "$rc" "$signal" "$reason" none
   exit "$rc"
 }
 
