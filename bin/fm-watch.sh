@@ -379,6 +379,12 @@ clear_pause_tracking() {  # <window>
 # Reconcile a declared pause or captain-held status with authoritative crew state.
 # Only a confidently dead ordinary crew may recover paused classification after
 # fm-crew-state has fallen back to stopped or unknown.
+# A declared pause also holds the bounded pause cadence while an authoritative
+# run-step is attributed and the agent is not confidently dead (2026-08-14: a
+# supervisor pause annotation over a live validation run otherwise fed the
+# provably-working wedge timer, which re-arms after every escalation and has no
+# terminal state on a healthy static pane); a confidently dead agent under an
+# attributed run falls back to `working` so wedge escalation resumes.
 pause_state_class() {  # <window> <task>
   local win=$1 task=$2 key last recheck_file class agent_alive
   key=${win//:/_}
@@ -405,6 +411,14 @@ pause_state_class() {  # <window> <task>
   fi
   class=$(crew_absorb_class "$task")
   if [ "$class" = working ]; then
+    if [ "$(window_kind "$win")" != secondmate ]; then
+      agent_alive=$(fm_backend_agent_alive "$(window_backend "$win")" "$win" 2>/dev/null) || agent_alive=unknown
+      if [ "$agent_alive" != dead ]; then
+        date +%s > "$recheck_file"
+        printf 'paused'
+        return
+      fi
+    fi
     rm -f "$recheck_file"
     printf 'working'
     return
