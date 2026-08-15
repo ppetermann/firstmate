@@ -56,6 +56,8 @@ export PATH
 
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-backend.sh"
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-cursor-lib.sh"
 fm_backend_source tmux || fail "fm_backend_source tmux failed"
 
 "$REAL_TMUX" -L "$SOCKET" new-session -d -s "$SESSION" -n control -c "$LAB/wt" \
@@ -84,7 +86,13 @@ for harness in "${FM_DRIFT_HARNESSES[@]}"; do
   [ -n "$version" ] || version="unknown"
 
   target="$SESSION:$harness"
-  "$REAL_TMUX" -L "$SOCKET" new-window -d -t "$SESSION:" -n "$harness" -c "$LAB/wt" -- "$bin_path" \
+  # cursor blocks on a workspace-trust prompt in a directory it has never seen,
+  # which would hang this probe rather than classify anything; --trust is the
+  # same flag fm-spawn passes for the same reason.
+  launch_args=""
+  [ "$harness" = cursor ] && launch_args="--trust"
+  # shellcheck disable=SC2086  # deliberate: an empty value must add no argument
+  "$REAL_TMUX" -L "$SOCKET" new-window -d -t "$SESSION:" -n "$harness" -c "$LAB/wt" -- "$bin_path" $launch_args \
     || fail "$harness ($version): could not launch a window for the liveness probe"
 
   state=
