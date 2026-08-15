@@ -12,9 +12,11 @@
 # verbs addressed to an exact task id, with the per-harness mechanics owned
 # here rather than improvised per harness in agent prose.
 #
-# This file owns three capability tables plus their pure artifact-path tables
-# and nothing else. It has no side effects, runs no backend command, and reads
-# no state, so it can be sourced by a test as a pure contract:
+# This file owns three capability tables plus their pure artifact-path tables,
+# and the global turn-end-hook retirement path below them. The tables stay
+# side-effect-free, so they can be sourced by a test as a pure contract;
+# retirement mutates the operator's harness home and requires bin/fm-wake-lib.sh's
+# lock helpers to be loaded by the caller at call time:
 #
 #   1. Verb allowlist. There is no arbitrary-text and no generic raw-key entry
 #      point on the control plane; a caller either names an allowlisted verb or
@@ -252,42 +254,68 @@ fm_control_harness_turnend_registry_dir() {  # <harness>
   esac
 }
 
+# The per-harness registry lock serializing every global turn-end hook state
+# transition. The lock directory is a SIBLING of the registry (never inside it)
+# so retirement can remove the registry without destroying the lock itself, and
+# fm_lock_release removes the lock directory on release, so a fully retired
+# harness leaves nothing behind in the operator's home. Holders:
+# fm_control_harness_turnend_maybe_retire_global here, and fm-spawn.sh's grok
+# and kimi token-mint/hook-write sections. The kimi installer script itself
+# takes no lock; both of its callers hold this one across each invocation.
+fm_control_harness_turnend_lock_path() {  # <harness>
+  local harness=${1-} registry
+  registry=$(fm_control_harness_turnend_registry_dir "$harness") || return 1
+  printf '%s.lock\n' "$registry"
+}
+
 # Maybe retire a harness's global turn-end hook files when the last task using
-# that harness is torn down. Called from fm-teardown.sh after the task's own
-# auth token is removed. Counts the registry entries; if zero, removes the
-# global hook files so they do not persist as permanent cruft in the operator's
-# home directory.
+# that harness goes away. Called from fm-teardown.sh after the task's own auth
+# token is removed, and from fm-spawn.sh's clear_relaunch_harness_wiring after
+# a relaunch revokes the previous incarnation's entry. Counts the registry
+# entries; if zero, removes the global hook files so they do not persist as
+# permanent cruft in the operator's home directory.
 #
-# Concurrency safety (no explicit lock needed): grok's spawn always rewrites the
-# hook script and json after creating its auth token, so a teardown that removes
-# the hook between a concurrent spawn's auth creation and hook write is
-# harmless - the spawn writes the hook back. kimi's `remove` subcommand refuses
-# when the registry is non-empty, so a spawn that creates a token between the
-# count and the remove call causes the remove to refuse, preserving the hook.
-# The spawn then re-runs install after creating its auth token to recreate the
-# hook if it was removed.
+# Concurrency safety (per-harness registry lock): the count and every
+# destructive step run while holding fm_control_harness_turnend_lock_path, and
+# fm-spawn.sh holds the same lock across each harness's token-mint plus
+# hook-write section, so a retirement can never interleave with a spawn's
+# install.
+# A spawn whose entry is minted before this count runs keeps its hook files,
+# because the count observes its registry entry under the lock.
+# A spawn that waits on the lock re-installs after the retirement completes,
+# so it always launches with its own live entry plus a fresh hook.
+# The lock helpers come from bin/fm-wake-lib.sh; if a caller environment lacks
+# them, retirement is skipped with a warning rather than racing unprotected.
 #
 # grok's hook files are removed directly; kimi delegates to its installer's
 # symmetric `remove` subcommand so the marker-delimited config.toml edit stays
 # surgical. Returns 0 silently when the registry still holds entries, when the
 # registry is missing, or when the harness has no global hook.
 fm_control_harness_turnend_maybe_retire_global() {  # <harness> <script_dir>
-  local harness=${1-} script_dir=${2-} registry count grok_hooks
+  local harness=${1-} script_dir=${2-} registry count grok_hooks lock
   registry=$(fm_control_harness_turnend_registry_dir "$harness") 2>/dev/null || return 0
   [ -n "$registry" ] || return 0
   [ -d "$registry" ] || return 0
+  lock=$(fm_control_harness_turnend_lock_path "$harness") || return 0
+  if ! declare -F fm_lock_acquire_wait >/dev/null 2>&1; then
+    echo "warning: skipping global turn-end hook retirement for $harness: fm-wake-lib.sh lock helpers are not loaded" >&2
+    return 0
+  fi
+  fm_lock_acquire_wait "$lock"
   count=$(find "$registry" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | wc -l)
-  [ "$count" -eq 0 ] || return 0
-  case "$harness" in
-    grok)
-      grok_hooks=$(dirname "$registry")
-      rm -f -- "$grok_hooks/fm-turn-end.sh" "$grok_hooks/fm-turn-end.json"
-      rmdir -- "$registry" 2>/dev/null || true
-      ;;
-    kimi)
-      "$script_dir/fm-kimi-turnend-hook.sh" remove 2>/dev/null || true
-      ;;
-  esac
+  if [ "$count" -eq 0 ]; then
+    case "$harness" in
+      grok)
+        grok_hooks=$(dirname "$registry")
+        rm -f -- "$grok_hooks/fm-turn-end.sh" "$grok_hooks/fm-turn-end.json"
+        rmdir -- "$registry" 2>/dev/null || true
+        ;;
+      kimi)
+        "$script_dir/fm-kimi-turnend-hook.sh" remove 2>/dev/null || true
+        ;;
+    esac
+  fi
+  fm_lock_release "$lock" || true
   return 0
 }
 

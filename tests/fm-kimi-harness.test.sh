@@ -17,7 +17,7 @@ BASE_PATH=${FM_TEST_BASE_PATH:-$PYTHON_BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin}
 
 cleanup_kimi_harness() {
   [ -z "$KIMI_RUNTIME_TASK_TMP" ] || rm -rf "$KIMI_RUNTIME_TASK_TMP"
-  rm -rf "$TMP_ROOT"
+  rm -rf "$TMP_ROOT" "/tmp/fm-kimi-lockspawn-z11"
 }
 trap cleanup_kimi_harness EXIT
 
@@ -477,6 +477,209 @@ test_kimi_last_task_teardown_removes_global_hook_then_respawn_reinstalls() {
   pass "Kimi last-task teardown retires global hook; a fresh spawn reinstalls it"
 }
 
+test_kimi_hook_validate_and_mint_subcommands() {
+  local home config hook registry token token2 rc
+  home="$TMP_ROOT/mint-validate"
+  config="$home/.kimi-code/config.toml"
+  hook="$home/.kimi-code/fm-turn-end.sh"
+  registry="$home/.kimi-code/fm-turn-end.d"
+  mkdir -p "$home/.kimi-code"
+  printf '# Kimi test config\ndefault_model = "test"\n' > "$config"
+
+  # A fully retired home (no region, no registry) is exactly what validate must
+  # leave untouched: the spawn's pre-flight may not resurrect hook files.
+  HOME="$home" "$KIMI_HOOK" validate || fail "validate refused a pristine config"
+  assert_absent "$hook" "validate wrote the hook script"
+  assert_absent "$registry" "validate wrote the registry"
+  ! grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config" \
+    || fail "validate wrote a Firstmate region"
+
+  token=$(HOME="$home" "$KIMI_HOOK" mint "$home/state/x.turn-ended") \
+    || fail "mint refused a pristine config"
+  case "$token" in fm.????????????) : ;; *) fail "mint printed a malformed token name: $token" ;; esac
+  assert_present "$registry/$token" "mint did not create its registry entry"
+  [ "$(cat "$registry/$token")" = "$home/state/x.turn-ended" ] \
+    || fail "mint entry did not name the given turn-ended path"
+  assert_present "$hook" "mint did not ensure the hook script"
+  grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config" \
+    || fail "mint did not ensure the config region"
+
+  token2=$(HOME="$home" "$KIMI_HOOK" mint "$home/state/y.turn-ended") \
+    || fail "second mint failed"
+  [ "$token2" != "$token" ] || fail "second mint reused the same token name"
+
+  rc=0
+  HOME="$home" "$KIMI_HOOK" mint relative-path.turn-ended >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || fail "mint accepted a non-absolute target"
+  pass "Kimi hook validate writes nothing on a retired home and mint ensures plus mints"
+}
+
+test_kimi_pre_flight_validate_cannot_resurrect_retired_hook() {
+  local home config hook registry token
+  home="$TMP_ROOT/retired-no-resurrect"
+  config="$home/.kimi-code/config.toml"
+  hook="$home/.kimi-code/fm-turn-end.sh"
+  registry="$home/.kimi-code/fm-turn-end.d"
+  mkdir -p "$home/.kimi-code"
+  printf '# Kimi test config\ndefault_model = "test"\n' > "$config"
+  token=$(HOME="$home" "$KIMI_HOOK" mint "$home/state/x.turn-ended") \
+    || fail "mint failed during setup"
+  rm "$registry/$token"
+  HOME="$home" "$KIMI_HOOK" remove || fail "retiring remove failed during setup"
+  assert_absent "$hook" "setup: remove left the hook script"
+
+  # The spawn's pre-flight action is validate; on a retired home it must leave
+  # the retirement intact rather than reinstalling hook files nothing guards.
+  HOME="$home" "$KIMI_HOOK" validate || fail "validate refused a retired home"
+  assert_absent "$hook" "pre-flight validate resurrected the retired hook script"
+  assert_absent "$registry" "pre-flight validate resurrected the retired registry"
+  ! grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config" \
+    || fail "pre-flight validate resurrected the retired config region"
+  pass "Kimi spawn pre-flight validate cannot resurrect a retired global hook"
+}
+
+test_kimi_retire_racing_mint_cannot_destroy_a_live_entry() {
+  local home config hook registry token token2 lock ready proceed retired_rc holder retired i=0
+  home="$TMP_ROOT/retire-race"
+  config="$home/.kimi-code/config.toml"
+  hook="$home/.kimi-code/fm-turn-end.sh"
+  registry="$home/.kimi-code/fm-turn-end.d"
+  mkdir -p "$home/.kimi-code" "$home/state"
+  printf '# Kimi test config\ndefault_model = "test"\n' > "$config"
+  token=$(HOME="$home" "$KIMI_HOOK" mint "$home/state/x.turn-ended") \
+    || fail "mint failed during setup"
+  rm "$registry/$token"
+  # Pre-state of the race: the last teardown revoked its entry, so retirement
+  # is about to run while a concurrent spawn mints a fresh one.
+  lock="$registry.lock"
+  ready="$home/lock-ready"
+  proceed="$home/lock-proceed"
+  retired_rc="$home/retire-rc"
+  rm -f "$ready" "$proceed" "$proceed.release" "$home/mint-done"
+  (
+    # shellcheck source=/dev/null
+    FM_STATE_OVERRIDE="$home/state" . "$ROOT/bin/fm-wake-lib.sh"
+    # shellcheck source=/dev/null
+    . "$ROOT/bin/fm-control-lib.sh"
+    fm_lock_try_acquire "$lock" || exit 1
+    trap 'fm_lock_release "$lock"' EXIT
+    : > "$ready"
+    while [ ! -s "$proceed" ]; do sleep 0.01; done
+    # The racing spawn's locked critical section: mint under the held lock.
+    HOME="$home" "$ROOT/bin/fm-kimi-turnend-hook.sh" \
+      mint "$home/state/y.turn-ended" > "$home/minted-name" || exit 1
+    : > "$home/mint-done"
+    while [ ! -e "$proceed.release" ]; do sleep 0.01; done
+  ) &
+  holder=$!
+  while [ ! -e "$ready" ] && [ "$i" -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -e "$ready" ] || { kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; fail "could not stage the held registry lock"; }
+
+  cat > "$home/retire.sh" <<'EOS'
+#!/usr/bin/env bash
+set -u
+. "$FM_ROOT_SRC/bin/fm-wake-lib.sh"
+. "$FM_ROOT_SRC/bin/fm-control-lib.sh"
+fm_control_harness_turnend_maybe_retire_global kimi "$FM_ROOT_SRC/bin"
+echo $? > "$FM_RETIRED_RC"
+EOS
+  HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_ROOT_SRC="$ROOT" \
+    FM_RETIRED_RC="$retired_rc" bash "$home/retire.sh" &
+  retired=$!
+  sleep 1
+  if ! kill -0 "$retired" 2>/dev/null || [ -s "$retired_rc" ]; then
+    : > "$proceed.release"
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    wait "$retired" 2>/dev/null || true
+    fail "retirement did not wait for the held registry lock"
+  fi
+  assert_present "$hook" "blocked retirement removed the hook script mid-race"
+  # Let the frozen spawn-side critical section mint while retirement waits.
+  printf 'go\n' > "$proceed"
+  i=0
+  while [ ! -e "$home/mint-done" ] && [ "$i" -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -e "$home/mint-done" ] || fail "staged mint never completed under the held lock"
+  token2=$(cat "$home/minted-name")
+  : > "$proceed.release"
+  wait "$holder" || fail "registry lock holder failed"
+  wait "$retired" || fail "retiring subshell failed"
+  [ "$(cat "$retired_rc")" = 0 ] || fail "retirement reported failure: $(cat "$retired_rc")"
+  assert_present "$registry/$token2" "retirement racing a mint destroyed the live entry"
+  assert_present "$hook" "retirement racing a mint removed the hook the live entry needs"
+  grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config" \
+    || fail "retirement racing a mint stripped the config region a live entry needs"
+  pass "Kimi retirement serializes with mint: a racing mint's entry survives"
+}
+
+test_kimi_spawn_mint_holds_the_registry_lock() {
+  local id rec case_dir home proj wt fakebin lock ready proceed spawn_pid i=0 out rc
+  id=kimi-lockspawn-z11
+  task_tmp="/tmp/fm-$id"
+  [ -z "${KIMI_RUNTIME_TASK_TMP:-}" ] || rm -rf "$KIMI_RUNTIME_TASK_TMP"
+  KIMI_RUNTIME_TASK_TMP=$task_tmp
+  rm -rf "$task_tmp"
+  rec=$(make_spawn_case lockspawn "$id")
+  read_spawn_record "$rec"
+  lock="$HOME_DIR/.kimi-code/fm-turn-end.d.lock"
+  ready="$CASE_DIR/lock-ready"
+  proceed="$CASE_DIR/lock-proceed"
+  rm -f "$ready" "$proceed"
+  (
+    # shellcheck source=/dev/null
+    FM_STATE_OVERRIDE="$HOME_DIR/state" . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$lock" || exit 1
+    trap 'fm_lock_release "$lock"' EXIT
+    : > "$ready"
+    while [ ! -s "$proceed" ]; do sleep 0.01; done
+  ) &
+  local holder=$!
+  while [ ! -e "$ready" ] && [ "$i" -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -e "$ready" ] || { kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; fail "could not stage the held kimi registry lock"; }
+
+  run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" \
+    > "$CASE_DIR/spawn.log" 2>&1 &
+  spawn_pid=$!
+  # /tmp/fm-<id> is created just before the harness wiring, so once it exists
+  # an unlocked spawn would mint within milliseconds.
+  i=0
+  while [ ! -d "$task_tmp/gotmp" ] && [ "$i" -lt 300 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -d "$task_tmp/gotmp" ] || { printf 'go\n' > "$proceed"; wait "$holder" 2>/dev/null || true; wait "$spawn_pid" 2>/dev/null || true; fail "spawn never reached its wiring stage"; }
+  sleep 1
+  if [ -n "$(ls "$HOME_DIR/.kimi-code/fm-turn-end.d" 2>/dev/null)" ]; then
+    printf 'go\n' > "$proceed"
+    wait "$holder" 2>/dev/null || true
+    wait "$spawn_pid" 2>/dev/null || true
+    fail "kimi spawn minted its registry entry without holding the registry lock"
+  fi
+  if ! kill -0 "$spawn_pid" 2>/dev/null; then
+    : > "$proceed"
+    wait "$holder" 2>/dev/null || true
+    fail "kimi spawn exited instead of waiting for the registry lock: $(cat "$CASE_DIR/spawn.log")"
+  fi
+
+  printf 'go\n' > "$proceed"
+  wait "$holder" || fail "registry lock holder failed"
+  wait "$spawn_pid"; rc=$?
+  expect_code 0 "$rc" "kimi spawn should complete after the registry lock releases"$'\n'"$(cat "$CASE_DIR/spawn.log")"
+  token=$(sed -n 's/^token=//p' "$WT_DIR/.fm-kimi-turnend")
+  assert_present "$HOME_DIR/.kimi-code/fm-turn-end.d/$token" \
+    "kimi spawn did not register its token after the lock released"
+  pass "fm-spawn: kimi mint waits for the registry lock and registers after release"
+}
+
 test_kimi_falls_back_to_expanded_home_binary() {
   local id rec out rc launch fallback
   id=kimi-fallback-z4
@@ -702,11 +905,15 @@ test_kimi_hook_install_is_surgical_idempotent_and_removable
 test_kimi_hook_remove_preserves_owned_newline_boundary
 test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config
 test_kimi_hook_install_refuses_without_jq
+test_kimi_hook_validate_and_mint_subcommands
+test_kimi_pre_flight_validate_cannot_resurrect_retired_hook
+test_kimi_retire_racing_mint_cannot_destroy_a_live_entry
 test_kimi_launch_then_send_is_verified
 test_kimi_hook_is_silent_and_requires_registered_workspace_token
 test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation
 test_kimi_teardown_removes_pointer_and_registry_token
 test_kimi_last_task_teardown_removes_global_hook_then_respawn_reinstalls
+test_kimi_spawn_mint_holds_the_registry_lock
 test_kimi_falls_back_to_expanded_home_binary
 test_kimi_missing_binary_refuses_before_pane_creation
 test_kimi_unconfirmed_delivery_fails_loudly

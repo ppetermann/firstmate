@@ -353,7 +353,8 @@ Its `Stop` command fires only when the current workspace holds a `.fm-grok-turne
 `fm-spawn` writes that per-task pointer (`<worktree>/.fm-grok-turnend`, gitignored via git info/exclude like the other harnesses' worktree hook files) and a matching registry entry naming this task's `state/<id>.turn-ended`.
 The hook reads `$GROK_WORKSPACE_ROOT`, which is always set for hooks and equals the worktree.
 This keeps the hook outside the worktree, needs no trust grant, and writes only firstmate-owned files.
-`fm-teardown` removes the worktree pointer before returning a pooled worktree, and retires `fm-turn-end.sh` and `fm-turn-end.json` once removing the task's registry entry leaves `fm-turn-end.d/` empty; the next spawn reinstalls them, so the global hook is never permanent cruft in the captain's grok home.
+`fm-teardown` removes the worktree pointer before returning a pooled worktree, and retires `fm-turn-end.sh` and `fm-turn-end.json` once removing the task's registry entry leaves `fm-turn-end.d/` empty; a relaunch away from grok retires through the same path, and the next spawn reinstalls, so the global hook is never permanent cruft in the captain's grok home.
+Token mint plus hook write and retirement's count plus removal serialize on the per-harness registry lock (`fm-turn-end.d.lock`), so a retirement racing a spawn can neither destroy the fresh entry nor strip its hook files.
 Secondmate spawns skip the pointer (idle panes are healthy, no stale-pane detection for them).
 
 **Primary-session guard fact (verified 2026-07-28, Grok 0.2.112 and 0.2.73).**
@@ -400,7 +401,8 @@ The idle status bar can contain lowercase `thinking`, which is the model's effor
 The delivery-only spinner match covers the full moon-phase glyph set rather than one frame, but it remains locale- and emoji-font-sensitive because Kimi exposes no stable ASCII busy token.
 
 [`docs/turnend-guard.md`](../../../docs/turnend-guard.md) owns Kimi's verified global hook surface and captain-approved crew wake integration.
-`fm-spawn.sh` installs one marker-delimited Firstmate entry in `$HOME/.kimi-code/config.toml`, one silent always-zero hook script, and one private token registry under `$HOME/.kimi-code/fm-turn-end.d/`.
+`fm-spawn.sh` validates the config read-only before launch, then mints one marker-delimited Firstmate entry in `$HOME/.kimi-code/config.toml`, one silent always-zero hook script, one private token registry under `$HOME/.kimi-code/fm-turn-end.d/`, and this task's registry entry through `fm-kimi-turnend-hook.sh mint` in one locked step.
+Teardown of the last Kimi task, or a relaunch away from Kimi, retires the hook script, registry, and config entry once the registry is empty; mint and retirement serialize on the per-harness registry lock (`fm-turn-end.d.lock`).
 Each Kimi crew worktree receives a gitignored `.fm-kimi-turnend` token pointer, and the global hook touches that task's `state/<id>.turn-ended` only when the Stop payload's `cwd`, pointer, and registry entry all agree.
 A guarded silent hook cannot be verified from absence of effect, so prove invocation with an unguarded probe before concluding that the hook did not fire.
 The guarded turn-end signal remains a wake notification; standalone Kimi has no busy-state source until one is live-verified.

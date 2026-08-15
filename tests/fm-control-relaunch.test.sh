@@ -430,6 +430,60 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring() {
   pass "fm-control relaunch: switching harness is one ordinary relaunch, and the old wiring goes with the old agent"
 }
 
+# Relaunching away from grok or kimi revokes the last registry entry through
+# the same retirement path teardown uses, so the global hook files do not leak
+# forever in the operator's harness home (fm-orphan-global-turnend-hooks
+# follow-up: the relaunch path never ran the retirement check).
+test_relaunch_away_retires_the_prior_harness_global_hooks() {
+  local harness dir out rc config_dir
+  for harness in grok kimi; do
+    dir=$(new_case "retire-$harness" "rl-retire-$harness")
+    add_ship_task "$dir" "rl-retire-$harness" "$harness"
+    printf 'codex' > "$dir/fake/becomes"
+    if [ "$harness" = grok ]; then
+      mkdir -p "$dir/grokhome/hooks/fm-turn-end.d"
+      printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/grokhome/hooks/fm-turn-end.sh"
+      printf '{"hooks":{"Stop":[]}}\n' > "$dir/grokhome/hooks/fm-turn-end.json"
+      printf '%s\n' "$dir/home/state/rl-retire-grok.turn-ended" \
+        > "$dir/grokhome/hooks/fm-turn-end.d/fm.abcdefabcdef"
+      printf 'fm.abcdefabcdef\n' > "$dir/home/state/rl-retire-grok.grok-turnend-token"
+      printf 'token=fm.abcdefabcdef\n' > "$dir/wt/.fm-grok-turnend"
+    else
+      config_dir="$dir/home/.kimi-code"
+      mkdir -p "$config_dir"
+      printf '# Kimi test config\ndefault_model = "test"\n' > "$config_dir/config.toml"
+      HOME="$dir/home" "$ROOT/bin/fm-kimi-turnend-hook.sh" install \
+        || fail "kimi hook install failed during setup"
+      printf '%s\n' "$dir/home/state/rl-retire-kimi.turn-ended" \
+        > "$config_dir/fm-turn-end.d/fm.ghijklghijkl"
+      printf 'fm.ghijklghijkl\n' > "$dir/home/state/rl-retire-kimi.kimi-turnend-token"
+      printf 'token=fm.ghijklghijkl\n' > "$dir/wt/.fm-kimi-turnend"
+    fi
+
+    out=$(HOME="$dir/home" run_control "$dir" "rl-retire-$harness" relaunch \
+      --harness codex --note "switching away"); rc=$?
+    expect_code 0 "$rc" "relaunch away from $harness should succeed"$'\n'"$out"
+
+    if [ "$harness" = grok ]; then
+      assert_absent "$dir/grokhome/hooks/fm-turn-end.sh" \
+        "grok hook script survived a relaunch away from grok"
+      assert_absent "$dir/grokhome/hooks/fm-turn-end.json" \
+        "grok hook json survived a relaunch away from grok"
+      assert_absent "$dir/grokhome/hooks/fm-turn-end.d" \
+        "grok registry survived a relaunch away from grok"
+    else
+      config_dir="$dir/home/.kimi-code"
+      assert_absent "$config_dir/fm-turn-end.sh" \
+        "kimi hook script survived a relaunch away from kimi"
+      assert_absent "$config_dir/fm-turn-end.d" \
+        "kimi registry survived a relaunch away from kimi"
+      ! grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config_dir/config.toml" \
+        || fail "kimi config region survived a relaunch away from kimi"
+    fi
+  done
+  pass "fm-control relaunch: relaunching away retires the prior harness's global hooks"
+}
+
 test_harness_switch_does_not_carry_the_old_profile_axes() {
   local dir out rc
   dir=$(new_case profile rl5)
@@ -1403,6 +1457,7 @@ test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one
 test_prefixed_prior_harness_wiring_is_still_retired
+test_relaunch_away_retires_the_prior_harness_global_hooks
 test_muse_session_binding_is_retired_on_a_harness_switch
 test_missing_worktree_refuses_before_stopping_anything
 test_missing_instructions_refuse_before_stopping_anything

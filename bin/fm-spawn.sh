@@ -661,6 +661,8 @@ RELAUNCH_REPLACEMENT_STATE=
 RELAUNCH_REPLACEMENT_WT=
 CONFIG_INHERIT_LOCK=
 CONFIG_INHERIT_LOCK_HELD=0
+TURNEND_LOCK=
+TURNEND_LOCK_HELD=0
 
 parse_orca_worktree_result() {
   local raw=$1 rest
@@ -772,6 +774,10 @@ spawn_abort_cleanup() {
     CONFIG_INHERIT_LOCK_HELD=0
     fm_lock_release "$CONFIG_INHERIT_LOCK" || true
   fi
+  if [ "$TURNEND_LOCK_HELD" = 1 ]; then
+    TURNEND_LOCK_HELD=0
+    fm_lock_release "$TURNEND_LOCK" || true
+  fi
   return "$status"
 }
 trap spawn_abort_cleanup EXIT
@@ -817,6 +823,13 @@ clear_relaunch_harness_wiring() {
   done <<EOF
 $(fm_control_harness_wiring_paths "$harness" "$wt" "$state" "$id")
 EOF
+  # Revoking this entry may have emptied the harness's registry for good: a
+  # relaunch away from grok or kimi is the last chance to retire its global
+  # hook files, because no teardown will run for a harness this task no
+  # longer uses (fm-orphan-global-turnend-hooks follow-up).
+  # A same-harness relaunch is safe: the arming below re-creates the hook
+  # files under the same registry lock after this returns.
+  fm_control_harness_turnend_maybe_retire_global "$harness" "$FM_ROOT/bin" || true
 }
 
 spawn_herdr_presentation_order_lock_release() {
@@ -1403,7 +1416,11 @@ case "$LAUNCH" in
     KIMI_BIN=$(resolve_kimi_binary) || exit 1
     LAUNCH=${LAUNCH//__KIMIBIN__/$(shell_quote "$KIMI_BIN")}
     if [ "$KIND" != secondmate ]; then
-      "$FM_ROOT/bin/fm-kimi-turnend-hook.sh" install || {
+      # Read-only pre-flight: run the installer's refusal checks without
+      # writing anything. The post-auth mint below is the only spawn-side
+      # writer, so a spawn that fails before minting cannot resurrect a
+      # retired global hook that no live token guards.
+      "$FM_ROOT/bin/fm-kimi-turnend-hook.sh" validate || {
         echo "error: refusing Kimi spawn because the global turn-end hook could not be installed safely" >&2
         exit 1
       }
@@ -2530,7 +2547,19 @@ EOF
       # touches grok's managed config - only firstmate-owned files.
       GROK_HOOKS_DIR="${GROK_HOME:-$HOME/.grok}/hooks"
       GROK_AUTH_DIR=$(fm_control_harness_turnend_registry_dir grok)
+      # The registry (and its parent hooks dir) must exist before the lock is
+      # taken, because the lock directory lives in that same parent.
       mkdir -p "$GROK_AUTH_DIR"
+      # The registry lock is held across token mint plus hook write, and the
+      # retirement path holds the same lock across its count and hook removal,
+      # so a racing last-task retirement can neither destroy this fresh entry's
+      # hook files nor count the registry empty once this entry is minted.
+      TURNEND_LOCK=$(fm_control_harness_turnend_lock_path grok) || {
+        echo "error: could not resolve the grok turn-end registry lock" >&2
+        exit 1
+      }
+      fm_lock_acquire_wait "$TURNEND_LOCK"
+      TURNEND_LOCK_HELD=1
       old_umask=$(umask)
       umask 077
       auth_file=$(mktemp "$GROK_AUTH_DIR/fm.XXXXXXXXXXXX")
@@ -2561,6 +2590,8 @@ EOF
       printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"%s"}]}]}}\n' "$hook_command" > "$GROK_HOOKS_DIR/fm-turn-end.json"
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-grok-turnend"
       exclude_path '.fm-grok-turnend'
+      TURNEND_LOCK_HELD=0
+      fm_lock_release "$TURNEND_LOCK" || true
       ;;
     muse*)
       # muse's turn lifecycle is neither a hook nor a launch flag: its plugin
@@ -2594,27 +2625,29 @@ EOF
       # Kimi's Stop hook is global, but it is inert unless cwd contains this
       # task's token pointer and the token resolves through Firstmate's private
       # registry. The installer above owns the format-preserving config edit and
-      # the always-zero, silent hook script.
-      KIMI_AUTH_DIR=$(fm_control_harness_turnend_registry_dir kimi)
-      # A concurrent teardown of the last kimi task may have removed the global
-      # hook and registry (via fm-kimi-turnend-hook.sh remove) between the
-      # install in __KIMIBIN__ and here. Recreate the directory so mktemp
-      # succeeds, create this task's auth token, then re-run install: it is
-      # idempotent and recreates the hook script and config entry if they were
-      # removed, so the token just written is never left without its hook.
-      mkdir -p "$KIMI_AUTH_DIR"
-      old_umask=$(umask)
-      umask 077
-      auth_file=$(mktemp "$KIMI_AUTH_DIR/fm.XXXXXXXXXXXX")
-      umask "$old_umask"
-      printf '%s\n' "$TURNEND" > "$auth_file"
-      printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.kimi-turnend-token"
-      "$FM_ROOT/bin/fm-kimi-turnend-hook.sh" install || {
-        rm -f -- "$auth_file"
+      # the always-zero, silent hook script; mint is its spawn-side ensure plus
+      # token creation, so this task's registry entry and its hook files land
+      # as one unit.
+      # The registry lock is held across mint, and the retirement path holds
+      # the same lock across its count and remove call, so a concurrent
+      # last-task retirement can neither destroy the just-minted token nor
+      # strip the hook files this spawn is about to rely on.
+      TURNEND_LOCK=$(fm_control_harness_turnend_lock_path kimi) || {
+        echo "error: could not resolve the kimi turn-end registry lock" >&2
+        exit 1
+      }
+      fm_lock_acquire_wait "$TURNEND_LOCK"
+      TURNEND_LOCK_HELD=1
+      auth_name=$("$FM_ROOT/bin/fm-kimi-turnend-hook.sh" mint "$TURNEND") || {
+        TURNEND_LOCK_HELD=0
+        fm_lock_release "$TURNEND_LOCK" || true
         echo "error: refusing Kimi spawn because the global turn-end hook could not be ensured after auth-token creation" >&2
         exit 1
       }
-      printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-kimi-turnend"
+      TURNEND_LOCK_HELD=0
+      fm_lock_release "$TURNEND_LOCK" || true
+      printf '%s\n' "$auth_name" > "$STATE/$ID.kimi-turnend-token"
+      printf 'token=%s\n' "$auth_name" > "$WT/.fm-kimi-turnend"
       exclude_path '.fm-kimi-turnend'
       ;;
   esac

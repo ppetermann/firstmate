@@ -153,6 +153,148 @@ EOF
   pass "grok last-task teardown removes global hook; a fresh spawn reinstalls it"
 }
 
+test_grok_retire_waits_for_the_registry_lock() {
+  local home hooks registry hook hook_json token lock ready proceed retired_rc holder retired i=0
+  home="$TMP_ROOT/retire-lock"
+  hooks="$home/hooks"
+  registry="$hooks/fm-turn-end.d"
+  hook="$hooks/fm-turn-end.sh"
+  hook_json="$hooks/fm-turn-end.json"
+  mkdir -p "$registry" "$home/state"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$hook"
+  printf '{"hooks":{"Stop":[]}}\n' > "$hook_json"
+  token=fm.abcdefabcdef
+  printf 'x\n' > "$registry/$token"
+  lock="$registry.lock"
+  ready="$home/lock-ready"
+  proceed="$home/lock-proceed"
+  retired_rc="$home/retire-rc"
+  rm -f "$ready" "$proceed" "$proceed.release"
+  (
+    # shellcheck source=/dev/null
+    FM_STATE_OVERRIDE="$home/state" . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$lock" || exit 1
+    trap 'fm_lock_release "$lock"' EXIT
+    : > "$ready"
+    while [ ! -s "$proceed" ]; do sleep 0.01; done
+    # The racing spawn's locked critical section: mint plus hook write under
+    # the held lock, exactly as fm-spawn's grok section does.
+    : > "$registry/fm.ghijklghijkl"
+    : > "$home/spawn-done"
+    while [ ! -e "$proceed.release" ]; do sleep 0.01; done
+  ) &
+  holder=$!
+  while [ ! -e "$ready" ] && [ "$i" -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -e "$ready" ] || { kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; fail "could not stage the held grok registry lock"; }
+
+  cat > "$home/retire.sh" <<'EOS'
+#!/usr/bin/env bash
+set -u
+. "$FM_ROOT_SRC/bin/fm-wake-lib.sh"
+. "$FM_ROOT_SRC/bin/fm-control-lib.sh"
+fm_control_harness_turnend_maybe_retire_global grok "$FM_ROOT_SRC/bin"
+echo $? > "$FM_RETIRED_RC"
+EOS
+  HOME="$home" GROK_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_ROOT_SRC="$ROOT" FM_RETIRED_RC="$retired_rc" bash "$home/retire.sh" &
+  retired=$!
+  sleep 1
+  if ! kill -0 "$retired" 2>/dev/null || [ -f "$retired_rc" ]; then
+    : > "$proceed.release"
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    wait "$retired" 2>/dev/null || true
+    fail "grok retirement did not wait for the held registry lock"
+  fi
+  assert_present "$hook" "blocked grok retirement removed the hook script mid-race"
+  # Let the frozen spawn-side critical section install its entry, then release.
+  printf 'go\n' > "$proceed"
+  i=0
+  while [ ! -e "$home/spawn-done" ] && [ "$i" -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -e "$home/spawn-done" ] || fail "staged grok install never completed under the held lock"
+  : > "$proceed.release"
+  wait "$holder" || fail "grok registry lock holder failed"
+  wait "$retired" || fail "grok retiring subshell failed"
+  [ "$(cat "$retired_rc")" = 0 ] || fail "grok retirement reported failure: $(cat "$retired_rc")"
+  assert_present "$hook" "grok retirement racing a spawn removed the live entry's hook script"
+  assert_present "$hook_json" "grok retirement racing a spawn removed the live entry's hook json"
+  assert_present "$registry/fm.ghijklghijkl" "grok retirement racing a spawn destroyed the live entry"
+  assert_present "$registry/$token" "grok retirement racing a spawn destroyed the preexisting entry"
+  pass "grok retirement serializes with the spawn-side hook install"
+}
+
+test_grok_spawn_hook_write_holds_the_registry_lock() {
+  local rec case_dir home proj wt fakebin grok_home id lock ready proceed spawn_pid i=0 rc token
+  rec=$(make_spawn_case lockspawn)
+  IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
+$rec
+EOF
+  rm -rf "/tmp/fm-$id"
+  lock="$grok_home/hooks/fm-turn-end.d.lock"
+  # The lock directory lives in the hooks parent, which a real spawn creates
+  # before acquiring; stage it the same way.
+  mkdir -p "$grok_home/hooks"
+  ready="$case_dir/lock-ready"
+  proceed="$case_dir/lock-proceed"
+  rm -f "$ready" "$proceed"
+  (
+    # shellcheck source=/dev/null
+    FM_STATE_OVERRIDE="$home/state" . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$lock" || exit 1
+    trap 'fm_lock_release "$lock"' EXIT
+    : > "$ready"
+    while [ ! -s "$proceed" ]; do sleep 0.01; done
+  ) &
+  local holder=$!
+  while [ ! -e "$ready" ] && [ "$i" -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -e "$ready" ] || { kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; fail "could not stage the held grok registry lock"; }
+
+  run_grok_spawn "$home" "$proj" "$wt" "$fakebin" "$grok_home" "$id" \
+    > "$case_dir/spawn.log" 2>&1 &
+  spawn_pid=$!
+  # /tmp/fm-<id> is created just before the harness wiring, so once it exists
+  # an unlocked spawn would mint and write its hooks within milliseconds.
+  i=0
+  while [ ! -d "/tmp/fm-$id/gotmp" ] && [ "$i" -lt 300 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -d "/tmp/fm-$id/gotmp" ] || { printf 'go\n' > "$proceed"; wait "$holder" 2>/dev/null || true; wait "$spawn_pid" 2>/dev/null || true; fail "spawn never reached its wiring stage"; }
+  sleep 1
+  if [ -n "$(ls "$grok_home/hooks/fm-turn-end.d" 2>/dev/null)" ]; then
+    printf 'go\n' > "$proceed"
+    wait "$holder" 2>/dev/null || true
+    wait "$spawn_pid" 2>/dev/null || true
+    rm -rf "/tmp/fm-$id"
+    fail "grok spawn wrote its registry entry without holding the registry lock"
+  fi
+  if ! kill -0 "$spawn_pid" 2>/dev/null; then
+    : > "$proceed"
+    wait "$holder" 2>/dev/null || true
+    rm -rf "/tmp/fm-$id"
+    fail "grok spawn exited instead of waiting for the registry lock: $(cat "$case_dir/spawn.log")"
+  fi
+
+  printf 'go\n' > "$proceed"
+  wait "$holder" || fail "grok registry lock holder failed"
+  wait "$spawn_pid"; rc=$?
+  rm -rf "/tmp/fm-$id"
+  expect_code 0 "$rc" "grok spawn should complete after the registry lock releases"$'\n'"$(cat "$case_dir/spawn.log")"
+  token=$(sed -n 's/^token=//p' "$wt/.fm-grok-turnend")
+  assert_present "$grok_home/hooks/fm-turn-end.d/$token" \
+    "grok spawn did not register its token after the lock released"
+  pass "fm-spawn: grok hook install waits for the registry lock and registers after release"
+}
+
 test_fm_lock_recognizes_grok_holder() {
   local home fakebin out
   home="$TMP_ROOT/lock-home"
@@ -176,4 +318,6 @@ SH
 test_grok_hook_requires_registered_token
 test_grok_teardown_removes_pointer_and_token
 test_grok_last_task_teardown_removes_global_hook
+test_grok_retire_waits_for_the_registry_lock
+test_grok_spawn_hook_write_holds_the_registry_lock
 test_fm_lock_recognizes_grok_holder

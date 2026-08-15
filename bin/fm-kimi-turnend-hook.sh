@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Install or remove Firstmate's guarded Kimi crew turn-end hook.
+# Install, mint through, validate, or remove Firstmate's guarded Kimi crew
+# turn-end hook.
 #
 # This command is the sole owner of the text-level edit to
 # $HOME/.kimi-code/config.toml. It validates the existing TOML but never
@@ -7,11 +8,25 @@
 # and remove excises only that region. Missing, malformed, symlinked, partially
 # marked, or otherwise surprising config is refused without a config write.
 #
-# remove refuses when the registry directory is non-empty, so a teardown of one
-# task can never sweep another task's auth token via shutil.rmtree. The teardown
-# path (bin/fm-control-lib.sh fm_control_harness_turnend_maybe_retire_global)
-# counts the registry first and calls remove only when it is empty; the guard
-# here is the backstop against the spawn-teardown race.
+# remove refuses when the registry directory is non-empty, so a retirement can
+# never sweep a live task's auth token via shutil.rmtree. The teardown and
+# relaunch retirement paths (bin/fm-control-lib.sh
+# fm_control_harness_turnend_maybe_retire_global) count the registry first and
+# call remove only when it is empty; the guard here is the authoritative in-lock
+# check for that decision.
+#
+# Concurrency contract: this script takes no lock itself. Every mutating caller
+# (fm-spawn.sh around mint, fm-control-lib.sh around remove) holds the
+# per-harness registry lock (fm_control_harness_turnend_lock_path) across the
+# whole invocation, so install/mint and remove can never interleave and the
+# non-empty refusal above is decided with no token able to appear after it.
+#
+# mint is the spawn-side installer: it ensures the hook script, config region,
+# and registry exactly like install, then creates one auth token naming the
+# given absolute *.turn-ended path and prints the token's basename on stdout.
+# validate is the spawn's read-only pre-flight: it runs install's refusal checks
+# without writing anything, so a spawn that never reaches mint cannot resurrect
+# a retired hook by installing hook files no live token guards.
 #
 # The installed Stop hook always exits 0 and stays silent. It reads cwd from the
 # hook payload, checks for a .fm-kimi-turnend pointer before registry work, and
@@ -20,17 +35,19 @@
 #
 # Usage:
 #   fm-kimi-turnend-hook.sh install
+#   fm-kimi-turnend-hook.sh mint <absolute-*.turn-ended-path>
 #   fm-kimi-turnend-hook.sh remove
+#   fm-kimi-turnend-hook.sh validate
 set -u
 
 case "${1:-}" in
-  install|remove) ACTION=$1 ;;
+  install|remove|mint|validate) ACTION=$1 ;;
   -h|--help)
-    sed -n '2,18{s/^# \{0,1\}//;p;}' "$0"
+    sed -n '2,40{s/^# \{0,1\}//;p;}' "$0"
     exit 0
     ;;
   *)
-    printf 'usage: %s install|remove\n' "${0##*/}" >&2
+    printf 'usage: %s install|mint <path>|remove|validate\n' "${0##*/}" >&2
     exit 2
     ;;
 esac
@@ -43,12 +60,41 @@ if ! command -v python3 >/dev/null 2>&1; then
   printf 'fm-kimi-turnend-hook: refused: python3 with tomllib is required to validate config.toml.\n' >&2
   exit 1
 fi
-if [ "$ACTION" = install ] && ! command -v jq >/dev/null 2>&1; then
+if { [ "$ACTION" = install ] || [ "$ACTION" = mint ]; } && ! command -v jq >/dev/null 2>&1; then
   printf 'fm-kimi-turnend-hook: refused: jq is required by the installed Kimi turn-end hook.\n' >&2
   exit 1
 fi
 
-python3 - "$ACTION" "$HOME/.kimi-code" <<'PY'
+MINT_TARGET=
+MINT_AUTH_FILE=
+if [ "$ACTION" = mint ]; then
+  case "${2:-}" in
+    /**.turn-ended) MINT_TARGET=$2 ;;
+    *)
+      printf 'fm-kimi-turnend-hook: refused: mint needs an absolute *.turn-ended path, got '%s'.\n' "${2:-}" >&2
+      exit 2
+      ;;
+  esac
+  # Mint stages the auth token BEFORE running the install ensure, matching the
+  # historical spawn order: a task's registry entry exists before its hook files
+  # do, and a failed ensure below removes the staged token so a refused spawn
+  # leaves no live-looking entry behind.
+  mkdir -p "$HOME/.kimi-code/fm-turn-end.d"
+  old_umask=$(umask)
+  umask 077
+  MINT_AUTH_FILE=$(mktemp "$HOME/.kimi-code/fm-turn-end.d/fm.XXXXXXXXXXXX") || {
+    umask "$old_umask"
+    printf 'fm-kimi-turnend-hook: refused: could not create a registry entry.\n' >&2
+    exit 1
+  }
+  umask "$old_umask"
+  printf '%s\n' "$MINT_TARGET" > "$MINT_AUTH_FILE"
+fi
+
+python_action=$ACTION
+[ "$ACTION" != mint ] || python_action=install
+python_status=0
+python3 - "$python_action" "$HOME/.kimi-code" <<'PY' || python_status=$?
 import os
 import re
 import shutil
@@ -229,6 +275,21 @@ def validate_firstmate_files_for_remove() -> None:
             )
 
 
+def validate_firstmate_files_for_install() -> None:
+    if os.path.lexists(REGISTRY):
+        info = os.lstat(REGISTRY)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            refuse(f"Firstmate registry is not a regular directory at {REGISTRY}.")
+    if os.path.lexists(HOOK):
+        regular_not_symlink(HOOK, "Firstmate hook script")
+        with open(HOOK, "rb") as stream:
+            existing_hook = stream.read()
+        if existing_hook != HOOK_BYTES and not existing_hook.startswith(
+            b"#!/usr/bin/env bash\n# Firstmate Kimi turn-end hook."
+        ):
+            refuse(f"Firstmate hook path has unexpected content at {HOOK}.")
+
+
 try:
     if not os.path.isdir(CONFIG_DIR) or os.path.islink(CONFIG_DIR):
         refuse(f"Kimi config directory is missing or unexpected at {CONFIG_DIR}.")
@@ -241,19 +302,14 @@ try:
     if HOOK_NAME in outside:
         refuse("config.toml references fm-turn-end.sh outside the Firstmate-owned region.")
 
+    if ACTION == "validate":
+        # Read-only pre-flight: install's refusal checks with no writes, so a
+        # spawn that never reaches mint cannot resurrect a retired hook.
+        validate_firstmate_files_for_install()
+        raise SystemExit(0)
+
     if ACTION == "install":
-        if os.path.lexists(REGISTRY):
-            info = os.lstat(REGISTRY)
-            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-                refuse(f"Firstmate registry is not a regular directory at {REGISTRY}.")
-        if os.path.lexists(HOOK):
-            regular_not_symlink(HOOK, "Firstmate hook script")
-            with open(HOOK, "rb") as stream:
-                existing_hook = stream.read()
-            if existing_hook != HOOK_BYTES and not existing_hook.startswith(
-                b"#!/usr/bin/env bash\n# Firstmate Kimi turn-end hook."
-            ):
-                refuse(f"Firstmate hook path has unexpected content at {HOOK}.")
+        validate_firstmate_files_for_install()
         if region is None:
             marker = BEGIN if original.endswith(b"\n") else BEGIN_OWNS_NEWLINE
             addition = block(marker)
@@ -286,3 +342,13 @@ try:
 except OSError as error:
     refuse(f"filesystem operation failed: {error}.")
 PY
+
+if [ "$python_status" -ne 0 ]; then
+  if [ "$ACTION" = mint ]; then
+    rm -f -- "$MINT_AUTH_FILE"
+  fi
+  exit "$python_status"
+fi
+if [ "$ACTION" = mint ]; then
+  printf '%s\n' "${MINT_AUTH_FILE##*/}"
+fi
