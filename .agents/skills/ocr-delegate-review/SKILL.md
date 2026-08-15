@@ -1,9 +1,9 @@
 ---
 name: ocr-delegate-review
 description: >-
-  Agent-only procedure for the captain-invoked OpenCodeReview (OCR) delegation-mode review round on a single task.
-  Load only when the captain explicitly requests an OCR review for a specific task; never load or apply it as a default or automatic gate.
-  Owns the worker instruction block, its intake and mid-task delivery, the failure-soft policy, and the reporting shape.
+  Agent-only procedure for the captain-invoked OpenCodeReview (OCR) delegation-mode review round on a task or a whole project.
+  Load only when the captain explicitly requests an OCR review for a specific task or a whole project; never load or apply it as a default or automatic gate.
+  Owns reviewer binding, the worker instruction block and its delivery paths, the whole-project scan shape, the failure-soft policy, and the reporting shape.
 user-invocable: false
 metadata:
   internal: true
@@ -13,7 +13,7 @@ metadata:
 
 ## Opt-in guard
 
-This round is per task and per request: it runs only when the captain explicitly requested an OCR review round for that specific task.
+This round is per request: it runs only when the captain explicitly requested it, as an OCR review round for a specific task or a whole-project review.
 Never apply it as a standing posture, a default gate, or an automatic step on any project or delivery mode.
 Standing yolo authority is not a substitute for the explicit request.
 If the captain ever asks to make OCR review standing or automatic for a project, do not silently comply.
@@ -21,20 +21,25 @@ Surface that this contradicts the recorded opt-in-only constraint and ask the ca
 
 ## When it applies
 
-The round runs after the implementation is committed and before the delivery mode's completion step.
+A per-task round runs after the implementation is committed and before the delivery mode's completion step.
 That is before `/no-mistakes` starts, before a `direct-PR` push, and before the `local-only` ready report.
 If the captain asks for the round after validation has started or the PR exists, report that the pre-PR window has passed instead of improvising a post-hoc variant.
+A whole-project review has no completion window: commission it as its own scout under the whole-project section below.
 
-## Intake delivery
+## Reviewer binding
 
-Paste the worker block below into the brief's `{TASK}` area as a task-specific constraint.
-Replace `{OCR_BASE}` with the project's default-branch ref, normally `origin/main`, the same base the ship branch was created from.
-Optionally append captain-requested `--exclude` patterns to the preview and rule commands.
+The review round is always executed by a pi-harness worker on GLM-5.3, the primary's own stack, never by an opencode or other task worker.
+Both paths below deliver the filled worker block: `{OCR_BASE}` becomes the project's default-branch ref, normally `origin/main`, the same base the ship branch was created from, and any captain-requested `--exclude` patterns are appended to the preview and rule commands.
 
-## Mid-task delivery
+Path one: the task's own worker already runs pi on GLM-5.3.
+Steer the block to that worker before its completion step.
+At intake, paste the block into the brief's `{TASK}` area as a task-specific constraint.
+Mid-task, write the filled block to `data/<task-id>/ocr-review.md` in the active home and steer through fail-closed `fm-send` with this single line: `Captain requests an OCR review round before completion: read and execute data/<task-id>/ocr-review.md`.
 
-Write the filled worker block to `data/<task-id>/ocr-review.md` in the active home.
-Then steer the worker through fail-closed `fm-send` with this single line: `Captain requests an OCR review round before completion: read and execute data/<task-id>/ocr-review.md`.
+Path two: the task's worker runs on any other stack.
+Firstmate spawns a separate reviewer worker, scout shape and report-only, on pi/GLM-5.3 in the same project.
+The reviewer executes the block against the ship branch, replacing the block's HEAD targets with the ship branch so the preview reads `ocr delegate preview --from <base> --to <ship branch>`, and reports findings without changing code.
+The reviewer reviews, the implementer fixes: firstmate relays the findings to the task worker, which fixes or rejects each one under the existing authority contract.
 
 ## Worker block
 
@@ -71,6 +76,14 @@ OCR only selects files and supplies rules; YOU perform the review with your own 
    files reviewed/skipped, findings by severity, and one line per fixed, rejected, and residual finding.
 ```
 
+## Whole-project review
+
+A captain ask like "review the whole project" is not workspace mode.
+Workspace mode reviews uncommitted working-tree changes only, and fleet branches are committed before review, so a workspace preview would come back empty.
+The ask takes the scan shape instead.
+Run `ocr delegate rule -f json` over the project's source paths, batched, then review each full file against its rule group plus the project context.
+The scan runs on a pi/GLM-5.3 worker as a scout, and the coverage, failure-soft, and reporting contracts in the sections below apply unchanged.
+
 ## Reporting and translation
 
 Worker status reporting is sparse and follows the shapes embedded in the worker block.
@@ -79,6 +92,7 @@ A substantive fix round reports `working: OCR review: {n} findings, {m} fixed, {
 A clean round or an empty preview adds no extra status line: fold a short clause into the mode's existing done summary, such as `done: {summary} (OCR review clean)`, `done: PR {url} (OCR: 2 fixed, 1 rejected)`, or `done: ready in branch fm/<id> (OCR review clean)`.
 When the task opens a PR, the PR description carries a `## Pre-PR OCR review` section with files reviewed and skipped, findings by severity, and one line per fixed, rejected, and residual finding.
 For `local-only` there is no PR surface: the done clause carries the counts.
+A separate-reviewer round and a whole-project scan report through these same shapes.
 Translate for the captain per AGENTS.md section 9: the pre-PR review you asked for found N issues; the worker fixed X and set aside Y with reasons - details in the PR description.
 Never expose raw status lines or OCR CLI terms such as "delegate preview" or "reviewable_count" to the captain.
 Relay any skip to the captain in the next natural reply, since a requested-but-skipped review is captain-relevant.
