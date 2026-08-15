@@ -1646,6 +1646,143 @@ test_busy_pane_default_turn_age_bound_is_3600s() {
   pass "the production default busy-turn-age bound is 3600s (5min under does not wedge, 66min over does)"
 }
 
+# --- busy pane duration bound meets a declared pause -------------------------
+# The 2026-08-14 second incident in the 8b42731 class: a crew polling an
+# external wait INSIDE one long busy turn (spinner churning the pane hash, so
+# the busy branch runs every poll) kept busy classification past
+# BUSY_TURN_MAX_SECS, and the busy path called wedge_timer_check directly
+# without ever consulting pause_state_class - so a legitimately paused-and-busy
+# crew wedge-escalated every STALE_ESCALATE_SECS with the generic possible-wedge
+# message and the .paused-* markers were never set. The busy-turn route now
+# applies the same contract the stale path applies: a declared pause with a
+# live agent absorbs on the bounded PAUSE_RESURFACE_SECS cadence, while a
+# confidently dead agent under the pause still falls back to working so
+# genuine wedge escalation resumes.
+test_busy_pane_declared_pause_live_agent_holds_pause_cadence() {
+  local dir state fakebin out drain_out capture_file statusf window key sig pid
+  dir=$(make_case busy-paused-live-turn-age); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  statusf="$state/busy-paused-live.status"; window="test:fm-busy-paused-live"
+  printf 'Working... (420.1s)' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/busy-paused-live.meta"
+  record_pi_busy "$state" busy-paused-live
+  printf 'paused: external rate-limit window; polling the API inside one long turn\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-busy-paused-live_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  touch -t 200001010000 "$state/busy-paused-live.turn-ended"
+  prime_turnend_seen "$state/busy-paused-live.turn-ended"
+  # The incident's exact evidence: the pane is authoritatively busy while the
+  # agent itself is alive (the foreground is the external-wait poller, so the
+  # liveness probe reads unknown, never confidently dead).
+  export FM_FAKE_CREW_STATE='state: working · source: pane · busy footer (busy)'
+
+  # Phase A: the pane is busy past the turn-age bound with a declared pause and
+  # a live agent - and a wedge escalation already mid-flight, as if several
+  # over-age polls already ran. The pause must engage and disarm the wedge.
+  echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
+  printf '1\n' > "$state/.wedge-escalations-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=node \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_BUSY_TURN_MAX_SECS=1 FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 30; then
+    reap "$pid"; fail "a paused live busy crew wedge-escalated on the short cadence: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "a paused live busy crew printed a wake reason: $(cat "$out")"; }
+  [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "a paused live busy crew enqueued a wake"; }
+  [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "a paused live busy crew never recorded the pause marker"; }
+  [ ! -e "$state/.stale-since-$key" ] || { reap "$pid"; fail "a paused live busy crew kept a wedge timer armed"; }
+  [ ! -e "$state/.wedge-escalations-$key" ] || { reap "$pid"; fail "a paused live busy crew kept its escalation counter armed"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the phase-A busy pause engagement"
+
+  # Phase B: age the declaration past the pause re-surface threshold - the one
+  # wake is the bounded paused recheck, never a possible-wedge escalation.
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
+  else touch -m -d "@$back" "$statusf"; fi
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-busy-paused-live_status"
+  printf 'Working... (421.2s)' > "$capture_file"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=node \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_BUSY_TURN_MAX_SECS=1 FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "a paused live busy crew did not re-surface past the pause cadence"
+  grep -F "awaiting external" "$out" >/dev/null || fail "busy-path pause re-surface was not the paused recheck: $(cat "$out")"
+  grep -F "possible wedge" "$out" >/dev/null && fail "a paused live busy crew was mislabeled a wedge"
+  [ -e "$state/.paused-resurfaced-$key" ] || fail "the busy-path re-surface throttle marker was not recorded"
+  [ ! -e "$state/.stale-since-$key" ] || fail "the busy-path paused recheck used the wedge timer"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the busy-path paused recheck failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "busy-path paused recheck was not queued"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the busy-path paused recheck"
+
+  # Phase C: repeated unchanged polls - the throttle holds, no wedge, no rewake.
+  printf 'Working... (422.3s)' > "$capture_file"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=node \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_BUSY_TURN_MAX_SECS=1 FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 30; then
+    reap "$pid"; fail "an unchanged paused busy crew rewoke off the pause cadence: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "an unchanged paused busy crew printed a wake reason: $(cat "$out")"; }
+  [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "an unchanged paused busy crew lost its pause marker"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the silent busy pause round"
+  unset FM_FAKE_CREW_STATE
+  pass "a busy crew past the turn-age bound under a declared pause with a live agent absorbs on the pause cadence instead of wedge-escalating"
+}
+
+# Dead-agent control for the busy-path pause route: the detector is not blunted
+# by the new pause awareness. A crew whose agent is confidently dead while its
+# pane still shows busy (an orphaned foreground behind an exited worker) must
+# fall back to working and resume wedge escalation exactly as before, including
+# continuing the existing escalation counter.
+test_busy_pane_declared_pause_dead_agent_resumes_wedge() {
+  local dir state fakebin out capture_file window key sig pid back
+  dir=$(make_case busy-paused-dead-turn-age); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-busy-paused-dead"
+  printf 'Working... (420.1s)' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/busy-paused-dead.meta"
+  record_pi_busy "$state" busy-paused-dead
+  printf 'paused: external rate-limit window; polling the API inside one long turn\n' > "$state/busy-paused-dead.status"
+  sig=$(seen_sig "$state/busy-paused-dead.status"); printf '%s' "$sig" > "$state/.seen-busy-paused-dead_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  touch -t 200001010000 "$state/busy-paused-dead.turn-ended"
+  prime_turnend_seen "$state/busy-paused-dead.turn-ended"
+  # A pause was engaged earlier while the agent lived; the agent has since
+  # exited (foreground is a plain shell) and the verdict cache has expired, so
+  # this poll must re-read crew state rather than trust the stale engagement.
+  : > "$state/.paused-$key"
+  back=$(( $(date +%s) - 500 ))
+  printf '%s\n' "$back" > "$state/.paused-rechecked-$key"
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$state/.paused-rechecked-$key"
+  else touch -m -d "@$back" "$state/.paused-rechecked-$key"; fi
+  # A wedge escalation already mid-flight from earlier over-age polls.
+  echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
+  printf '1\n' > "$state/.wedge-escalations-$key"
+  export FM_FAKE_CREW_STATE='state: working · source: pane · busy footer (busy)'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_BUSY_TURN_MAX_SECS=1 FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "a confidently dead agent under a busy-path declared pause did not wedge-escalate"
+  grep -F "possible wedge" "$out" >/dev/null || fail "dead-agent busy-path escalation omitted its reason: $(cat "$out")"
+  grep -F "escalation 2" "$out" >/dev/null || fail "dead-agent busy-path escalation did not continue the counter: $(cat "$out")"
+  grep -F "awaiting external" "$out" >/dev/null && fail "a dead agent under a busy-path declared pause was absorbed as paused"
+  [ ! -e "$state/.paused-$key" ] || fail "dead agent under a busy-path declared pause retained paused mode"
+  [ ! -e "$state/.stale-since-$key" ] || fail "wedge timer remained after the dead-agent busy-path escalation"
+  unset FM_FAKE_CREW_STATE
+  pass "a confidently dead agent under a busy-path declared pause resumes wedge escalation with its counter intact"
+}
+
 test_nonterminal_stale_repairs_missing_or_corrupt_timer() {
   local dir state fakebin out capture_file window key pane_hash sig pid since
   dir=$(make_case nonterminal-stale-timer-repair); state="$dir/state"; fakebin="$dir/fakebin"
@@ -2156,6 +2293,8 @@ test_busy_pane_changing_hash_escalates_past_turn_age_bound
 test_busy_pane_turn_end_touch_resets_age
 test_busy_pane_repeated_escalation_reaches_demand_deep_inspection
 test_busy_pane_default_turn_age_bound_is_3600s
+test_busy_pane_declared_pause_live_agent_holds_pause_cadence
+test_busy_pane_declared_pause_dead_agent_resumes_wedge
 test_nonterminal_stale_not_working_surfaced
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces

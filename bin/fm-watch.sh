@@ -157,11 +157,15 @@ STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provabl
 # footer changes every poll. BUSY_TURN_MAX_SECS bounds how long any busy pane
 # may go with no completed turn: once its task's
 # state/<id>.turn-ended marker (or, before any turn has completed, the task's
-# spawn record) is this old, busy_turn_over_age routes the pane through the
-# same STALE_ESCALATE_SECS-paced wedge_timer_check used for a provably-working
-# non-busy stale, so it escalates via the existing stale reason, escalation
-# counter, and demand-deep-inspection marker for human inspection only - never
-# an automatic interrupt, signal, or restart. A completed turn touches
+# spawn record) is this old, busy_turn_over_age routes the pane through
+# busy_over_age_route - the same pause awareness the stale path applies, then
+# the same STALE_ESCALATE_SECS-paced wedge_timer_check used for a
+# provably-working non-busy stale - so it escalates via the existing stale
+# reason, escalation counter, and demand-deep-inspection marker for human
+# inspection only - never an automatic interrupt, signal, or restart.
+# A declared pause with a live agent takes the bounded PAUSE_RESURFACE_SECS
+# cadence instead; only a confidently dead agent under the pause
+# wedge-escalates. A completed turn touches
 # turn-ended and resets the age. Set generously above any legitimate interval
 # between completed turns, including long tool calls, builds, or test runs.
 BUSY_TURN_MAX_SECS=${FM_BUSY_TURN_MAX_SECS:-3600}
@@ -319,8 +323,8 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
 # signal every verified harness's turn-end hook touches; before any turn has
 # completed, ages the task's spawn record instead so a fresh task still gets a
 # bound. The caller checks that the pane is busy and routes a crossed bound
-# through the existing wedge_timer_check, never anything that touches the
-# worker itself.
+# through busy_over_age_route - pause awareness, then the existing
+# wedge_timer_check - never anything that touches the worker itself.
 busy_turn_over_age() {  # <task>
   local task=$1 f
   f="$STATE/$task.turn-ended"
@@ -437,6 +441,42 @@ pause_state_class() {  # <window> <task>
     *) rm -f "$recheck_file" ;;
   esac
   printf '%s' "$class"
+}
+
+# Route a busy pane whose completed-turn age crossed BUSY_TURN_MAX_SECS through
+# the same pause awareness the stale path applies before any wedge escalation:
+# a declared pause (paused: or captain-held) with a live agent absorbs on the
+# bounded PAUSE_RESURFACE_SECS cadence via handle_paused_stale, while any other
+# verdict - including a confidently dead agent under a declared pause, which
+# pause_state_class reports as working - keeps the STALE_ESCALATE_SECS-paced
+# wedge_timer_check (2026-08-14: a crew polling an external wait inside one
+# long turn stayed busy-classified, so the busy path never consulted the
+# declaration and wedge-escalated every interval while the pause markers were
+# never set). Under away mode the direct wedge route stands: the daemon owns
+# triage and already honors the declaration, so this watcher stays one-shot
+# there. Sets the global busy_route to `paused` when the bounded pause hold
+# owns the pane this poll, `wedge` otherwise, so each caller can keep its
+# pause bookkeeping consistent with the route just taken.
+busy_over_age_route() {  # <window> <task> <hash>
+  local win=$1 task=$2 h=$3 key pf
+  key=$(printf '%s' "$win" | tr ':/.' '___')
+  pf="$STATE/.paused-$key"
+  if ! afk_present && { [ -e "$pf" ] || status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")"; }; then
+    case "$(pause_state_class "$win" "$task")" in
+      working)
+        busy_route=wedge
+        clear_pause_state "$win"
+        ;;
+      *)
+        busy_route=paused
+        handle_paused_stale "$win" "$task" "$h"
+        return
+        ;;
+    esac
+  else
+    busy_route=wedge
+  fi
+  wedge_timer_check "$win" "$STATE/.stale-since-$key" "busy (no completed turn)" "$STATE/.wedge-escalations-$key"
 }
 
 surface_nonterminal_stale() {  # <window> <hash>
@@ -1201,21 +1241,26 @@ EOF
       else
         # Pane busy or not yet stably stale: reset pending escalation bookkeeping,
         # unless a genuinely busy pane has gone too long with no completed turn -
-        # then route it through the same wedge timer instead of erasing it.
+        # then route it through pause awareness first and the same wedge timer
+        # second (busy_over_age_route) instead of erasing it.
+        busy_route=
         if [ "$busy_now" -eq 0 ] && busy_turn_over_age "$task"; then
-          wedge_timer_check "$w" "$ssf" "busy (no completed turn)" "$ewf"
+          busy_over_age_route "$w" "$task" "$h"
         else
           rm -f "$ssf" "$ewf"
         fi
-        if [ -e "$pf" ] && { [ "$n" -ge 2 ] || ! status_is_paused_or_captain_held "$(last_status_line "$STATE/$(window_to_task "$w" "$STATE").status")"; }; then
+        # A busy pane makes an earlier pause engagement obsolete - unless this
+        # same poll just engaged the bounded pause hold for that busy pane.
+        if [ "$busy_route" != paused ] && [ -e "$pf" ] && { [ "$n" -ge 2 ] || ! status_is_paused_or_captain_held "$(last_status_line "$STATE/$(window_to_task "$w" "$STATE").status")"; }; then
           clear_pause_tracking "$w"
         fi
       fi
     else
       printf '%s' "$h" > "$hf"
       echo 0 > "$cf"
+      busy_route=
       if [ "$busy_now" -eq 0 ] && busy_turn_over_age "$task"; then
-        wedge_timer_check "$w" "$ssf" "busy (no completed turn)" "$ewf"
+        busy_over_age_route "$w" "$task" "$h"
       else
         rm -f "$ssf" "$ewf"
       fi
@@ -1225,8 +1270,10 @@ EOF
           paused) handle_paused_stale "$w" "$task" "$h" ;;
           *)      clear_pause_tracking "$w" ;;
         esac
-      else
-        [ -e "$pf" ] && clear_pause_tracking "$w"
+      elif [ "$busy_route" != paused ] && [ -e "$pf" ]; then
+        # A busy pane makes an earlier pause engagement obsolete - unless this
+        # same poll just engaged the bounded pause hold for that busy pane.
+        clear_pause_tracking "$w"
       fi
     fi
   done < <(recorded_windows)
