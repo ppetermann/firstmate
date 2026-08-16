@@ -19,6 +19,7 @@
 #                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after <cause>: <reason>",
 #                 "SECONDMATE_HANDOFF: secondmate <id>: pending delivery: <n> item(s)",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
+#                 "OCRBOT: OCR review bot ..." (armed, off, or failed to arm).
 #          When a RUNNING local secondmate worktree is fast-forwarded to
 #          firstmate's own current default-branch commit, that update is a
 #          purely local fast-forward and never an origin fetch. Remote routes
@@ -148,6 +149,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-x-lib.sh"
+# shellcheck source=bin/fm-ocrbot-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-ocrbot-lib.sh"
 # shellcheck source=bin/fm-backend.sh disable=SC1091
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh disable=SC1091
@@ -987,6 +990,80 @@ EOF
   echo "FMX: X mode on - relay poll armed via state/x-watch.check.sh; 30s watcher cadence in config/x-mode.env"
 }
 
+# OCR review bot (opt-in): when the home carries a config/ocr-bot directory,
+# wire the bot's PR poll into the existing authenticated watcher dispatch.
+# Drops one idempotent, gitignored artifact:
+#   state/ocrbot-watch.check.sh - byte-static identity shim; the watcher
+#                                 validates its bytes and dispatches trusted
+#                                 bin/fm-ocrbot-poll.sh directly
+# The bot defines no cadence override: the home's current watcher cadence
+# (default 300s) applies, so arming or disarming takes effect on the next
+# check sweep with no watcher restart. On opt-out (directory removed) it
+# removes any such artifact and says so only when it actually removed
+# something. Absent the directory AND the shim it is a complete no-op. The
+# poll itself stays inert until config/ocr-bot/repos lists repositories, so
+# arming the shim never makes GitHub calls by itself.
+ocrbot_setup() {
+  local dir shim shim_home shim_body missing tool
+  dir="$CONFIG/ocr-bot"
+  shim="$STATE/ocrbot-watch.check.sh"
+
+  if [ ! -d "$dir" ] || [ -L "$dir" ]; then
+    # Opt-out (or never opted in): drop any bot artifact; stay silent unless
+    # something was actually removed.
+    if x_mode_artifact_present "$shim"; then
+      if x_mode_remove_artifact "$shim"; then
+        echo "OCRBOT: OCR review bot off - removed the poll shim; the current watcher cadence applies on the next check sweep"
+      else
+        echo "OCRBOT: OCR review bot off - failed to remove the poll shim"
+      fi
+    fi
+    return 0
+  fi
+
+  missing=0
+  for tool in gh jq; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      echo "MISSING: $tool (install: $(install_cmd "$tool"))"
+      missing=1
+    fi
+  done
+  if [ "$missing" -ne 0 ]; then
+    if x_mode_artifact_present "$shim"; then
+      if x_mode_remove_artifact "$shim"; then
+        echo "OCRBOT: OCR review bot off - missing OCR review bot dependencies; install them and rerun bootstrap"
+      else
+        echo "OCRBOT: OCR review bot off - failed to remove the poll shim after missing OCR review bot dependencies"
+      fi
+    fi
+    return 0
+  fi
+
+  ocrbot_arm_failed() {
+    if x_mode_remove_artifact "$shim"; then
+      echo "OCRBOT: OCR review bot off - failed to arm the poll shim"
+    else
+      echo "OCRBOT: OCR review bot off - failed to arm the poll shim; a stale shim remains"
+    fi
+  }
+
+  mkdir -p "$STATE" "$CONFIG" 2>/dev/null || { ocrbot_arm_failed; return 0; }
+
+  case "$FM_HOME" in
+    /*) shim_home=$FM_HOME ;;
+    *)
+      shim_home=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) \
+        || { ocrbot_arm_failed; return 0; }
+      ;;
+  esac
+  shim_body=$(ocrbot_poll_shim_content "$shim_home" "$FM_ROOT")
+  x_mode_write_if_changed "$shim" "$shim_body" 700 || { ocrbot_arm_failed; return 0; }
+  ocrbot_poll_shim_valid "$shim" "$shim_home" "$FM_ROOT" \
+    || { ocrbot_arm_failed; return 0; }
+
+  echo "OCRBOT: OCR review bot poll armed via state/ocrbot-watch.check.sh"
+}
+
 crew_dispatch_validate() {
   local file err
   file="$CONFIG/crew-dispatch.json"
@@ -1235,6 +1312,8 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   fi
   # x_mode_setup writes local Relay artifacts only and never leaves the machine.
   local_phase && x_mode_setup
+  # ocrbot_setup writes the local OCR review bot poll shim the same way.
+  local_phase && ocrbot_setup
   if network_phase && network_sweep_authorized 'project clone refresh'; then
     __fm_timing_stamp=$(fm_timing_now_ms)
     fleet_sync

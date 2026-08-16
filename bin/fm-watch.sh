@@ -79,6 +79,8 @@ mkdir -p "$STATE"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh
 . "$SCRIPT_DIR/fm-x-lib.sh"
+# shellcheck source=bin/fm-ocrbot-lib.sh
+. "$SCRIPT_DIR/fm-ocrbot-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
 . "$SCRIPT_DIR/fm-check-lib.sh"
 # Parent-owned secondmate missed-report guards: durable pending-reply
@@ -990,7 +992,16 @@ while :; do
     for c in "$STATE"/*.check.sh; do
       [ -e "$c" ] || continue
       is_pr_poll=0
-      if [ "$(basename "$c")" = x-watch.check.sh ]; then
+      if [ "$(basename "$c")" = ocrbot-watch.check.sh ]; then
+        if ocrbot_poll_shim_valid "$c" "$FM_HOME" "$FM_ROOT" \
+          && [ -f "$FM_ROOT/bin/fm-ocrbot-poll.sh" ] && [ ! -L "$FM_ROOT/bin/fm-ocrbot-poll.sh" ]; then
+          FM_HOME="$FM_HOME" run_check_capture "$FM_ROOT/bin/fm-ocrbot-poll.sh" || exit 1
+          out=$FM_CHECK_RESULT
+        else
+          rejected_checks="$rejected_checks $c"
+          continue
+        fi
+      elif [ "$(basename "$c")" = x-watch.check.sh ]; then
         if fmx_poll_shim_valid "$c" "$FM_HOME" "$FM_ROOT" \
           && [ -f "$FM_ROOT/bin/fm-x-poll.sh" ] && [ ! -L "$FM_ROOT/bin/fm-x-poll.sh" ]; then
           FM_HOME="$FM_HOME" run_check_capture "$FM_ROOT/bin/fm-x-poll.sh" || exit 1

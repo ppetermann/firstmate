@@ -444,6 +444,34 @@ The session-start digest separately prints an "Public commitments awaiting deliv
 `FM_PF_RETRY_BACKOFF_SECS` (default 900) sets the next-attempt time recorded with a retryable delivery error.
 See [verification/public-followup.md](verification/public-followup.md) for the current maintainer evidence behind the restart end-to-end and the relay-disabled zero-overhead guarantee.
 
+## OCR review bot (config/ocr-bot)
+
+The OCR review bot gates pull requests on registered repositories with the fleet's own OCR delegation review, acting as a GitHub App identity.
+It replaces the CodeRabbit-style external reviewer with local machinery: a poll discovers reviewable PRs, firstmate spawns a reviewer round per PR, and the round posts its verdict as the App.
+This section owns activation, files, and cadence; the exact command mechanics live in the headers of `bin/fm-ocrbot-poll.sh`, `bin/fm-ocrbot-token.sh`, and `bin/fm-ocrbot-lib.sh`.
+
+Activation is directory presence, following the Relay opt-in pattern: the bot is dormant until the home carries a gitignored `config/ocr-bot/` directory, and bootstrap removes its watcher artifacts once that directory is gone.
+No directory means every bot code path is a hard no-op, so homes that never opt in see zero change.
+The bot is not inherited by secondmate homes in v1; it is a main-home integration.
+
+The directory holds the captain-managed credentials and registration:
+
+- `app.env` - `OCRBOT_CLIENT_ID`, `OCRBOT_APP_ID`, and `OCRBOT_INSTALLATION_ID` for the GitHub App (a non-empty environment value wins over the file for direct client invocations).
+- `private-key.pem` - the App's RS256 key, mode 0600, the only long-lived secret.
+- `repos` - one `owner/repo` per line; blank lines and `#` comments are ignored.
+
+A locked session-start bootstrap writes `state/ocrbot-watch.check.sh`, a byte-static identity shim that the watcher validates by exact bytes before dispatching trusted `bin/fm-ocrbot-poll.sh`, mirroring the Relay shim trust model.
+The PR-check migration preserves a valid shim by the same byte comparison, and the home's supervision-required predicate treats the shim like the Relay poll: an armed bot keeps the live watcher cycle running even with no fleet work, or discovery stops.
+The bot defines no cadence override: polls run on the home's current watcher check cadence (default 300 seconds), and arming or disarming takes effect on the next check sweep with no watcher restart.
+Arming the shim alone makes no GitHub calls; the poll stays inert until `repos` lists at least one valid entry.
+
+The poll lists each registered repository's open PRs under the ambient gh auth, ETag-conditionally so unchanged listings cost no rate limit, and records `(number, head SHA, draft)` per PR in private durable state under `state/ocrbot/`.
+It prints one `ocr-pr <owner/repo>#<number> <head_sha>` line per reviewable PR - a PR never seen before, a new head SHA on a known PR, or a draft-to-ready transition - and each printed line becomes a watcher wake for firstmate.
+Draft PRs are recorded but never wake.
+Auth and config failures print one deduplicated `ocrbot-error <detail>` diagnostic so a dead credential surfaces once instead of never.
+The token helper mints the App's short-lived installation token on demand and caches it privately under `state/ocrbot/`; a reviewer worker adopts the App identity with `GH_TOKEN=$(bin/fm-ocrbot-token.sh) gh api ...`, leaving the captain's stored gh credentials untouched.
+Its JWT uses the App ID as the integer `iss` claim because the live endpoint rejects string issuers.
+
 ## Process-to-event sources (state/procevent)
 
 A long-polling external process is registered as a *source* through its adapter, whose header and `--help` own the commands and flags.
