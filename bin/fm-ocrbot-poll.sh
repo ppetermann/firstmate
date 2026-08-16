@@ -105,9 +105,11 @@ while IFS= read -r repo; do
       ;;
   esac
 
-  new_etag=$(awk -F': *' 'tolower($1) == "etag" { print $2; exit }' "$WORK/headers")
-  # The body is everything after the first blank line of the -i dump.
-  awk 'body { print } $0 == "" { body = 1 }' "$WORK/headers" | tr -d '\r' > "$WORK/body"
+  # gh api -i emits an HTTP-standard CRLF header block: strip the trailing CR
+  # from every header value and treat a CR-only line as the header/body
+  # separator, or the body would always extract as empty.
+  new_etag=$(awk -F': *' 'tolower($1) == "etag" { gsub(/\r$/, "", $2); print $2; exit }' "$WORK/headers")
+  awk 'body { print } $0 == "" || $0 == "\r" { body = 1 }' "$WORK/headers" | tr -d '\r' > "$WORK/body"
 
   if ! jq -r '.[] | [.number, .head.sha, (.draft | if . then 1 else 0 end)] | @tsv' \
     "$WORK/body" > "$WORK/prs" 2>/dev/null; then

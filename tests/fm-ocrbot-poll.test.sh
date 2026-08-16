@@ -3,9 +3,9 @@
 # bootstrap's shim activation for config/ocr-bot.
 #
 # The network is stubbed with a fakebin `gh` that models the live-verified
-# `gh api -i` wire shapes: a 200 dump (status line, headers, blank line, body),
-# a 304 dump that exits 1, and hard failures that print one stderr line with no
-# dump. Fixtures are plain files so each test drives listings, ETags, and
+# `gh api -i` wire shapes: a 200 dump (status line, CRLF header block, CRLF
+# blank separator, body), a 304 dump that exits 1, and hard failures that print
+# one stderr line with no dump. Fixtures are plain files so each test drives listings, ETags, and
 # failures declaratively. No GitHub network call is ever made.
 set -u
 
@@ -65,10 +65,10 @@ fi
 etag=$(cat "$fix/etag" 2>/dev/null || echo '"etag-none"')
 match=$(cat "$fix/match-etag" 2>/dev/null || true)
 if [ -n "$match" ] && [ "$cond" = "If-None-Match: $match" ]; then
-  printf 'HTTP/2.0 304 Not Modified\nEtag: %s\n\n' "$etag"
+  printf 'HTTP/2.0 304 Not Modified\r\nEtag: %s\r\n\r\n' "$etag"
   exit 1
 fi
-printf 'HTTP/2.0 200 OK\nEtag: %s\n\n%s\n' "$etag" "$(cat "$fix/body")"
+printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\n\r\n%s\n' "$etag" "$(cat "$fix/body")"
 exit 0
 SH
   chmod +x "$fakebin/gh"
