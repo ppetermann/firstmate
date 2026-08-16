@@ -49,9 +49,11 @@ You review and report only: never fix, never commit, never push.
 
 1. In this worktree, fetch the PR head and check out the exact recorded SHA: `git fetch origin "pull/{OCR_PR}/head:ocr-review-head"`, then `git checkout --detach {OCR_HEAD}`.
    If the fetch shows the PR head has moved past `{OCR_HEAD}`, review the newer head instead and record the SHA you actually reviewed; every later step names whatever head you reviewed.
-2. Mint the App token and start the check run: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api --method POST "repos/{OCR_REPO}/check-runs" -f name=ocr-review -f head_sha=<head SHA> -f status=in_progress`.
+2. Mint the App token and start the check run with a visible reviewing status: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api --method POST "repos/{OCR_REPO}/check-runs" -f name=ocr-review -f head_sha=<head SHA> -f status=in_progress -f "output[title]=OCR review" -f "output[summary]=Reviewing this pull request..."`.
    `GH_TOKEN` takes precedence over stored gh credentials, so this and every later `GH_TOKEN=...` write posts as the App and nothing else changes.
-   Record the returned check-run `id` for step 6; the PR now shows the review under way.
+   Record the returned check-run `id` for step 6; the PR now shows the review under way with its summary line saying so.
+   Also post the round's start comment so watchers see activity immediately: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api --method POST "repos/{OCR_REPO}/issues/{OCR_PR}/comments" -f body="OCR review round started for this head."`.
+   Post that comment only when the PR has no prior start comment from the bot for this head: read the existing issue comments as the App and skip when one already names this head SHA, so re-runs and retries never spam.
 3. {OCR_CORE}
    Apply the reviewer shape to the pasted core: report findings with category, severity, path, and line range in the new file, and never fix or commit anything.
 4. Reconcile with the bot's existing threads on the PR before posting.
