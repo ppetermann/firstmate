@@ -448,7 +448,7 @@ See [verification/public-followup.md](verification/public-followup.md) for the c
 
 The OCR review bot gates pull requests on registered repositories with the fleet's own OCR delegation review, acting as a GitHub App identity.
 It replaces the CodeRabbit-style external reviewer with local machinery: a poll discovers reviewable PRs, firstmate spawns a reviewer round per PR, and the round posts its verdict as the App.
-This section owns activation, files, and cadence; the exact command mechanics live in the headers of `bin/fm-ocrbot-poll.sh`, `bin/fm-ocrbot-token.sh`, and `bin/fm-ocrbot-lib.sh`.
+This section owns activation, files, and cadence; the exact command mechanics live in the headers of `bin/fm-ocrbot-poll.sh`, `bin/fm-ocrbot-token.sh`, and `bin/fm-ocrbot-lib.sh`, and `.agents/skills/ocr-bot-review/SKILL.md` owns the per-wake handling procedure.
 
 Activation is directory presence, following the Relay opt-in pattern: the bot is dormant until the home carries a gitignored `config/ocr-bot/` directory, and bootstrap removes its watcher artifacts once that directory is gone.
 No directory means every bot code path is a hard no-op, so homes that never opt in see zero change.

@@ -15,8 +15,9 @@ metadata:
 
 This round is per request: it runs only when the captain explicitly requested it, as an OCR review round for a specific task or a whole-project review.
 Never apply it as a standing posture, a default gate, or an automatic step on any project or delivery mode.
+The one captain-approved standing exception: repositories listed in `config/ocr-bot/repos` are reviewed automatically by the OCR review bot per `ocr-bot-review`, which owns that exception's entire contract; manual rounds there and everywhere else stay opt-in-only.
 Standing yolo authority is not a substitute for the explicit request.
-If the captain ever asks to make OCR review standing or automatic for a project, do not silently comply.
+If the captain ever asks to make OCR review standing or automatic beyond that registered set, do not silently comply.
 Surface that this contradicts the recorded opt-in-only constraint and ask the captain to confirm changing the constraint itself.
 
 ## When it applies
