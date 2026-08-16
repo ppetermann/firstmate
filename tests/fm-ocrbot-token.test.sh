@@ -273,6 +273,19 @@ test_token_malformed_response_fails() {
   pass "fm-ocrbot-token fails loudly on a malformed exchange response"
 }
 
+test_token_accepts_dotted_installation_token() {
+  local home fakebin out rc dotted
+  home="$TMP_ROOT/exchange-dotted"; make_home "$home"
+  fakebin=$(make_fake_curl "$home")
+  dotted='ghs_4613679_eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRobmVkIiwiZXhwIjoxNzg2ODkxNjQ0fQ.ldJhfiQgo6CNXz1QeUrIPXYKoe1r23IXherXkzCq2WE'
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$home" \
+    OCR_FAKE_TOKEN="$dotted" \
+    "$ROOT/bin/fm-ocrbot-token.sh" 2>"$home/err"); rc=$?
+  expect_code 0 "$rc" "dotted-token exit"
+  [ "$out" = "$dotted" ] || fail "a modern ghs_<id>_<jwt> installation token must be accepted (got: ${out:0:24}...)"
+  pass "fm-ocrbot-token accepts a modern dotted installation token"
+}
+
 test_token_help() {
   local home out rc
   home="$TMP_ROOT/help"; mkdir -p "$home"
@@ -294,4 +307,5 @@ test_token_remints_near_expiry_and_when_expired
 test_token_ignores_malformed_cache
 test_token_exchange_error_fails_loudly
 test_token_malformed_response_fails
+test_token_accepts_dotted_installation_token
 test_token_help

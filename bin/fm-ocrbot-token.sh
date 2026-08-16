@@ -81,11 +81,12 @@ b64url() {
   openssl base64 -A | tr '+/' '-_' | tr -d '='
 }
 
-# A GitHub token is an opaque [A-Za-z0-9_-] string; anything else in a response
-# or cache is treated as malformed rather than printed as a token.
+# A GitHub token is an opaque [A-Za-z0-9_.-] string (modern installation tokens
+# are ghs_<appid>_<jwt>, which contain dots); anything else in a response or
+# cache is treated as malformed rather than printed as a token.
 token_shape_valid() {
   case "$1" in
-    ''|*[!A-Za-z0-9_-]*) return 1 ;;
+    ''|*[!A-Za-z0-9_.-]*) return 1 ;;
     *) return 0 ;;
   esac
 }
