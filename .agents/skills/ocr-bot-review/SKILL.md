@@ -68,7 +68,7 @@ You review and report only: never fix, never commit, never push.
    Each LOW finding that stands unaddressed on unchanged code at APPROVE time is ALSO filed as a GitHub issue on the repo by the reviewer (title `low: <one-line>`, body citing finding, path:line, and the PR that surfaced it), and the review body's closing line names them: `Low findings filed as issues: #<n>, #<n>`. Lows are therefore never silently dropped - they live in the tracker until closed.
    Post it: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api --method POST "repos/{OCR_REPO}/pulls/{OCR_PR}/reviews" --input <payload file>`.
 6. Complete the check run from step 2: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api --method PATCH "repos/{OCR_REPO}/check-runs/<check-run id>" -f status=completed -f conclusion=<success|failure> -f "output[title]=ocr review" -f "output[summary]=<one-line verdict>"`.
-   The conclusion is `failure` while a critical or high finding stands, `success` when clean.
+   The conclusion is `failure` while a critical, high, or medium finding stands, `success` only when the round is clean or carries only low findings.
    Never conclude `neutral`, `skipped`, or `cancelled` as an outcome signal: neutral and skipped satisfy required checks, so a round that could not run must instead leave the check `in_progress` or absent, both of which block the merge.
 7. Write the round's findings, verdicts, and API evidence to your report file, then append `done: reviewed {OCR_REPO}#{OCR_PR} <approved|changes-requested|failed> [<reviewed SHA if it moved>]` to the status file.
 
