@@ -63,8 +63,9 @@ You review and report only: never fix, never commit, never push.
    A standing finding keeps its thread: do not post a duplicate comment for it.
 5. Post exactly one PR review carrying every finding as an inline comment.
    Build the payload with your own file tools, never by shell-interpolating finding text: a JSON object with `commit_id`, `event`, `body`, and a `comments` array where each entry has `path`, `line`, `side: "RIGHT"`, and a `body` tagging the finding as `_category_ | _severity_ | title` plus the detail.
-   Set `event` to `REQUEST_CHANGES` when any critical or high finding stands on unchanged code, otherwise `APPROVE` with a one-line clean summary as `body`.
-   Medium and low findings post as comments but never flip the verdict.
+   Set `event` to `REQUEST_CHANGES` when any critical, high, OR MEDIUM finding stands on unchanged code, otherwise `APPROVE` with a one-line clean summary as `body`.
+   Medium findings block (the captain's 2026-08-17 tightening: non-blocking findings were being silently dropped after merge); low findings post as comments and never flip the verdict.
+   Low findings that stand unaddressed on unchanged code at APPROVE time are listed in the review body's closing line (`Low findings outstanding: <n> - tracked in the PR's threads`), so they are at least visible at merge time rather than silently ignored.
    Post it: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api --method POST "repos/{OCR_REPO}/pulls/{OCR_PR}/reviews" --input <payload file>`.
 6. Complete the check run from step 2: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api --method PATCH "repos/{OCR_REPO}/check-runs/<check-run id>" -f status=completed -f conclusion=<success|failure> -f "output[title]=ocr review" -f "output[summary]=<one-line verdict>"`.
    The conclusion is `failure` while a critical or high finding stands, `success` when clean.
@@ -79,7 +80,7 @@ A token-mint failure instead means no check run exists: append `blocked: <the he
 ## After the round
 
 Read the scout report, mark the backlog round complete keyed by the PR and head SHA, relay the outcome to the captain per AGENTS.md section 9, and tear the scout down per its standard contract.
-The verdict vocabulary for relaying: approved means the check is green and the PR can merge; changes-requested means critical or high findings stand and the threads carry the detail; failed means an infrastructure failure held the gate and is captain-relevant.
+The verdict vocabulary for relaying: approved means the check is green and the PR can merge; changes-requested means critical, high, or medium findings stand and the threads carry the detail; failed means an infrastructure failure held the gate and is captain-relevant.
 A round is idempotent per head SHA: once a head carries the App's completed `ocr-review` check, never review it again; only a new head SHA, which is a push, schedules the next round.
 The bot's own etiquette: findings live only as inline threads in the one review, the verdict summary is the review body, re-review resolves the threads the new head addresses, and a human resolution is a per-finding override.
 Fleet workers keep their side exactly as today: reply in threads, batch fixes into one push per round, and verify approval through the reviews API; each push now costs one bot round.
