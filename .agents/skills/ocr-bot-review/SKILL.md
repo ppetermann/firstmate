@@ -65,8 +65,11 @@ You review and report only: never fix, never commit, never push.
    Build the payload with your own file tools, never by shell-interpolating finding text: a JSON object with `commit_id`, `event`, `body`, and a `comments` array where each entry has `path`, `line`, `side: "RIGHT"`, and a `body` tagging the finding as `_category_ | _severity_ | title` plus the detail.
    Set `event` to `REQUEST_CHANGES` when any critical, high, OR MEDIUM finding stands on unchanged code, otherwise `APPROVE` with a one-line clean summary as `body`.
    Medium findings block (the captain's 2026-08-17 tightening: non-blocking findings were being silently dropped after merge); low findings post as comments and never flip the verdict.
-   Each LOW finding that stands unaddressed on unchanged code at APPROVE time is ALSO filed as a GitHub issue on the repo by the reviewer (title `low: <one-line>`, body citing finding, path:line, and the PR that surfaced it), and the review body's closing line names them: `Low findings filed as issues: #<n>, #<n>`. Lows are therefore never silently dropped - they live in the tracker until closed.
+   Each LOW finding that stands unaddressed on unchanged code at APPROVE time is ALSO filed as a GitHub issue on the repo by the reviewer as the App (title `low: <one-line>`, body citing finding, path:line, and the PR that surfaced it), and the review body's closing line names them: `Low findings filed as issues: #<n>, #<n>`.
+   Lows are therefore never silently dropped - they live in the tracker until closed.
    Post it: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api --method POST "repos/{OCR_REPO}/pulls/{OCR_PR}/reviews" --input <payload file>`.
+   Once a filed low's issue exists, reply in that finding's thread naming the issue and resolve the thread, because an open low thread otherwise blocks the merge wherever a repository requires review-thread resolution, which is exactly the "low flips the verdict" outcome this rule exists to prevent.
+   Never resolve a thread before its finding's issue exists, so a low is never dropped without a durable home.
 6. Complete the check run from step 2: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api --method PATCH "repos/{OCR_REPO}/check-runs/<check-run id>" -f status=completed -f conclusion=<success|failure> -f "output[title]=ocr review" -f "output[summary]=<one-line verdict>"`.
    The conclusion is `failure` while a critical, high, or medium finding stands, `success` only when the round is clean or carries only low findings.
    Never conclude `neutral`, `skipped`, or `cancelled` as an outcome signal: neutral and skipped satisfy required checks, so a round that could not run must instead leave the check `in_progress` or absent, both of which block the merge.
@@ -82,7 +85,7 @@ A token-mint failure instead means no check run exists: append `blocked: <the he
 Read the scout report, mark the backlog round complete keyed by the PR and head SHA, relay the outcome to the captain per AGENTS.md section 9, and tear the scout down per its standard contract.
 The verdict vocabulary for relaying: approved means the check is green and the PR can merge; changes-requested means critical, high, or medium findings stand and the threads carry the detail; failed means an infrastructure failure held the gate and is captain-relevant.
 A round is idempotent per head SHA: once a head carries the App's completed `ocr-review` check, never review it again; only a new head SHA, which is a push, schedules the next round.
-The bot's own etiquette: findings live only as inline threads in the one review, the verdict summary is the review body, re-review resolves the threads the new head addresses, and a human resolution is a per-finding override.
+The bot's own etiquette: findings live only as inline threads in the one review, the verdict summary is the review body, re-review resolves the threads a new head addresses, a filed low resolves its own thread in the same round once its issue exists, and a human resolution is a per-finding override.
 Fleet workers keep their side exactly as today: reply in threads, batch fixes into one push per round, and verify approval through the reviews API; each push now costs one bot round.
 
 ## Failure policy
