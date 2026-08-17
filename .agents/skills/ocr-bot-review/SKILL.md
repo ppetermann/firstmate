@@ -27,8 +27,8 @@ On an `ocr-pr <owner/repo>#<n> <head_sha>` `check:` wake, run one reviewer round
 2. Record one backlog work item for the round, noting the PR URL and its head SHA, so every dispatch and completion updates the backlog per AGENTS.md section 10.
 3. Enforce the standing concurrency bound of 2 simultaneous reviewer scouts; further rounds wait in the backlog until a slot clears.
    Two is deliberate: Z.AI throttles hard and rounds are short, so a deeper pool adds throttle risk, not throughput.
-4. Spawn the reviewer in the project's clone with explicit harness and model, because dispatch profiles exist and `fm-spawn` refuses a bare spawn: `fm-spawn.sh ocrrev-<slug> projects/<repo> --scout --harness pi --model glm-5.3`.
-   The pi/GLM-5.3 binding is the `ocr-delegate-review` reviewer binding, unchanged.
+4. Spawn the reviewer in the project's clone with explicit harness and model, because dispatch profiles exist and `fm-spawn` refuses a bare spawn: `fm-spawn.sh ocrrev-<slug> projects/<repo> --scout --harness claude --model opus`.
+   The reviewer binding follows `ocr-delegate-review` (claude/opus since 2026-08-17: GLM session budget exhausted mid-fleet; revert when the Z.AI window recovers).
    If the repository has no clone under `projects/` yet, load `project-management` and clone it through the normal add intake first.
 5. Scaffold with `fm-brief.sh ocrrev-<slug> <repo> --scout`, then replace `{TASK}` with the filled reviewer brief block below.
 
