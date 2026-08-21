@@ -636,7 +636,7 @@ else
       # pending composer still holds the text, so say so rather than letting a
       # resend stack a second copy on top of the first.
       case "$verdict" in
-        pending|pending-unproven)
+        pending-unproven)
           verdict_hint=" The text is still sitting unsubmitted in the composer; clear it before resending." ;;
         *) verdict_hint= ;;
       esac
