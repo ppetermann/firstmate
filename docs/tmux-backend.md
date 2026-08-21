@@ -84,11 +84,8 @@ The supervisor guard selects only the detected primary harness's signature rathe
 `bin/fm-tmux-lib.sh` owns exact type-and-submit mechanics.
 It types a message once and retries Enter only until the composer clears.
 Only a proven empty composer is a positive delivery acknowledgement.
-Text left in established structure remains `pending`, text in ambiguous structure remains unproven, and an unreadable composer remains `unknown`.
-An unreadable composer ends the Enter retry loop instead of spending it, because repeated Enters into a pane that may be showing a modal dialog could confirm that dialog.
-One exception converts `unknown` to a confirmed delivery: when the pane was proven idle before the text was typed, an idle-to-busy transition across the Enter is positive evidence the harness accepted the submission.
-Without that baseline the unreadable verdict stands, so a pane already busy before typing can never confirm itself.
-`fm-send.sh` reports every unconfirmed verdict as a failure instead of retyping or assuming delivery, so a resend cannot silently double-deliver a steer that already landed.
+Text left in established structure remains `pending`, text in ambiguous structure remains unproven, and unreadable or unsafe state remains unknown.
+`fm-send.sh` never retypes or assumes a confirmed submit for an unconfirmed verdict; its header owns the distinct delivered-unconfirmed exit status and operator response.
 
 OpenCode 1.18.4 has one busy-queue exception.
 While OpenCode is mid-turn, Enter queues the message but leaves its text visible until the turn completes.
@@ -101,7 +98,6 @@ Without that baseline, an `unknown` verdict is preserved untouched, so a busy-lo
 ## Limits and regression entry points
 
 - tmux is the reference path and supports secondmate homes.
-- The OpenCode busy-queue exception is tmux-specific; Herdr retains its separately documented gap.
 
 ```sh
 tests/fm-backend-tmux-smoke.test.sh
