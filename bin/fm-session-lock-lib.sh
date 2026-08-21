@@ -2,7 +2,9 @@
 # Shared session-lock harness identity.
 #
 # ONE owner of the "which verified-harness process holds this home's session
-# lock, and does the current process descend from that same harness?" decision.
+# lock, and does the current process belong to that same session?" decision -
+# by harness ancestry first, then by the stable per-session token fallback
+# defined below.
 # bin/fm-lock.sh uses it to acquire and inspect state/.lock;
 # bin/fm-claude-stop-autoarm.sh uses it to prove a Stop hook fires inside the
 # lock-owning primary session before it may arm or rewake.
@@ -152,25 +154,73 @@ fm_harness_pid_alive() {
   fm_harness_process_matches "$comm" "$args"
 }
 
+# Claude Code's stable per-session identity, carried in every hook subprocess'
+# own environment regardless of OS process ancestry. This is the only signal
+# that still identifies a Claude daemon-hosted background session: unlike a
+# harness-named daemon that literally OS-parents its session (already covered
+# by ancestry membership below), a daemon-hosted session's hook subprocesses
+# are dispatched with no OS ancestry path back to the process that wrote the
+# lock at session start, so ancestry walking finds nothing to match at all.
+# Sanitized and length-bounded before use, exactly like the lock-sidecar
+# filename it becomes: never trust it unsanitized, and treat anything
+# malformed as absent rather than as a wildcard match.
+fm_claude_session_token() {
+  local raw=${CLAUDE_CODE_SESSION_ID:-}
+  [ -n "$raw" ] || return 1
+  case "$raw" in
+    *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#raw}" -le 128 ] || return 1
+  printf '%s' "$raw"
+}
+
+# Write (or refresh) state dir $2's session-identity sidecar, binding pid $1
+# (the pid fm-lock.sh just recorded in state/.lock) to this process' stable
+# Claude session token. Best-effort and silent: this sidecar is an ADDITIONAL
+# self-recognition path on top of state/.lock, never a substitute for it, so a
+# write failure here must never fail lock acquisition itself. A session with
+# no stable token (every non-Claude harness, and Claude outside a hook) simply
+# leaves no sidecar, which fm_session_lock_owned_by_self treats as absent.
+fm_session_lock_write_sidecar() {  # <pid> <state-dir>
+  local pid=$1 state=$2 token tmp
+  token=$(fm_claude_session_token) || return 0
+  tmp=$(mktemp "$state/.lock-session-write.XXXXXX" 2>/dev/null) || return 0
+  { printf '%s\n%s\n' "$pid" "$token" > "$tmp"; } 2>/dev/null \
+    && mv -f "$tmp" "$state/.lock.session" 2>/dev/null
+  rm -f "$tmp" 2>/dev/null || true
+  return 0
+}
+
 # True when state dir $1 holds a session lock whose pid is ANY harness ancestor
 # of the current process: this script runs inside the session that owns the
 # home's fleet lock. Membership is the honest test of that question, because the
 # lock owner sits at an unknown depth in a contiguous Claude run - it is the
 # outermost pid when the hook fires inside the session's own nested worker chain,
-# and an inner pid when a harness-named daemon parents the session. A missing
-# lock, a malformed lock, a lock held by a harness outside this ancestry, or an
-# ancestry that cannot be resolved all fail closed.
+# and an inner pid when a harness-named daemon parents the session.
+# When ancestry finds no match at all - including a daemon-hosted session whose
+# hook subprocesses share no OS ancestry with the process that wrote the lock -
+# fall back to the stable per-session token above, bound to the exact pid it was
+# recorded against so a lock a different, later session has since taken can
+# never be claimed by a stale token. A missing lock, a malformed lock, a lock
+# held by a harness outside this ancestry, and a missing or mismatched token all
+# fail closed.
 fm_session_lock_owned_by_self() {
-  local state=$1 lock_pid pids pid
+  local state=$1 lock_pid pids pid token side_pid side_token
   lock_pid=$(cat "$state/.lock" 2>/dev/null || true)
   case "$lock_pid" in
     ''|*[!0-9]*) return 1 ;;
   esac
-  pids=$(fm_harness_ancestry_pids) || return 1
-  while IFS= read -r pid; do
-    [ "$pid" = "$lock_pid" ] && return 0
-  done <<EOF
+  pids=$(fm_harness_ancestry_pids) || pids=''
+  if [ -n "$pids" ]; then
+    while IFS= read -r pid; do
+      [ "$pid" = "$lock_pid" ] && return 0
+    done <<EOF
 $pids
 EOF
-  return 1
+  fi
+  token=$(fm_claude_session_token) || return 1
+  [ -f "$state/.lock.session" ] && [ ! -L "$state/.lock.session" ] || return 1
+  { IFS= read -r side_pid && IFS= read -r side_token; } < "$state/.lock.session" 2>/dev/null || return 1
+  [ -n "$side_pid" ] && [ -n "$side_token" ] || return 1
+  [ "$side_pid" = "$lock_pid" ] && [ "$side_token" = "$token" ]
 }

@@ -356,6 +356,163 @@ test_e2e_daemon_parented_version_named_session_keeps_its_lock() {
   pass "session-lock e2e: a version-named session under a harness-named daemon keeps its own lock"
 }
 
+# --- stable-token layer: a Claude daemon-hosted session whose hook subprocess
+# shares no OS ancestry at all with the process that wrote the lock ------------
+
+# A ps table with no harness process anywhere in the ancestry: the honest
+# shape of a daemon-hosted hook subprocess dispatched with no OS parent/child
+# path back to the session that wrote the lock, unlike the harness-named-daemon
+# fixture above where the daemon is a genuine OS ancestor.
+fakebin_no_harness_ancestry() {  # <dir>
+  local fakebin
+  fakebin=$(fm_fakebin "$1")
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+field= pid=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) field=$2; shift 2 ;;
+    -p) pid=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+case "$field" in
+  comm=) printf '%s\n' sh ;;
+  args=) printf '%s\n' sh ;;
+  ppid=) printf '%s\n' 1 ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
+  printf '%s\n' "$fakebin"
+}
+
+test_daemon_hosted_session_recognized_by_stable_token() {
+  local dir fakebin
+  dir="$TMP_ROOT/token-daemon-hosted"
+  mkdir -p "$dir/state"
+  fakebin=$(fakebin_no_harness_ancestry "$dir")
+  printf '12345\n' > "$dir/state/.lock"
+  printf '12345\nsess-abc-123\n' > "$dir/state/.lock.session"
+  CLAUDE_CODE_SESSION_ID=sess-abc-123 lib_eval "$fakebin" "fm_session_lock_owned_by_self '$dir/state'" \
+    || fail "a daemon-hosted session with no ancestry path to the lock did not recognize its own token-bound lock"
+  pass "session-lock: a daemon-hosted session recognizes its own lock via the stable session token"
+}
+
+test_daemon_hosted_foreign_or_stale_token_refused() {
+  local dir fakebin
+  dir="$TMP_ROOT/token-foreign"
+  mkdir -p "$dir/state"
+  fakebin=$(fakebin_no_harness_ancestry "$dir")
+
+  # A different live session holds the lock under its own, different token.
+  printf '12345\n' > "$dir/state/.lock"
+  printf '12345\nsess-other-session\n' > "$dir/state/.lock.session"
+  if CLAUDE_CODE_SESSION_ID=sess-mine lib_eval "$fakebin" "fm_session_lock_owned_by_self '$dir/state'"; then
+    fail "a lock sidecar bound to a foreign session's token was accepted as this session's own"
+  fi
+
+  # A sidecar left behind by a prior, now-superseded lock holder: same token,
+  # but the pid it was bound to no longer matches the current lock content.
+  printf '99999\n' > "$dir/state/.lock"
+  printf '12345\nsess-mine\n' > "$dir/state/.lock.session"
+  if CLAUDE_CODE_SESSION_ID=sess-mine lib_eval "$fakebin" "fm_session_lock_owned_by_self '$dir/state'"; then
+    fail "a stale sidecar bound to a superseded pid was accepted for the current lock holder"
+  fi
+  pass "session-lock: a foreign or pid-mismatched session token never claims the lock"
+}
+
+test_daemon_hosted_missing_or_malformed_identity_stays_inert() {
+  local dir fakebin
+  dir="$TMP_ROOT/token-missing"
+  mkdir -p "$dir/state"
+  fakebin=$(fakebin_no_harness_ancestry "$dir")
+  printf '12345\n' > "$dir/state/.lock"
+
+  # No sidecar at all: ancestry found nothing, so there is nothing to fall back to.
+  if CLAUDE_CODE_SESSION_ID=sess-mine lib_eval "$fakebin" "fm_session_lock_owned_by_self '$dir/state'"; then
+    fail "a missing session-identity sidecar was treated as a match"
+  fi
+
+  # A sidecar exists and even matches by content, but this process carries no
+  # stable token of its own (an ordinary, non-hook, or non-Claude context).
+  printf '12345\nsess-mine\n' > "$dir/state/.lock.session"
+  if lib_eval "$fakebin" "unset CLAUDE_CODE_SESSION_ID; fm_session_lock_owned_by_self '$dir/state'"; then
+    fail "a matching sidecar was accepted despite this process carrying no stable session token"
+  fi
+
+  # A malformed token (path-unsafe characters) must never be trusted verbatim.
+  if CLAUDE_CODE_SESSION_ID='../../etc/passwd' lib_eval "$fakebin" "fm_session_lock_owned_by_self '$dir/state'"; then
+    fail "a malformed session token was accepted instead of treated as absent"
+  fi
+  pass "session-lock: a missing or malformed session identity refuses rather than matching"
+}
+
+test_write_sidecar_binds_pid_and_token_and_is_a_noop_without_one() {
+  local dir fakebin got
+  dir="$TMP_ROOT/write-sidecar"
+  mkdir -p "$dir/state"
+  fakebin=$(fm_fakebin "$dir")
+  CLAUDE_CODE_SESSION_ID=sess-write lib_eval "$fakebin" \
+    "fm_session_lock_write_sidecar 4242 '$dir/state'"
+  got=$(cat "$dir/state/.lock.session" 2>/dev/null || true)
+  [ "$got" = "$(printf '4242\nsess-write')" ] \
+    || fail "the sidecar did not bind the given pid and the environment's session token, got: $got"
+
+  rm -f "$dir/state/.lock.session"
+  lib_eval "$fakebin" "unset CLAUDE_CODE_SESSION_ID; fm_session_lock_write_sidecar 4242 '$dir/state'"
+  [ ! -e "$dir/state/.lock.session" ] \
+    || fail "a session with no stable token still wrote a sidecar"
+  pass "session-lock: the sidecar writer binds pid and token together, and is a silent no-op with no stable token"
+}
+
+# --- fm-lock.sh integration: dead-owner reclaim still goes through the guarded
+# acquire path, and refreshes the sidecar for the reclaiming session -----------
+
+test_fm_lock_reclaims_dead_owner_and_refreshes_sidecar() {
+  local dir fakebin out new_pid claimed_pid
+  dir="$TMP_ROOT/reclaim-dead-owner"
+  mkdir -p "$dir/state" "$dir/bin"
+  cp "$ROOT/bin/fm-lock.sh" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/"
+  chmod +x "$dir/bin/fm-lock.sh"
+  fakebin=$(fm_fakebin "$dir")
+  # Every queried pid reports as a live harness with no parent: fm-lock.sh's
+  # own ancestry walk starts at ITS pid, unknown until it actually runs, so the
+  # stub must identify whichever pid is asked about rather than a fixed value.
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+field=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) field=$2; shift 2 ;;
+    -p) shift 2 ;;
+    *) shift ;;
+  esac
+done
+case "$field" in
+  comm=) printf '%s\n' claude ;;
+  args=) printf '%s\n' claude ;;
+  ppid=) printf '%s\n' 1 ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
+  # A numeric owner that is not a live harness process (kill -0 on an
+  # arbitrary very-high pid fails on a real system).
+  printf '8888888\n' > "$dir/state/.lock"
+
+  out=$(FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" CLAUDE_CODE_SESSION_ID=sess-reclaim \
+    PATH="$fakebin:$PATH" "$dir/bin/fm-lock.sh" 2>&1) \
+    || fail "fm-lock.sh did not reclaim a dead numeric owner: $out"
+  claimed_pid=$(printf '%s\n' "$out" | sed -n 's/^lock acquired: harness pid //p')
+  [ -n "$claimed_pid" ] || fail "fm-lock.sh reported no claimed pid: $out"
+  new_pid=$(cat "$dir/state/.lock")
+  [ "$new_pid" = "$claimed_pid" ] || fail "the reclaiming session's own pid was not written to the lock, got: $new_pid"
+  [ "$(cat "$dir/state/.lock.session")" = "$(printf '%s\nsess-reclaim' "$claimed_pid")" ] \
+    || fail "the session-identity sidecar was not refreshed for the reclaiming session"
+  pass "session-lock: fm-lock.sh reclaims a dead owner through its guarded path and refreshes the sidecar"
+}
+
 test_version_named_session_is_identified_on_both_platforms
 test_ordinary_paths_are_never_harness_processes
 test_harness_beyond_a_gap_never_owns_the_lock
@@ -363,3 +520,8 @@ test_competing_version_named_session_is_seen_as_live
 test_e2e_version_named_session_claims_the_home
 test_e2e_daemon_parented_session_claims_the_home
 test_e2e_daemon_parented_version_named_session_keeps_its_lock
+test_daemon_hosted_session_recognized_by_stable_token
+test_daemon_hosted_foreign_or_stale_token_refused
+test_daemon_hosted_missing_or_malformed_identity_stays_inert
+test_write_sidecar_binds_pid_and_token_and_is_a_noop_without_one
+test_fm_lock_reclaims_dead_owner_and_refreshes_sidecar

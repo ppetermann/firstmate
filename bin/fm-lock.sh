@@ -58,6 +58,7 @@ trap 'exit 1' HUP INT TERM
 if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
   old=$(cat "$LOCK" 2>/dev/null || true)
   if [ "$old" = "$me" ]; then
+    fm_session_lock_write_sidecar "$me" "$STATE"
     echo "lock acquired: harness pid $me"
     exit 0
   fi
@@ -103,5 +104,6 @@ if [ ! -f "$LOCK" ] || [ -L "$LOCK" ] || [ "$written" != "$me" ]; then
   echo "error: session lock ownership verification failed; operate read-only until resolved" >&2
   exit 1
 fi
+fm_session_lock_write_sidecar "$me" "$STATE"
 release_claim_lock
 echo "lock acquired: harness pid $me"
