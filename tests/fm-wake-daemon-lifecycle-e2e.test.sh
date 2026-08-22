@@ -202,37 +202,41 @@ test_rearm_resurface_is_idempotent_per_generation() {
   case "$(cat "$state/.watcher-down")" in pending:downtime:*) ;; \
     *) fail "seed did not publish a pending:downtime marker" ;; esac
 
-  # First one-shot restart surfaces the downtime exactly once and claims
-  # handling for this generation so the next arm sees action=wait.
+  # First one-shot restart surfaces the downtime exactly once and marks the
+  # generation announced, so it cannot be re-presented until a drain acks it
+  # or a genuine new down stretch reopens a fresh generation.
   run_watcher_once "$state" "$fakebin" "$out" \
     || fail "first restart after downtime did not exit"
   grep -F 'check: rearm-resurface' "$out" >/dev/null \
     || fail "first restart after downtime did not resurface: $(cat "$out")"
   case "$(cat "$state/.watcher-down" 2>/dev/null || true)" in
-    pending:handling:*) ;;
-    *) fail "resurface left marker '$(cat "$state/.watcher-down")' instead of pending:handling" ;;
+    announced:downtime:*|announced:handling:*) ;;
+    *) fail "resurface left marker '$(cat "$state/.watcher-down")' instead of an announced generation" ;;
   esac
 
-  # Rapid second restart with NO handling drain between, mimicking the daemon's
-  # tight loop. The watcher finds no new work and must NOT re-fire for the same
-  # generation. It polls instead of exiting, so cap the wait and assert no
-  # resurface reason was emitted.
+  # The daemon drains and acknowledges after every actionable watcher close
+  # (handle_durable_wakes), so its tight restart loop is bounded by that ack:
+  # the drain consumes the recovery generation and the queued durable wake,
+  # exactly as a non-away handling turn does, and a rapid restart after it
+  # finds an acked generation and must NOT re-fire. A pre-drain restart
+  # instead models the crash window between the announce and the daemon's
+  # drain, where a fresh generation deliberately re-presents once
+  # (fm-wake-lib.sh's reopen-announced contract), so the no-refire assertion
+  # runs only against the post-drain state, exactly as the real daemon
+  # sequences it.
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2> "$drain_err" \
+    || fail "drain between restarts failed"
+  grep "$(printf '\tcheck\tfixture\t')" "$drain_out" >/dev/null \
+    || fail "durable wake queued during downtime was not drained after resurface"
+  ack_handled_wakes "$state" "$drain_err" || fail "between-restart acknowledgement failed"
+  case "$(cat "$state/.watcher-down" 2>/dev/null || true)" in
+    acked:*) ;;
+    *) fail "drain did not acknowledge the announced generation: $(cat "$state/.watcher-down")" ;;
+  esac
   : > "$out"
   run_watcher_once "$state" "$fakebin" "$out" 25
   ! grep -F 'check: rearm-resurface' "$out" >/dev/null \
-    || fail "second restart re-fired rearm-resurface for the same generation (feedback loop)"
-
-  # The ordinary handling drain still consumes this recovery generation and the
-  # queued durable wake, exactly as a non-away handling turn does.
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2> "$drain_err" \
-    || fail "drain after resurface failed"
-  grep "$(printf '\tcheck\tfixture\t')" "$drain_out" >/dev/null \
-    || fail "durable wake queued during downtime was not drained after resurface"
-  ack_handled_wakes "$state" "$drain_err" || fail "resurface acknowledgement failed"
-  case "$(cat "$state/.watcher-down" 2>/dev/null || true)" in
-    acked:*) ;;
-    *) fail "drain did not acknowledge the resurfaced generation: $(cat "$state/.watcher-down")" ;;
-  esac
+    || fail "post-drain restart re-fired rearm-resurface for an acked generation (feedback loop)"
 
   # A fresh genuine downtime generation must still resurface exactly once: the
   # ordinary single-restart behavior is preserved.
@@ -242,7 +246,7 @@ test_rearm_resurface_is_idempotent_per_generation() {
   grep -F 'check: rearm-resurface' "$out" >/dev/null \
     || fail "fresh downtime generation did not resurface"
 
-  pass "lifecycle: rearm-resurface is idempotent per generation; fresh downtime still resurfaces once"
+  pass "lifecycle: rearm-resurface is once per generation under the drain-ack sequence; fresh downtime still resurfaces once"
 }
 
 test_routine_then_terminal_after_restart
