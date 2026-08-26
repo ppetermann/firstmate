@@ -101,6 +101,8 @@ mkdir -p "$STATE"
 . "$SCRIPT_DIR/fm-push-transition-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-line-cap-lib.sh
+. "$SCRIPT_DIR/fm-line-cap-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh
 . "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-ocrbot-lib.sh
@@ -941,23 +943,27 @@ mark_all_captain_relevant_surfaced() {
   done < <(scan_captain_relevant_statuses "$STATE")
 }
 
-# Cheap heartbeat fleet-scan (the always-on twin of the daemon's catch-all). 0 if
-# any captain-relevant status has NOT already been surfaced to firstmate (its
-# content differs from the .hb-surfaced-<task> marker). Pure detect, no side
-# effects: the caller enqueues first, then marks surfaced. Because every
-# captain-relevant signal/stale already marks itself surfaced when it wakes
-# firstmate, this normally finds nothing and the heartbeat is absorbed; it
-# surfaces only a captain-relevant status the per-wake path absorbed by mistake -
-# the fail-safe backstop.
-heartbeat_scan_finds_actionable() {
-  local f task last surfaced
+# Rows for the heartbeat backstop: every captain-relevant status whose content
+# differs from its surfaced marker, capped per line and bounded in count. The
+# payload's named rows are a head start for firstmate's rule-4 whole-fleet
+# review, never a substitute for it - the enqueue reason below says so
+# explicitly. Pure collect, no side effects: the caller enqueues first, then
+# marks surfaced. Because every captain-relevant signal/stale already marks
+# itself surfaced when it wakes firstmate, this normally finds nothing and the
+# heartbeat is absorbed; it surfaces only a captain-relevant status the per-wake
+# path absorbed by mistake - the fail-safe backstop.
+heartbeat_actionable_rows() {
+  local f task last surfaced rows="" n=0
   while IFS=$(printf '\t') read -r f task last; do
     [ -n "$f" ] || continue
     surfaced=$(cat "$(_hb_surfaced_path "$task")" 2>/dev/null || true)
     [ "$surfaced" = "$last" ] && continue
-    return 0
+    fm_cap_line_var "$last" 160
+    rows="$rows; $task: $FM_LINE_CAP_LINE"
+    n=$((n + 1))
+    if [ "$n" -ge 6 ]; then rows="$rows; (more not listed)"; break; fi
   done < <(scan_captain_relevant_statuses "$STATE")
-  return 1
+  printf '%s' "${rows#; }"
 }
 
 # Where the backgrounded event reader's record lands while fm_signal_wait keeps
@@ -1635,14 +1641,17 @@ EOF
       fm_wake_append heartbeat heartbeat heartbeat || exit 1
       touch "$STATE/.last-heartbeat"
       wake "heartbeat"
-    elif heartbeat_scan_finds_actionable; then
+    elif hb_rows=$(heartbeat_actionable_rows) && [ -n "$hb_rows" ]; then
       # Backstop: a captain-relevant status the per-wake path absorbed by mistake.
       # Enqueue first, then mark every captain-relevant status surfaced so the next
-      # heartbeat does not re-fire them (enqueue-before-suppress preserved).
-      fm_wake_append heartbeat heartbeat heartbeat || exit 1
+      # heartbeat does not re-fire them (enqueue-before-suppress preserved). The
+      # named tasks are the head start; the trailing clause keeps the rule-4
+      # whole-fleet review in force.
+      reason="heartbeat: unsurfaced: $hb_rows - named tasks first; the full fleet review still applies"
+      fm_wake_append heartbeat heartbeat "$reason" || exit 1
       touch "$STATE/.last-heartbeat"
       mark_all_captain_relevant_surfaced
-      wake "heartbeat"
+      wake "$reason"
     else
       touch "$STATE/.last-heartbeat"
       echo $(( $(cat "$STATE/.heartbeat-streak" 2>/dev/null || echo 0) + 1 )) > "$STATE/.heartbeat-streak"

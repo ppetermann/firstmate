@@ -2970,18 +2970,40 @@ test_heartbeat_backstop_surfaces_unsurfaced_status() {
   # A captain-relevant status whose .seen-* signature ALREADY matches (so the
   # per-poll signal scan stays quiet) but which was never surfaced (no
   # .hb-surfaced-* marker). This stands in for a per-wake-path miss; the heartbeat
-  # fleet-scan backstop must catch it and wake firstmate.
+  # fleet-scan backstop must catch it and wake firstmate with the task NAMED.
   printf 'done: PR https://example.test/pr/5\n' > "$state/miss.status"
   sig=$(seen_sig "$state/miss.status"); printf '%s' "$sig" > "$state/.seen-miss_status"
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=1 "$WATCH" > "$out" &
   pid=$!
   wait_for_exit "$pid" 40 || fail "heartbeat backstop did not surface an unsurfaced captain-relevant status"
-  grep -Fx "heartbeat" "$out" >/dev/null || fail "backstop did not exit with a heartbeat wake"
+  grep -Eq "heartbeat: unsurfaced: miss: done: PR https://example[.]test/pr/5 - named tasks first; the full fleet review still applies" "$out" \
+    || fail "backstop wake does not name the task and re-invoke the fleet review: $(cat "$out")"
   [ "$(cat "$state/.hb-surfaced-miss" 2>/dev/null || true)" = "done: PR https://example.test/pr/5" ] \
     || fail "backstop did not record the status as surfaced (would re-fire next heartbeat)"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the backstop heartbeat failed"
-  grep "$(printf '\theartbeat\t')" "$drain_out" >/dev/null || fail "backstop heartbeat was not queued"
+  grep "$(printf '\theartbeat\t')" "$drain_out" | grep -F "unsurfaced: miss: done:" >/dev/null \
+    || fail "queued backstop heartbeat does not carry the named rows"
+
+  # Two diverging tasks are both named, semicolon-separated, and an over-long
+  # status line is capped with the shared truncation marker.
+  dir=$(make_case heartbeat-backstop-rows); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  printf 'blocked: waiting on the captain\n' > "$state/two.status"
+  sig=$(seen_sig "$state/two.status"); printf '%s' "$sig" > "$state/.seen-two_status"
+  long="needs-decision: $(printf 'x%.0s' {1..200})"
+  printf '%s\n' "$long" > "$state/long.status"
+  sig=$(seen_sig "$state/long.status"); printf '%s' "$sig" > "$state/.seen-long_status"
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=1 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "heartbeat backstop did not surface the two unsurfaced statuses"
+  grep -F "unsurfaced: long: needs-decision: xxx" "$out" >/dev/null \
+    || fail "the first diverging task was not named in the payload: $(cat "$out")"
+  grep -F " [truncated]; two: blocked: waiting on the captain" "$out" >/dev/null \
+    || fail "both diverging tasks were not named semicolon-separated: $(cat "$out")"
+  grep -F " [truncated]" "$out" >/dev/null \
+    || fail "an over-160-character status line was not capped with the truncation marker"
   pass "heartbeat backstop fail-safe surfaces a captain-relevant status the per-wake path missed"
 }
 
