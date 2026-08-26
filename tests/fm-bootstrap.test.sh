@@ -877,8 +877,48 @@ test_routine_bootstrap_contract_runs_under_system_bash() {
   local out
   [ -x /bin/bash ] || { pass "bootstrap routine contract skipped without /bin/bash"; return; }
   out=$(run_routine_bootstrap_fixture /bin/bash "$TMP_ROOT/routine-bash")
-  [ -z "$out" ] || fail "routine bootstrap contract should be silent under /bin/bash, got: $out"
+  [ -z "$out" ] || fail "bootstrap routine contract should be silent under /bin/bash, got: $out"
   pass "bootstrap routine contract runs under system /bin/bash"
+}
+
+test_startup_memory_over_budget_is_a_bootstrap_info_fact() {
+  local case_dir fixture root home fakebin out bytes tokens
+  case_dir="$TMP_ROOT/stow-over-budget"
+  fixture=$(make_routine_bootstrap_fixture "$case_dir")
+  root=${fixture%%|*}
+  fixture=${fixture#*|}
+  home=${fixture%%|*}
+  fakebin=${fixture#*|}
+  mkdir -p "$home/data"
+  printf '%s\n' '- A learning long enough to exceed a ten-token allowance on its own.' \
+    > "$home/data/learnings.md"
+  printf '%s\n' 10 > "$home/config/startup-memory-budget"
+  bytes=$(wc -c < "$home/data/learnings.md" | tr -d '[:space:]')
+  tokens=$(((bytes + 2) / 3))
+  out=$(PATH="$fakebin:$BASE_PATH" FM_BACKEND=tmux FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  assert_contains "$out" \
+    "BOOTSTRAP_INFO: startup memory over budget ($tokens estimated tokens > 10; run /stow)" \
+    "an over-budget home must surface the run /stow fact"
+  pass "bootstrap reports over-budget startup memory as a BOOTSTRAP_INFO fact"
+}
+
+test_startup_memory_within_budget_stays_silent() {
+  local case_dir fixture root home fakebin out
+  case_dir="$TMP_ROOT/stow-within-budget"
+  fixture=$(make_routine_bootstrap_fixture "$case_dir")
+  root=${fixture%%|*}
+  fixture=${fixture#*|}
+  home=${fixture%%|*}
+  fakebin=${fixture#*|}
+  mkdir -p "$home/data"
+  printf '%s\n' '- Small learning.' > "$home/data/learnings.md"
+  printf '%s\n' 100 > "$home/config/startup-memory-budget"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_BACKEND=tmux FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  assert_not_contains "$out" "startup memory over budget" \
+    "a within-budget home must not print the over-budget fact"
+  pass "bootstrap stays silent about startup memory within budget"
 }
 
 # FM_BOOTSTRAP_NETWORK splits one bootstrap run into its local and network
@@ -1170,6 +1210,8 @@ test_fleet_sync_timeout_empty_override_uses_default
 test_fleet_sync_timeout_is_computed_before_launch
 test_routine_bootstrap_confirmations_are_silent
 test_routine_bootstrap_contract_runs_under_system_bash
+test_startup_memory_over_budget_is_a_bootstrap_info_fact
+test_startup_memory_within_budget_stays_silent
 test_network_phase_partitions_the_run
 test_network_sweeps_recheck_lock_ownership
 test_network_phases_record_per_step_elapsed_times

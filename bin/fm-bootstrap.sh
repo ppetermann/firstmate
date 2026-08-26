@@ -1246,11 +1246,23 @@ startup_memory_budget_setup() {
   # Primary bootstrap owns default publication. A secondmate is deliberately
   # passive here because its setting must converge from the primary through the
   # inherited-local-material contract rather than becoming a local authority.
-  if [ -e "$FM_HOME/.fm-secondmate-home" ] || [ -L "$FM_HOME/.fm-secondmate-home" ]; then
-    return 0
+  if ! [ -e "$FM_HOME/.fm-secondmate-home" ] && ! [ -L "$FM_HOME/.fm-secondmate-home" ]; then
+    if ! fm_startup_memory_budget_materialize "$CONFIG"; then
+      echo "STARTUP_MEMORY_BUDGET: invalid config/$FM_STARTUP_MEMORY_BUDGET_FILE - $FM_STARTUP_MEMORY_BUDGET_ERROR"
+    fi
   fi
-  if ! fm_startup_memory_budget_materialize "$CONFIG"; then
-    echo "STARTUP_MEMORY_BUDGET: invalid config/$FM_STARTUP_MEMORY_BUDGET_FILE - $FM_STARTUP_MEMORY_BUDGET_ERROR"
+  # Over-budget is a read-only INFO fact for every home so the model learns a
+  # /stow pass is due; the curation itself stays with the stow skill. A budget
+  # that cannot be read safely is reported by the paths above, never guessed.
+  local sm_budget sm_file sm_total=0
+  fm_startup_memory_budget_read "$CONFIG" >/dev/null 2>&1 || return 0
+  sm_budget=$FM_STARTUP_MEMORY_BUDGET_VALUE
+  for sm_file in captain.md captain-shared.md learnings.md; do
+    fm_startup_memory_measure_file "$DATA/$sm_file" >/dev/null 2>&1 || return 0
+    sm_total=$((sm_total + FM_STARTUP_MEMORY_MEASURE_TOKENS))
+  done
+  if ! fm_startup_memory_decimal_le "$sm_total" "$sm_budget"; then
+    echo "BOOTSTRAP_INFO: startup memory over budget ($sm_total estimated tokens > $sm_budget; run /stow)"
   fi
 }
 

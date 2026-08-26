@@ -16,27 +16,14 @@ This skill writes only through the existing Firstmate ownership and write bounda
 
 ## Memory tiers and entry markers
 
-Markers are compact trailing HTML comments, deliberately cheap because marker bytes are counted content:
-
-- `<!--a:YYYY-MM-DD-->` - an `aging` entry; the embedded date is its last-reinforced date.
-- `<!--p:YYYY-MM-DD-->` - a `perishable` entry; the embedded date is its last-reinforced date.
-- `<!--a:YYYY-MM-DD/N-->` - only in a home that has opted in to the pass horizon below: either dated marker may carry `/N`, the number of passes that evaluated the entry without reinforcing it.
-  An absent `/N` means zero, so an entry the fleet keeps exercising costs no counter bytes at all, and a home that has not opted in never writes one.
-- `<!--P-->` - an explicitly `pinned` entry in a file whose default tier is not `pinned`.
-- `<!--g-->` - migration-only: an unconfirmed legacy entry that has consumed its one grace cycle, carrying no date because grace is not reinforcement.
-
-```markdown
-- Treehouse pool slots share one repo, so workers must create their task branch before editing. <!--a:2026-08-03-->
-- While state/.afk exists, the away-daemon owns triage (until the afk-wake fix lands; tracked: afk-pi-wake-bypass-r1). <!--p:2026-07-20-->
-- Never restart the shared no-mistakes daemon while runs are active. <!--P-->
-- Codex writes its trust prompt to stderr, not stdout. <!--a:2026-07-28/6-->
-```
+Markers are compact trailing HTML comments on list lines, deliberately cheap because marker bytes are counted content.
+`bin/fm-stow-plan.sh --help` owns every marker spelling, the optional pass counter, and all clock and token arithmetic; this skill keeps tier meaning, the evidence rule, and every curation judgement.
 
 The tier names say what the pass does with an entry:
 
 - `pinned` - no clock is ever read for it: exempt from decay and from budget eviction, changed only through inspect-then-update when the captain or reality changes it, except that an explicit per-item captain approval may offload it under the flow below.
-- `aging` - it must re-prove itself: an entry whose age is greater than or equal to 30 days since its last-reinforced date is stale, and a stale entry is re-validated (date refreshed) or archived, never kept by inertia alone.
-- `perishable` - it is stored expecting disposal: an entry whose age is greater than or equal to 7 days since its last-reinforced date is stale, and its prose must name a checkable expiry condition, such as a backlog id, a version floor, or a dated expectation.
+- `aging` - it must re-prove itself: a stale entry (its clock is owned by `bin/fm-stow-plan.sh --help`) is re-validated (date refreshed) or archived, never kept by inertia alone.
+- `perishable` - it is stored expecting disposal: a stale entry (same clock owner) has its named expiry condition re-checked, and its prose must name a checkable expiry condition, such as a backlog id, a version floor, or a dated expectation.
   An admitted durable entry that cannot name a checkable expiry condition is not `perishable` and must be stored as `aging`.
   Omission is reserved for non-durable material or facts already owned elsewhere.
 
@@ -44,7 +31,7 @@ Marking rules:
 
 - Tier defaults are file-scoped: entries in `data/captain.md` and `data/captain-shared.md` default to `pinned` because preferences and authority boundaries do not age, and entries in `data/learnings.md` default to `aging` because operational facts must re-prove themselves.
 - An entry matching its file's `pinned` default carries no marker at all; every `aging` and `perishable` entry always carries its dated marker, whose letter names the tier, so a clock-carrying entry is never ambiguous with unmarked legacy material.
-- Marker and header-pointer bytes count toward the startup-memory budget: the pass's own bookkeeping is costed content, never free, which is why the spellings above are as short as they are.
+- Marker and header-pointer bytes count toward the startup-memory budget: the pass's own bookkeeping is costed content, never free, which is why the marker spellings owned by `bin/fm-stow-plan.sh --help` are as short as they are.
 - Each memory file's header carries at most a one-line pointer naming this skill as the scheme owner, such as `<!-- memory tiers: see the stow skill -->`.
   This skill text is the single owner of tier semantics, marker spellings, and clocks, and no memory file header may restate them.
   The one exception is the `config/stow-pass-horizon` presence flag below, which turns a single extra horizon on for this home and changes nothing else on this page.
@@ -56,7 +43,7 @@ Decay advances only when a pass runs, so a home stowed less often than a clock e
 
 ### Optional pass horizon (config/stow-pass-horizon)
 
-The wall-clock horizons above are this skill's default contract, and a home gets exactly them unless it asks for more.
+The wall-clock horizons are this skill's default contract, and a home gets exactly them unless it asks for more.
 A home may opt in to a second, per-pass horizon by creating the local, gitignored `config/stow-pass-horizon` presence flag.
 While that file is absent nothing else in this section applies: no counter is written, no counter already in a file is read, and every entry decays on its date alone.
 
@@ -67,8 +54,7 @@ A home stowed monthly already exceeds its date horizon on a single pass and gain
 
 While the flag is present:
 
-- An `aging` entry is stale at whichever horizon it reaches first: 10 passes that evaluated it without reinforcing it, or 30 days since its last-reinforced date.
-- A `perishable` entry is stale at whichever it reaches first: 3 unreinforced passes, or 7 days.
+- The pass-count thresholds, and the first-reached-wins combination with the wall-clock horizons, are owned by `bin/fm-stow-plan.sh --help`; `bin/fm-stow-plan.sh plan` reports the resulting class for every entry.
 - Reinforcement refreshes the date and clears the counter, and nothing else clears it, so the evidence hard rule in step 4 stays the only way an entry renews its lease.
 - An existing dated marker with no `/N` reads as counter zero, so a home that opts in migrates nothing.
 - Removing the flag returns the home to the default contract on its next pass: any `/N` already written is then neither read nor advanced, and is left in place rather than rewritten.
@@ -99,8 +85,8 @@ Every `/stow` invocation performs this complete pass, even when the session cont
    **Hard rule: reinforcement requires independent evidence from this session that you can name in the receipt; plausibility, importance, prior knowledge, and the entry's own text are not evidence, and any explicit statement that no confirming session evidence exists requires the no-evidence path.**
    For an unmarked `data/learnings.md` entry with no such evidence, the no-evidence path is always to append `<!--g-->` and retain it for this entire pass; never stamp or archive it during that same invocation.
    Stamp each newly written entry with today's date and its tier per the marking rules, and admit a new `perishable` entry only with its named checkable expiry condition in the prose.
-5. Evaluate every dated entry in each editable memory file against its tier clock.
-   Where the optional pass horizon is enabled, first increment the unreinforced-pass counter of every dated entry step 4 did not reinforce - that increment is the pass tick - then judge each dated entry against both of its horizons and treat it as stale at whichever it reaches first.
+5. Evaluate every dated entry in each editable memory file against its tier clock; `bin/fm-stow-plan.sh plan` reports each entry's tier, age, counter, and class under the clocks it owns.
+   Where the optional pass horizon is enabled, first increment the unreinforced-pass counter of every dated entry step 4 did not reinforce - that increment is the pass tick, applied through `bin/fm-stow-plan.sh stamp` - then judge each dated entry against both of its horizons and treat it as stale at whichever it reaches first.
    Re-validate a stale `aging` entry from current evidence and refresh its date, or archive it.
    Re-confirm a stale `perishable` entry against its named condition: still open means refresh the date, while resolved, expired, or no longer checkable means archive it in this pass.
    Promote `perishable` to `aging` when its condition keeps proving durable past its expected life, and retier in place when a supersession changes an entry's lifetime.
@@ -111,8 +97,8 @@ Every `/stow` invocation performs this complete pass, even when the session cont
    Never plainly remove a unique current fact: every such exit must archive it with provenance in the recoverable cold tier or relocate it to a live JIT owner or a consolidation merge that preserves the fact.
 7. When the total is still over budget after decay and consolidation, make aggressive reduction the default, using editable files only and in this order: archive every editable stale, superseded, or low-utility entry that is eligible for archival; consolidate tighter; run the over-budget offload sweep below and autonomously relocate every eligible non-pinned conditional entry into an already-existing allowed owner only after that owner holds it; then, only when the convergence precondition below holds, archive eligible `aging` entries oldest-reinforced-first until within budget.
    A proposal, a future migration, or an accepted exception is never budget relief in this pass.
-   Budget eviction considers only editable `aging` entries that carry a last-reinforced date and are not pending offload; a `<!--g-->` legacy-grace entry is ineligible until its grace cycle resolves, so eviction can neither cancel a promised grace cycle nor prefer just-validated entries over unvalidated ones.
-   Convergence precondition: before evicting anything, total the eligible pool and check that archiving all of it would reach the budget; when even that cannot, skip the eviction rung entirely, archive nothing for budget reasons, and carry the concrete inability to the final step, naming the exempt pinned floor that crowds out the budget.
+   Budget eviction considers only the editable stale `aging` entries `bin/fm-stow-plan.sh plan` lists in its eviction pool; a `<!--g-->` legacy-grace entry is ineligible until its grace cycle resolves, so eviction can neither cancel a promised grace cycle nor prefer just-validated entries over unvalidated ones.
+   Convergence precondition: when the pool's `converges` verdict is no, skip the eviction rung entirely, archive nothing for budget reasons, and carry the concrete inability to the final step, naming the exempt pinned floor that crowds out the budget.
    Automatic processes never move a `pinned` entry: decay clocks, legacy grace cycles, oldest-first budget eviction, immediate budget archiving, and autonomous offload do not apply to it.
    The sole exception is relocation to a JIT owner after explicit, per-item captain approval under the offload flow below, and that entry remains in memory until its destination is live.
 8. Run `bin/fm-startup-memory-budget.sh report` again after the complete pass.
@@ -133,15 +119,8 @@ Never describe the session as reset-safe while the memory total is over budget o
 
 Stale never means deleted: pruning an entry from an editable memory file always means moving it to `data/memory-archive.md`, this home's append-only, never-injected cold tier, gitignored with the rest of `data/` and never counted by the budget report.
 Each archived entry keeps its provenance under a dated pass heading: source file, tier, last-reinforced date, and the reason it left.
-Include the unreinforced-pass counter only when the optional pass horizon itself made the entry stale, using the exact reason `unreinforced <N>p`; omit the counter when the wall-clock horizon or any other reason caused archival, even if the active marker carried one.
+`bin/fm-stow-plan.sh archive` owns that provenance line, the pass heading, and every reason spelling, including when the unreinforced-pass counter belongs in the reason.
 Archive provenance stays verbose rather than compact because the cold tier is never budget-counted.
-
-```markdown
-## 2026-08-08 stow
-- (from learnings.md, tier: perishable, reinforced: 2026-06-30) While state/.afk exists, the away-daemon owns triage... [archived: unreinforced 39d]
-```
-
-Reasons include `unreinforced <N>d`, `unreinforced <N>p`, `budget oldest-first`, and `legacy-unvalidated`.
 Archiving is a move, not a removal, and recovery is `grep` plus copy back with no tooling.
 Each home keeps its own archive, the archive never cascades, and truncating a grown archive is a captain decision, not a mechanism.
 
@@ -162,7 +141,7 @@ Every test must hold for a candidate:
 - Durable: not `perishable`, not stale, and expected to remain true for months.
 - Eligible by authority: only a non-pinned, dated `aging` entry that is not pending offload may be autonomously relocated to an already-existing allowed owner, while a `pinned` entry may be proposed only for explicit, per-item captain-approved relocation and can never be archived or autonomously offloaded for budget relief.
 - Conditional: a one-line nameable trigger exists, and a session that never touches that trigger runs no risk from omitting the fact.
-- Fat enough to matter: roughly 50 estimated tokens or more, handled largest-first, because consolidation handles smaller entries.
+- Fat enough to matter: at or above the estimated-token floor owned by `bin/fm-stow-plan.sh --help`, handled largest-first, because consolidation handles smaller entries.
 - A destination below fits the entry's privacy and visibility.
 - Not already preserved by a stronger owner, which the consolidation counterweight already handles as ordinary curation rather than offload.
 
@@ -173,8 +152,8 @@ Every test must hold for a candidate:
 Approved project-level destinations are not produced by stow: they ship normally through that project's own registered delivery path.
 
 - A user-owned local skill: a directory under `.agents/skills/<freeform-name>/` whose path is appended to the active home clone's repository-local exclude file, never to a `.gitignore`.
-  Resolve `home_root` to `$FM_HOME` when it is set and otherwise to the Firstmate code root, and anchor every destination index check, exclude-path lookup, and ignore verification to that root with `git -C "$home_root"`.
-  Before approval and again before migration, validate that the chosen freeform destination under `home_root` is absent from that home's git index and collides with no existing file or directory, and reject the destination if either check fails.
+  Resolve `home_root` to `$FM_HOME` when it is set and otherwise to the Firstmate code root; `bin/fm-stow-plan.sh check-destination` owns the ordered safety checks under that root (git work tree, index absence, filesystem collision absence, and ignore verification through the repository-local exclude file).
+  Before approval and again before migration, run that battery against the chosen freeform destination and reject the destination unless it answers `safe`.
   The name is freeform with no user-vs-firstmate naming convention, the skill stays per-home and untracked, and the harness still lists and JIT-loads it because skill discovery scans the filesystem and ignores git status (verified in `docs/verification/stow-memory.md`).
   Its precise, condition-stated description line is its entire trigger; it gets no `AGENTS.md` declaration because `AGENTS.md` is shared tracked material.
   Because this destination is local and untracked, it is also the JIT home for private conditional knowledge that no committed surface may hold.
@@ -197,9 +176,9 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
    Preserve each candidate's approval state in that item, and require explicit plain-chat approval for that named item before any migration.
    If the captain never answers, nothing migrates and the held item persists, but it is never treated as budget relief.
 3. Migrate an approved pinned candidate outside this pass.
-   Resolve `home_root` to `$FM_HOME` when it is set and otherwise to the Firstmate code root, then re-validate the approved local-skill destination under that root for both index absence with `git -C "$home_root"` and filesystem collision absence.
-   Before creating the destination or writing any private content, resolve the exclude file with `git -C "$home_root" rev-parse --git-path info/exclude`, append the destination directory path to it, and verify the future `SKILL.md` path is ignored with `git -C "$home_root" check-ignore`.
-   Only after that verification succeeds, create the destination and write the `SKILL.md` with its precise description trigger, then confirm the skill appears in a fresh session's skill index.
+   Resolve `home_root` to `$FM_HOME` when it is set and otherwise to the Firstmate code root, then re-validate the approved local-skill destination under that root with `bin/fm-stow-plan.sh check-destination`.
+   Before creating the destination or writing any private content, resolve the exclude file with `git -C "$home_root" rev-parse --git-path info/exclude` and append the destination directory path to it, so the battery's ignore verification can pass.
+   Only after `check-destination` answers `safe`, create the destination and write the `SKILL.md` with its precise description trigger, then confirm the skill appears in a fresh session's skill index.
    If any migration step fails, remove the destination content and the exclude rule written by this attempt, leaving neither partial private content nor a partial rule behind.
    An approved project destination ships as a normal task through that project's registered delivery mode.
    The migration's source of truth is the entry as quoted in the proposal.
@@ -259,7 +238,7 @@ The first pass after adoption performs a one-time revalidation sweep of editable
 
 Report the outcome in plain captain-facing language with all of these facts:
 
-- effective startup-memory budget and total estimated tokens before and after;
+- effective startup-memory budget and total estimated tokens before and after (`bin/fm-stow-plan.sh receipt` prints the per-file and total deltas);
 - one or more actions for each of `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`, using only `unchanged`, `added`, `rewritten`, `pruned`, `routed`, `archived`, or `proposed-offload`; adding or replacing a migration marker is `rewritten`, never a new action verb such as `migrated`;
 - each durable finding filed outside memory and its authoritative owner;
 - each archived entry's reason, each autonomous offload's live destination and actual relief, and, when a pinned candidate was proposed, the `proposed-offload` section with every candidate's fields;
