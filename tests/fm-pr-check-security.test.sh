@@ -3354,6 +3354,76 @@ test_retirement_queue_failure_and_receipt_tampering() {
   pass "queue failure and untrusted receipts preserve canonical poll evidence"
 }
 
+test_direct_pr_gate_pass_warning() {
+  local dir state
+  # Missing marker on a direct-PR task: advisory warning, arming still works.
+  dir=$(make_case gate-warn-missing)
+  state="$dir/home/state"
+  fm_write_meta "$state/gate-a.meta" \
+    "window=fm-gate-a" \
+    "endpoint_task_id=gate-a" \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    "kind=ship" \
+    "mode=direct-PR"
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
+    PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" gate-a https://github.com/o/r/pull/31 \
+    > "$dir/check.out" 2> "$dir/check.err" \
+    || fail "missing gate marker must not block PR check: $(cat "$dir/check.err")"
+  assert_grep "warning: direct-PR task gate-a has no local-gate pass marker" "$dir/check.err" \
+    "missing gate marker must warn"
+  assert_grep "armed: state/gate-a.check.sh" "$dir/check.out" \
+    "gate warning must leave the merge poll armed"
+
+  # Marker head matching the PR head: silent.
+  dir=$(make_case gate-warn-match)
+  state="$dir/home/state"
+  fm_write_meta "$state/gate-b.meta" \
+    "window=fm-gate-b" \
+    "endpoint_task_id=gate-b" \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    "kind=ship" \
+    "mode=direct-PR"
+  printf 'head=%s ts=1\n' "0123456789abcdef0123456789abcdef01234567" > "$state/gate-b.gate-pass"
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
+    PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" gate-b https://github.com/o/r/pull/32 \
+    > "$dir/check.out" 2> "$dir/check.err" \
+    || fail "matching gate marker must not block PR check: $(cat "$dir/check.err")"
+  assert_no_grep "warning:" "$dir/check.err" \
+    "a gate marker matching the PR head must not warn"
+
+  # Marker head that drifted from the PR head: warn naming both.
+  dir=$(make_case gate-warn-mismatch)
+  state="$dir/home/state"
+  fm_write_meta "$state/gate-c.meta" \
+    "window=fm-gate-c" \
+    "endpoint_task_id=gate-c" \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    "kind=ship" \
+    "mode=direct-PR"
+  printf 'head=%s ts=1\n' "9999999999999999999999999999999999999999" > "$state/gate-c.gate-pass"
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
+    PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" gate-c https://github.com/o/r/pull/33 \
+    > "$dir/check.out" 2> "$dir/check.err" \
+    || fail "drifted gate marker must not block PR check: $(cat "$dir/check.err")"
+  assert_grep "warning: direct-PR task gate-c gate pass head 9999999999999999999999999999999999999999 does not match PR head 0123456789abcdef0123456789abcdef01234567" "$dir/check.err" \
+    "a gate marker not matching the PR head must warn"
+
+  # Control: a no-mistakes task without a marker never warns.
+  dir=$(make_case gate-warn-nomistakes)
+  state="$dir/home/state"
+  write_task_meta "$dir" gate-d
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
+    PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" gate-d https://github.com/o/r/pull/34 \
+    > "$dir/check.out" 2> "$dir/check.err" \
+    || fail "no-mistakes task without a marker must not block PR check: $(cat "$dir/check.err")"
+  assert_no_grep "warning:" "$dir/check.err" \
+    "non-direct-PR tasks must never warn about a missing gate marker"
+  pass "direct-PR gate pass warnings are advisory"
+}
+
 test_gitlab_merged_poll_retires() {
   local dir state url rc
   dir=$(make_case gitlab-merged-retirement)
@@ -3380,6 +3450,7 @@ test_retirement_crash_recovery
 test_external_merge_transition_retires_only_terminal_poll
 test_retirement_refuses_replacement_and_nonterminal_results
 test_retirement_queue_failure_and_receipt_tampering
+test_direct_pr_gate_pass_warning
 test_gitlab_merged_poll_retires
 test_invalid_entrypoints_have_zero_side_effects
 test_valid_recording_and_merge_derivation

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Record a PR-ready task: store one validated canonical pr=<url> and the forge's
 # exact pr_head=<sha> when available, then atomically arm a static merge poll.
+# Before arming, a direct-PR task's local-gate pass marker is checked and a
+# missing marker or a head mismatch prints an advisory warning that firstmate
+# judges; bin/fm-local-gate.sh's header owns the gate and marker contract.
 # The watcher check source is byte-for-byte bin/fm-pr-poll.sh; task and PR data
 # live only in a private sidecar and are never interpolated into shell source.
 # A GitHub pull request URL and a GitLab merge request URL are both accepted,
@@ -79,6 +82,23 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
   if REMOTE_HEAD=$(cd "$WT" && gh pr view "$URL" --json headRefOid -q .headRefOid 2>/dev/null) \
     && fm_pr_head_valid "$REMOTE_HEAD"; then
     PR_HEAD=$REMOTE_HEAD
+  fi
+fi
+
+# Advisory local-gate check for direct-PR tasks: warn, never block, because
+# firstmate judges the warning and scouts and no-mistakes tasks legitimately
+# lack markers.
+if [ "$(sed -n 's/^mode=//p' "$META" | tail -1)" = direct-PR ]; then
+  GATE_PASS="$STATE/$ID.gate-pass"
+  if [ -f "$GATE_PASS" ] && [ ! -L "$GATE_PASS" ]; then
+    GATE_HEAD=$(sed -n 's/^head=//p' "$GATE_PASS" | tail -1 | cut -d' ' -f1)
+    if [ -z "$GATE_HEAD" ] || ! fm_pr_head_valid "$GATE_HEAD"; then
+      echo "warning: direct-PR task $ID gate pass marker records no valid head" >&2
+    elif [ -n "$PR_HEAD" ] && [ "$GATE_HEAD" != "$PR_HEAD" ]; then
+      echo "warning: direct-PR task $ID gate pass head $GATE_HEAD does not match PR head $PR_HEAD (branch moved after gating)" >&2
+    fi
+  else
+    echo "warning: direct-PR task $ID has no local-gate pass marker (state/$ID.gate-pass); confirm the gate ran before the push" >&2
   fi
 fi
 
