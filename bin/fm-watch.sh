@@ -1465,10 +1465,21 @@ EOF
               date +%s > "$ssf"
               clear_write_tracking "$key"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
+            elif [ -n "$last" ] && [ "$(cat "$(_hb_surfaced_path "$task")" 2>/dev/null || true)" = "$last" ]; then
+              # Echo: this exact captain-relevant line was already surfaced to firstmate;
+              # only the pane repainted (clock, token counter, idle prompt). Absorb it on
+              # the bounded re-surface cadence so a wedged post-done harness still surfaces.
+              printf '%s' "$h" > "$sf"
+              esf="$STATE/.stale-echo-since-$key"
+              [ -e "$esf" ] || date +%s > "$esf"
+              resurface_absorbed "$w" "$STATE/.stale-echo-resurfaced-$key" "$(age_of "$esf")" \
+                "stale: $w (terminal status already surfaced, re-surfaced on the long cadence; confirm the finished worker is not wedged)"
+              triage_log "absorbed stale echo (terminal status already surfaced): $w"
             else
               fm_wake_append stale "$w" "stale: $w" || exit 1
               printf '%s' "$h" > "$sf"
               rm -f "$ssf"
+              rm -f "$STATE/.stale-echo-since-$key" "$STATE/.stale-echo-resurfaced-$key"
               clear_write_tracking "$key"
               mark_surfaced "$STATE/$(window_to_task "$w" "$STATE").status"
               wake "stale: $w"
@@ -1539,7 +1550,7 @@ EOF
         if [ "$busy_now" -eq 0 ] && busy_turn_over_age "$task"; then
           busy_over_age_route "$w" "$task" "$h"
         else
-          rm -f "$ssf" "$ewf"
+          rm -f "$ssf" "$ewf" "$STATE/.stale-echo-since-$key" "$STATE/.stale-echo-resurfaced-$key"
           clear_write_tracking "$key"
         fi
         # A busy pane normally means real work resumed, so stale pause bookkeeping

@@ -820,6 +820,186 @@ test_stale_terminal_status_overridden_by_active_run() {
   pass "a stale terminal-looking status is overridden and absorbed while a run is actively working, then wedge-escalated"
 }
 
+# --- stale echo: a repainted pane over an ALREADY-SURFACED terminal status ---------
+# The terminal-stale surface path writes the surfaced marker (mark_surfaced), the
+# same marker the away-daemon reads to dedupe terminal statuses. When the pane
+# repaints with a NEW hash while the status log still ends in the exact line that
+# was already surfaced (clock, token counter, idle prompt), the echo check
+# absorbs the stale on the bounded re-surface cadence instead of waking firstmate
+# again for the same fact.
+test_stale_echo_absorbed_after_surface() {
+  local dir state fakebin out capture_file window key sig pid pane_hash2
+  dir=$(make_case stale-echo-absorbed); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-echo"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/echo.meta"
+  printf 'done: PR https://example.test/pr/7 checks green\n' > "$state/echo.status"
+  sig=$(seen_sig "$state/echo.status"); printf '%s' "$sig" > "$state/.seen-echo_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+
+  # Phase A: first sighting of the terminal stale surfaces (queue row + exit) and
+  # records the surfaced marker over the exact last line.
+  printf 'finished, awaiting review' > "$capture_file"
+  printf '%s' "$(hash_text "finished, awaiting review")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "watcher did not exit for the first terminal stale surface"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "first sighting did not print the stale wake"
+  [ "$(cat "$state/.hb-surfaced-echo" 2>/dev/null || true)" = "done: PR https://example.test/pr/7 checks green" ] \
+    || fail "terminal stale surface did not record the surfaced marker"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the phase-A watcher stop"
+
+  # Phase B: repaint the pane (new hash, same terminal status line), crew state
+  # done. The marker match absorbs the echo: the watcher survives a full poll,
+  # no new queue row appears, and the triage log names the absorb.
+  export FM_FAKE_CREW_STATE='state: done · source: run-step · checks green'
+  : > "$out"
+  printf 'finished, awaiting review (clock 12:01)' > "$capture_file"
+  pane_hash2=$(hash_text "finished, awaiting review (clock 12:01)")
+  printf '%s' "$pane_hash2" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid" 60; then
+    reap "$pid"; fail "watcher exited on a repaint over an already-surfaced terminal status: $(cat "$out")"
+  fi
+  [ ! -s "$state/.wake-queue" ] || fail "the absorbed stale echo enqueued a wake"
+  grep -F "absorbed stale echo" "$state/.watch-triage.log" >/dev/null || fail "no absorbed-stale-echo triage line"
+  [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash2" ] || fail "echo absorb did not advance the stale suppressor"
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the phase-B watcher stop"
+  unset FM_FAKE_CREW_STATE
+  pass "a repainted pane over an already-surfaced terminal status is absorbed as a stale echo"
+}
+
+# Past the bounded cadence the absorbed echo re-surfaces once per window, so a
+# wedged post-done harness cannot rot invisibly behind echo suppression.
+test_stale_echo_resurfaces_past_cadence() {
+  local dir state fakebin out drain_out capture_file window key sig pid
+  dir=$(make_case stale-echo-resurface); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-echore"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/echore.meta"
+  printf 'done: PR https://example.test/pr/8 checks green\n' > "$state/echore.status"
+  sig=$(seen_sig "$state/echore.status"); printf '%s' "$sig" > "$state/.seen-echore_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+
+  # Phase A: surface the terminal status once.
+  printf 'finished, awaiting review' > "$capture_file"
+  printf '%s' "$(hash_text "finished, awaiting review")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "watcher did not exit for the first terminal stale surface"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the phase-A watcher stop"
+
+  # Phase B: a repaint is absorbed as an echo, starting the echo clock.
+  export FM_FAKE_CREW_STATE='state: done · source: run-step · checks green'
+  : > "$out"
+  printf 'finished, awaiting review (clock 12:01)' > "$capture_file"
+  printf '%s' "$(hash_text "finished, awaiting review (clock 12:01)")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid" 60; then
+    reap "$pid"; fail "watcher exited on the first repaint under absorb: $(cat "$out")"
+  fi
+  [ ! -s "$state/.wake-queue" ] || fail "the first repaint was not absorbed as an echo"
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the phase-B watcher stop"
+
+  # Phase C: age the echo clock past the cadence, then repaint again - the
+  # bounded re-surface fires with the echo reason text.
+  set_mtime "$(( $(date +%s) - 5 ))" "$state/.stale-echo-since-$key"
+  : > "$out"
+  printf 'finished, awaiting review (clock 12:02)' > "$capture_file"
+  printf '%s' "$(hash_text "finished, awaiting review (clock 12:02)")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "watcher did not re-surface a stale echo past the cadence"
+  grep -F "terminal status already surfaced" "$out" >/dev/null || fail "re-surface did not use the echo reason text"
+  grep -F "possible wedge" "$out" >/dev/null && fail "an absorbed echo re-surface was mislabeled a possible wedge"
+  [ -e "$state/.stale-echo-resurfaced-$key" ] || fail "the echo re-surface throttle marker was not recorded"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the echo re-surface failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "echo re-surface was not queued"
+  unset FM_FAKE_CREW_STATE
+  pass "an absorbed stale echo re-surfaces on the long cadence so a wedged post-done pane stays visible"
+}
+
+# A GENUINELY new captain-relevant terminal line beats echo suppression: the
+# marker holds the previously surfaced line, so a different last line surfaces
+# immediately and restarts the echo clock for the new line.
+test_stale_new_terminal_line_surfaces_after_echo() {
+  local dir state fakebin out capture_file window key sig pid statusf
+  dir=$(make_case stale-echo-newline); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-echonew"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/echonew.meta"
+  statusf="$state/echonew.status"
+  printf 'done: PR https://example.test/pr/9 checks green\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-echonew_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+
+  # Phase A: surface the terminal status once.
+  printf 'finished, awaiting review' > "$capture_file"
+  printf '%s' "$(hash_text "finished, awaiting review")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "watcher did not exit for the first terminal stale surface"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the phase-A watcher stop"
+
+  # Phase B: a repaint is absorbed as an echo over the surfaced done: line.
+  export FM_FAKE_CREW_STATE='state: done · source: run-step · checks green'
+  : > "$out"
+  printf 'finished, awaiting review (clock 12:01)' > "$capture_file"
+  printf '%s' "$(hash_text "finished, awaiting review (clock 12:01)")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid" 60; then
+    reap "$pid"; fail "watcher exited on the repaint under absorb: $(cat "$out")"
+  fi
+  [ ! -s "$state/.wake-queue" ] || fail "the repaint was not absorbed as an echo"
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the phase-B watcher stop"
+
+  # Phase C: append a genuinely new terminal line, re-prime the signal suppressor
+  # so only the stale path speaks, and repaint - the marker mismatch surfaces.
+  printf 'blocked: waiting on the captain\n' >> "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-echonew_status"
+  : > "$out"
+  printf 'finished, awaiting review (clock 12:02)' > "$capture_file"
+  printf '%s' "$(hash_text "finished, awaiting review (clock 12:02)")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "watcher did not surface a new terminal line after an absorbed echo"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "the new terminal line did not print a plain stale wake"
+  [ "$(cat "$state/.hb-surfaced-echonew" 2>/dev/null || true)" = "blocked: waiting on the captain" ] \
+    || fail "the fresh surface did not move the marker to the new terminal line"
+  unset FM_FAKE_CREW_STATE
+  pass "a new terminal line after an absorbed echo surfaces immediately (marker mismatch beats echo suppression)"
+}
+
 # --- non-terminal stale, crew provably working: absorbed, then wedge-escalated ---
 # A provably-working crew (an actively-running pipeline) legitimately sits on a
 # static pane (e.g. waiting on CI), so a non-terminal stale is absorbed and only
@@ -2844,6 +3024,9 @@ test_self_announced_close_does_not_rewake_but_next_note_does
 test_actionable_signal_surfaced
 test_terminal_stale_surfaced
 test_stale_terminal_status_overridden_by_active_run
+test_stale_echo_absorbed_after_surface
+test_stale_echo_resurfaces_past_cadence
+test_stale_new_terminal_line_surfaces_after_echo
 test_nonterminal_stale_provably_working_absorbed_then_escalated
 test_wedge_escalation_marks_demand_deep_inspection_after_threshold
 test_wedge_escalation_resets_when_pane_becomes_active
