@@ -260,6 +260,21 @@ fm_pr_body_lint() {  # <title> <body>; prints PR_BODY_LINT: lines, returns 0 alw
   return 0
 }
 
+# Single owner of the statusCheckRollup collapse shared by PR surfaces
+# (bin/fm-pr-state.sh verdicts, fm-bearings-snapshot enrichment): a jq
+# function definition string the caller prepends to its program, mapping a
+# rollup array to none|failing|pending|passing. Trailing semicolon included
+# so it composes as a prefix.
+fm_pr_checks_collapse_jq() {
+  cat <<'JQ'
+def fm_checks_state($c):
+  if ($c|length) == 0 then "none"
+  elif any($c[]; (.conclusion // .state // "") as $s | ($s=="FAILURE" or $s=="ERROR" or $s=="TIMED_OUT" or $s=="CANCELLED" or $s=="ACTION_REQUIRED")) then "failing"
+  elif any($c[]; ((.status // "") != "COMPLETED") and ((.state // "") != "SUCCESS")) then "pending"
+  else "passing" end;
+JQ
+}
+
 fm_pr_head_valid() {
   local head=${1-}
   local LC_ALL=C
