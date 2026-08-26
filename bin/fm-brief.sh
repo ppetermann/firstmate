@@ -394,6 +394,8 @@ The task is complete only when committed on your branch.
 Run the local gate before pushing: \`bash $FM_ROOT/bin/fm-local-gate.sh $ID .\` - a red gate blocks the push; fix and re-gate.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
 The PR description is written for HUMAN reviewers, not as an agent prompt: what the change is and why, how it works, test coverage, and any limitations - never pipeline intents, instructions, or prompt-style text.
+Give the PR a title that names what the change does for the project in plain words - never the task id, the branch name, or a pipeline-generated prefix.
+When this task closes GitHub issues, end the PR body with one \`Closes #N\` line per issue so the merge closes them automatically.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 When the repository requires a review before merge, firstmate relays its findings to you, and addressing them is part of this task; land one round of fixes in a single push.
 Once that review has approved, push nothing more: any new commit dismisses the approval and costs another full review round.
@@ -435,6 +437,8 @@ Two firstmate-specific rules layer on top of that guidance:
 - Avoid \`--yes\`: it would silently bypass firstmate's authority check and any required captain escalation.
 
 Before reporting, write the PR description for HUMAN reviewers - what the change is and why, how it works, test coverage, limitations - never the pipeline intent or any prompt-style text; a pipeline may pre-fill the body, so replace it.
+Give the PR a title that names what the change does for the project in plain words - never the task id, the branch name, or a pipeline-generated prefix.
+When this task closes GitHub issues, end the PR body with one \`Closes #N\` line per issue so the merge closes them automatically.
 After /no-mistakes reports CI green (the CI-ready return point - report now so firstmate can tell the captain early, never silently monitoring the PR through to merge), append \`done: PR {url} checks green\` and stop.
 When the repository requires a review before merge, that report is a milestone, not the finish: the merge bar is CI green plus the repository's required review approving, so check the PR's review state before appending the report.
 If that review has already requested changes, do not append \`done:\` yet - addressing its findings is part of this task, so land that round's fixes in a single push and report at the next CI-ready return point.

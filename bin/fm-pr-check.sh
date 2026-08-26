@@ -85,6 +85,15 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
   fi
 fi
 
+# Title/body lint rides the same GitHub-only arm that captured pr_head above:
+# advisory PR_BODY_LINT: lines print to stdout before the meta rewrite, arming
+# proceeds regardless, and firstmate steers a rewrite only when a line appears.
+if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1; then
+  LINT_TITLE=$(cd "$WT" && gh pr view "$URL" --json title -q .title 2>/dev/null || true)
+  LINT_BODY=$(cd "$WT" && gh pr view "$URL" --json body -q .body 2>/dev/null || true)
+  fm_pr_body_lint "$LINT_TITLE" "$LINT_BODY"
+fi
+
 # Advisory local-gate check for direct-PR tasks: warn, never block, because
 # firstmate judges the warning and scouts and no-mistakes tasks legitimately
 # lack markers.

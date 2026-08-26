@@ -816,6 +816,40 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+# Both PR-bearing DODs carry the PR-hygiene sentences (plain-word title, one
+# Closes #N trailer per closed issue); the PR-less modes must not.
+test_pr_hygiene_dod_sentences() {
+  local id brief
+  local title_sentence="Give the PR a title that names what the change does for the project in plain words - never the task id, the branch name, or a pipeline-generated prefix."
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  local closes_sentence='When this task closes GitHub issues, end the PR body with one `Closes #N` line per issue so the merge closes them automatically.'
+  id="brief-pr-hygiene-d1"
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" "$id" alpha --mode direct-PR >/dev/null 2>&1
+  brief="$BRIEF_HOME/data/$id/brief.md"
+  assert_present "$brief" "direct-PR hygiene brief was not scaffolded"
+  assert_grep "$title_sentence" "$brief" "direct-PR DOD lost the PR title sentence"
+  assert_grep "$closes_sentence" "$brief" "direct-PR DOD lost the Closes #N trailer sentence"
+  id="brief-pr-hygiene-n1"
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" "$id" alpha --mode no-mistakes >/dev/null 2>&1
+  brief="$BRIEF_HOME/data/$id/brief.md"
+  assert_present "$brief" "no-mistakes hygiene brief was not scaffolded"
+  assert_grep "$title_sentence" "$brief" "no-mistakes DOD lost the PR title sentence"
+  assert_grep "$closes_sentence" "$brief" "no-mistakes DOD lost the Closes #N trailer sentence"
+  id="brief-pr-hygiene-l1"
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" "$id" alpha --mode local-only >/dev/null 2>&1
+  brief="$BRIEF_HOME/data/$id/brief.md"
+  assert_present "$brief" "local-only hygiene brief was not scaffolded"
+  assert_no_grep "$title_sentence" "$brief" "local-only DOD must not carry the PR title sentence"
+  assert_no_grep "$closes_sentence" "$brief" "local-only DOD must not carry the Closes #N trailer sentence"
+  id="brief-pr-hygiene-s1"
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" "$id" alpha --scout >/dev/null 2>&1
+  brief="$BRIEF_HOME/data/$id/brief.md"
+  assert_present "$brief" "scout hygiene brief was not scaffolded"
+  assert_no_grep "$title_sentence" "$brief" "scout brief must not carry the PR title sentence"
+  assert_no_grep "$closes_sentence" "$brief" "scout brief must not carry the Closes #N trailer sentence"
+  pass "fm-brief: PR-bearing DODs carry the title and Closes #N hygiene sentences, PR-less modes do not"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -839,3 +873,4 @@ test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
+test_pr_hygiene_dod_sentences

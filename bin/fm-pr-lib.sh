@@ -235,6 +235,31 @@ fm_pr_url_parse() {
   FM_PR_NUMBER=${BASH_REMATCH[3]}
 }
 
+# Detect known-bad PR title/body shapes at arm time (bin/fm-pr-check.sh):
+# crewmate brief text, scaffold placeholders, contract headings, internal
+# status-file references, pipeline-intent bodies, empty bodies, and titles
+# that are task or branch ids rather than descriptions. Pure detector over
+# the patterns the PR-hygiene audit observed; it prints one advisory
+# PR_BODY_LINT: line per hit and always returns 0 so the caller arms the
+# merge poll regardless and firstmate steers a rewrite only when flagged.
+fm_pr_body_lint() {  # <title> <body>; prints PR_BODY_LINT: lines, returns 0 always
+  local title=${1-} body=${2-}
+  printf '%s' "$body" | grep -Eq '^You are a crewmate' \
+    && echo "PR_BODY_LINT: body contains crewmate brief text"
+  printf '%s' "$body" | grep -Fq '{TASK}' \
+    && echo "PR_BODY_LINT: body contains a brief placeholder"
+  printf '%s' "$body" | grep -Eq '^# Definition of done|^Delivery contract:' \
+    && echo "PR_BODY_LINT: body contains brief contract text"
+  printf '%s' "$body" | grep -Eq 'state/[A-Za-z0-9._-]+[.]status' \
+    && echo "PR_BODY_LINT: body references an internal status file"
+  printf '%s' "$body" | grep -Eq '^(Intent|## Intent):?' \
+    && echo "PR_BODY_LINT: body is a pipeline intent, not a human description"
+  [ -z "$body" ] && echo "PR_BODY_LINT: body is empty"
+  printf '%s' "$title" | grep -Eq '^fm-[a-z0-9-]+$|^fm/' \
+    && echo "PR_BODY_LINT: title is a task or branch id, not a description"
+  return 0
+}
+
 fm_pr_head_valid() {
   local head=${1-}
   local LC_ALL=C
