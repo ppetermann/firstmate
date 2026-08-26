@@ -850,6 +850,27 @@ test_pr_hygiene_dod_sentences() {
   pass "fm-brief: PR-bearing DODs carry the title and Closes #N hygiene sentences, PR-less modes do not"
 }
 
+# The per-mode DOD text now lives in bin/fm-brief-lib.sh (shared with
+# fm-promote.sh's brief append); the lib must carry the contract line
+# fm-spawn.sh reads, for every mode.
+test_brief_lib_carries_every_mode_contract() {
+  local mode
+  # shellcheck source=bin/fm-brief-lib.sh
+  . "$ROOT/bin/fm-brief-lib.sh"
+  FM_ROOT="$ROOT"
+  export FM_ROOT
+  for mode in no-mistakes direct-PR local-only; do
+    fm_brief_ship_dod "$mode" lib-check-x | grep -Fq "Delivery contract: mode=$mode" \
+      || fail "fm_brief_ship_dod $mode lost its delivery-contract line"
+  done
+  fm_brief_ship_rule1 local-only lib-check-x | grep -Fq 'Never push to any remote' \
+    || fail "fm_brief_ship_rule1 local-only lost its rule text"
+  [ -z "$(fm_brief_ship_setup2 direct-PR)" ] || fail "direct-PR setup2 must be empty"
+  fm_brief_ship_setup2 no-mistakes | grep -Fq 'no-mistakes doctor' \
+    || fail "no-mistakes setup2 lost its doctor step"
+  pass "fm-brief-lib: carries every mode's DOD contract, rules, and setup steps"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -874,3 +895,5 @@ test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
 test_pr_hygiene_dod_sentences
+test_brief_lib_carries_every_mode_contract
+

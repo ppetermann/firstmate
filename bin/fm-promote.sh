@@ -22,6 +22,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-brief-lib.sh
+. "$SCRIPT_DIR/fm-brief-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-public-followup-lib.sh
@@ -123,12 +125,31 @@ grep -v -e '^kind=' -e '^mode=' -e '^yolo=' "$META" > "$TMP"
 } >> "$TMP"
 mv "$TMP" "$META"
 TMP=
+
+# Record the ship delivery contract in the brief itself: a relaunched promoted
+# task must never be governed by a scout brief that forbids pushing. Appended
+# while the meta lock is still held so the flip and its contract land together;
+# a missing brief warns and continues (the meta flip alone is still correct).
+BRIEF="$FM_HOME/data/$ID/brief.md"
+if [ -f "$BRIEF" ]; then
+  {
+    printf '\n'
+    printf '# Promotion to ship (recorded by fm-promote.sh)\n'
+    printf 'This task was promoted from scout to ship; this section supersedes the scout Setup, Rule 1, and Definition of done above.\n'
+    printf 'Inventory scratch state first (git status, git log), return to a clean default-branch base, carry over only intended fix changes, create branch fm/%s, and leave scratch commits and debug edits behind; turn a reproduced bug into the regression test.\n' "$ID"
+    fm_brief_ship_rule1 "$MODE" "$ID"
+    fm_brief_ship_dod "$MODE" "$ID"
+  } >> "$BRIEF"
+else
+  echo "warning: no brief at $BRIEF; the promotion is recorded in the meta only" >&2
+fi
+
 fm_lock_release "$META_LOCK"
 META_LOCK_HELD=0
 
 HOME_Q=$(printf '%q' "$FM_HOME")
 echo "promoted $ID to ship mode=$MODE yolo=$YOLO (teardown protection restored)"
-echo "next: FM_HOME=$HOME_Q bin/fm-send.sh fm-$ID '<ship instructions for mode=$MODE: review scratch state with git status and git log; reset to a clean default-branch base; carry over only intended fix changes; create branch fm/$ID; implement; report done>'"
+echo "next: FM_HOME=$HOME_Q bin/fm-send.sh fm-$ID 'Promoted to ship (mode=$MODE): read the new \"Promotion to ship\" section appended to your brief at data/$ID/brief.md and proceed from your current state.'"
 
 promote_print_rechain_hint() {
   local consent_home=$1 work_home=$2 task_id=$3 id prefix

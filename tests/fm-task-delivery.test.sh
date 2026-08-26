@@ -233,7 +233,9 @@ test_promote_requires_and_records_the_delivery_contract() {
   assert_grep 'kind=ship' "$meta" "promotion did not restore ship teardown protection"
   assert_grep 'mode=direct-PR' "$meta" "promotion did not record the decided delivery mode"
   assert_grep 'yolo=on' "$meta" "promotion did not record the decided merge posture"
-  assert_contains "$out" "ship instructions for mode=direct-PR" "promotion hint did not carry the decided mode"
+  assert_contains "$out" "Promoted to ship (mode=direct-PR)" "promotion steer did not carry the decided mode"
+  assert_contains "$out" "read the new \"Promotion to ship\" section appended to your brief at data/promote-d1/brief.md" \
+    "promotion steer did not name the appended brief section"
   [ "$(grep -c '^mode=' "$meta")" = 1 ] || fail "promotion left more than one mode= line in the task record"
   pass "fm-promote: promotion requires the delivery contract and records it exactly once"
 }
