@@ -345,13 +345,13 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 # agent's environment.
 if fm_tasks_axi_compatible; then TASKS_AXI_COMPATIBLE=1; else TASKS_AXI_COMPATIBLE=0; fi
 
-STATUS_TAIL=${FM_SESSION_START_STATUS_TAIL:-5}
-case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=5 ;; esac
+STATUS_TAIL=${FM_SESSION_START_STATUS_TAIL:-2}
+case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=2 ;; esac
 QUEUED_LIMIT=${FM_SESSION_START_QUEUED_LIMIT:-20}
 case "$QUEUED_LIMIT" in ''|*[!0-9]*|0) QUEUED_LIMIT=20 ;; esac
 BACKLOG_FIELDS=blocked_by,hold_kind,hold_reason
 
-RULE='================================================================================'
+RULE='========'
 SUBRULE='--------------------------------------------------------------------------------'
 
 section() { printf '\n%s\n%s\n%s\n' "$RULE" "$1" "$RULE"; }
@@ -526,6 +526,34 @@ print_status_tail() {
   while IFS= read -r line || [ -n "$line" ]; do
     fm_cap_line "$line"
   done < <(tail -n "$STATUS_TAIL" "$status")
+}
+
+# Resolved, allowlisted view of one task's meta for the fleet digest. Meta files
+# accumulate appended generations, and fm_meta_get is last-wins; this mirrors
+# that in one awk pass (last value per key, first-seen key order) and prints
+# only the digest-relevant keys, so runtime bookkeeping (busy_gen=, spawn_gen=,
+# control_relaunch_tx=, tasktmp=, traceparent=, duplicate generations) stops
+# flooding the digest while the counted remainder keeps hidden fields
+# discoverable. FM_SESSION_START_META_ALLOWLIST overrides the key set.
+FM_SESSION_START_META_ALLOWLIST_DEFAULT='window endpoint_task_id worktree project harness model effort kind mode yolo pr pr_head home projects backend remote_host remote_root remote_backend remote_herdr_session remote_target x_request x_platform'
+print_meta_resolved() {  # <meta-file>
+  local meta=$1
+  awk -v allow=" ${FM_SESSION_START_META_ALLOWLIST:-$FM_SESSION_START_META_ALLOWLIST_DEFAULT} " -v meta="$meta" '
+    {
+      eq = index($0, "=")
+      if (eq <= 1) next
+      key = substr($0, 1, eq - 1)
+      if (!(key in first)) { keys[++k] = key; first[key] = 1 }
+      val[key] = substr($0, eq + 1)
+    }
+    END {
+      hidden = 0
+      for (i = 1; i <= k; i++) {
+        if (index(allow, " " keys[i] " ") > 0) print keys[i] "=" val[keys[i]]
+        else hidden++
+      }
+      if (hidden > 0) printf "(+%d internal fields: see %s)\n", hidden, meta
+    }' "$meta"
 }
 
 hash_file_sha256() {
@@ -807,7 +835,7 @@ for meta in "$STATE"/*.meta; do
   META_FOUND=1
   id=$(basename "$meta" .meta)
   printf '\n--- %s ---\n' "$id"
-  cat "$meta"
+  print_meta_resolved "$meta"
 
   window=$(fm_meta_get "$meta" window)
   target=$(fm_backend_target_of_meta "$meta")
@@ -820,6 +848,18 @@ for meta in "$STATE"/*.meta; do
     fi
   else
     printf 'endpoint: unknown (no window recorded)\n'
+  fi
+
+  # One deterministic current-state verdict per LOCAL task: the digest's fast
+  # presence check above says the endpoint exists, this says what the crew is
+  # actually doing, so a run-step is not guessed from wake-event history.
+  # Remote metas are gated: crew-state goes over SSH for remote secondmates,
+  # forbidden on this digest's no-network blocking path.
+  if [ -z "$(fm_meta_get "$meta" remote_host)" ]; then
+    cs=$(fm_run_timed "${FM_SESSION_START_CREWSTATE_TIMEOUT:-15}" "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null) || cs=""
+    printf 'current state: %s\n' "${cs:-unavailable (fm-crew-state.sh failed or timed out)}"
+  else
+    printf 'current state: remote - read on demand with bin/fm-crew-state.sh %s\n' "$id"
   fi
 
   status="$STATE/$id.status"
@@ -912,28 +952,24 @@ with verified fleet-lock ownership may perform mutable follow-up.
 EOF
 elif [ "$AFK_PRESENT" -eq 1 ]; then
   cat <<'EOF'
-Away mode is active. Follow the supervision operating instructions block above:
-load /afk and ensure the daemon is running, because the daemon owns watcher
-supervision.
+Away mode is active. Load /afk and ensure the daemon is running, because the
+daemon owns watcher supervision.
 
 EOF
 elif [ -f "$CONFIG/x-mode.env" ]; then
   cat <<EOF
-Follow the supervision operating instructions block above for harness '$PRIMARY_HARNESS'.
 X mode is active, so the emitted block's cadence instruction applies.
-This script never starts supervision itself.
 
 EOF
 else
 cat <<EOF
-Follow the supervision operating instructions block above for harness '$PRIMARY_HARNESS'.
-This script never starts supervision itself.
+This session holds the fleet lock.
 
 EOF
 fi
-cat <<'EOF'
-The digest above is complete for this session start. The READ-ONCE CONTRACT
-section near the top of it governs what may still be read from disk.
+cat <<EOF
+Follow the supervision operating instructions block above for harness '$PRIMARY_HARNESS'; this script never starts supervision itself.
+The READ-ONCE CONTRACT section near the top of this digest governs what may still be read from disk.
 EOF
 
 if [ "$READ_ONLY" -eq 0 ] && [ "$REEMIT" -eq 0 ]; then

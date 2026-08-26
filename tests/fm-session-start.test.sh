@@ -1078,14 +1078,15 @@ EOF
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "working: step 7" "default status tail missing the most recent line"
-  assert_contains "$out" "working: step 3" "default status tail (5 lines) missing an expected recent line"
-  assert_not_contains "$out" "working: step 1" "default status tail (5 lines) leaked an older line"
+  assert_contains "$out" "working: step 6" "default status tail (2 lines) missing the second-newest line"
+  assert_not_contains "$out" "working: step 5" "default status tail (2 lines) leaked an older line"
   assert_contains "$out" "$home/state/task-a.status" "digest did not print the full status log path for a deeper read"
   assert_contains "$out" "a bounded tail of every state/*.status" "read-once contract does not distinguish bounded status tails"
 
-  out=$(FM_SESSION_START_STATUS_TAIL=2 run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  assert_contains "$out" "working: step 7" "FM_SESSION_START_STATUS_TAIL=2 tail missing the most recent line"
-  assert_not_contains "$out" "working: step 5" "FM_SESSION_START_STATUS_TAIL=2 did not bound the tail to 2 lines"
+  out=$(FM_SESSION_START_STATUS_TAIL=4 run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "working: step 7" "FM_SESSION_START_STATUS_TAIL=4 tail missing the most recent line"
+  assert_contains "$out" "working: step 4" "FM_SESSION_START_STATUS_TAIL=4 tail missing the fourth-newest line"
+  assert_not_contains "$out" "working: step 2" "FM_SESSION_START_STATUS_TAIL=4 did not bound the tail to 4 lines"
 
   pass "status tail is bounded to the configured line count, with the full log path always printed"
 }
@@ -2505,5 +2506,47 @@ test_read_only_pi_compact_refreshes_against_its_own_session_identity
 test_codex_unreachable_reset_sources_do_not_claim_instruction_refresh
 test_agents_baseline_requires_sha256_and_successful_completion
 test_reemit_keeps_repair_ownership_with_the_lock_holder
+
+test_meta_allowlist_and_crew_state_verdict() {
+  local rec root home fakebin out
+  rec=$(new_world meta-allowlist)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  make_fake_tmux "$fakebin" "fm-sess:live"
+  printf 'window=fm-sess:live\nbusy_gen=3\ntasktmp=/x\nkind=ship\nwindow=fm-sess:newer\n' \
+    > "$home/state/task-a.meta"
+  printf 'working: step 1\n' > "$home/state/task-a.status"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  # Resolved allowlist: exactly one window= (the last), kind= kept, internal
+  # fields hidden but counted.
+  [ "$(printf '%s\n' "$out" | grep -c '^window=')" -eq 1 ] \
+    || fail "the digest printed more than one resolved window= line"
+  assert_contains "$out" "window=fm-sess:newer" "resolved meta did not keep the LAST window generation"
+  assert_contains "$out" "kind=ship" "resolved meta dropped an allowlisted key"
+  assert_not_contains "$out" "busy_gen" "resolved meta leaked an internal field"
+  assert_not_contains "$out" "tasktmp=/x" "resolved meta leaked an internal field"
+  assert_contains "$out" "(+2 internal fields: see $home/state/task-a.meta)" \
+    "hidden fields were not counted with their meta path"
+  # A local task gets one deterministic current-state verdict line.
+  [ "$(printf '%s\n' "$out" | grep -c '^current state: ')" -ge 1 ] \
+    || fail "a local task's digest block has no current-state verdict line"
+  # Section headers use the trimmed 8-character rule around the title.
+  printf '%s\n' "$out" | grep -B1 -x 'FLEET STATE' | grep -qx '========' \
+    || fail "the FLEET STATE header lost its trimmed 8-character rule"
+
+  # A remote meta never triggers a crew-state read on the blocking path.
+  printf 'window=firstmate:fm-remote\nremote_host=example.test\nkind=secondmate\n' \
+    > "$home/state/task-remote.meta"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "current state: remote - read on demand with bin/fm-crew-state.sh task-remote" \
+    "remote meta must print the on-demand pointer, not run crew-state"
+  pass "fm-session-start: resolved allowlisted meta, crew-state verdicts, trimmed rules"
+}
+
+test_meta_allowlist_and_crew_state_verdict
 
 echo "# fm-session-start.test.sh: all assertions passed"
