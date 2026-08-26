@@ -1306,6 +1306,11 @@ while :; do
         fi
       fi
       if [ -n "$out" ]; then
+        if [ "${#out}" -gt "${FM_WAKE_CHECK_PAYLOAD_MAX:-4096}" ]; then
+          full="$STATE/.check-out-$(basename "$c" .check.sh)"
+          printf '%s' "$out" > "$full"
+          out="$(printf '%s' "$out" | head -c "${FM_WAKE_CHECK_PAYLOAD_MAX:-4096}") [truncated; full output: $full]"
+        fi
         reason="check: $c: $out"
         fm_wake_append check "$c" "$reason" || exit 1
         if [ "$is_pr_poll" -eq 1 ] && [ "$out" = merged ]; then
@@ -1345,7 +1350,13 @@ while :; do
     done <<EOF
 $pending
 EOF
-    reason="signal:$files"
+    verbs=""
+    for f in $files; do
+      t=$(basename "$f"); t=${t%.status}
+      v=$(status_line_verb "$(last_status_line "$f")")
+      verbs="$verbs ${t}=${v:-none}"
+    done
+    reason="signal:$files |$verbs"
     # Triage: a signal is ACTIONABLE when any of these holds (cheapest first):
     #   - the away-mode daemon owns triage (afk) and wants every wake;
     #   - any status file carries a captain-relevant verb;

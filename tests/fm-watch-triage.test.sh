@@ -737,6 +737,78 @@ test_actionable_signal_surfaced() {
   pass "captain-relevant signal is surfaced (queue + exit) and marked surfaced"
 }
 
+# Signal payloads carry per-task status verbs after the path list: firstmate
+# reads the queue row and knows each task's latest verb without re-reading the
+# status files. The daemon's classify_signal skips the verb tokens (its
+# existence check ignores them), pinned by fm-daemon.test.sh regression.
+test_signal_payload_carries_verbs() {
+  local dir state fakebin out drain_out status_file pid
+  dir=$(make_case signal-verbs); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"
+  status_file="$state/task.status"
+  printf 'done: ready in branch fm/x\n' > "$status_file"
+  watch_bg "$state" "$fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "watcher did not exit for a done signal"
+  grep -Eq "signal:.*\\.status [|] task=done" "$out" \
+    || fail "signal wake does not carry the done verb suffix: $(cat "$out")"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the done signal failed"
+  grep "$(printf '\tsignal\t')" "$drain_out" | grep -Eq "\\.status \\| task=done" \
+    || fail "queued signal row does not carry the verb suffix"
+  pass "signal payloads carry per-task status verbs after the path list"
+}
+
+# Check payloads are capped with a durable sidecar: the queue row stays bounded
+# while the full output survives on disk, named in the truncation marker.
+test_check_payload_capped_with_sidecar() {
+  local dir state fakebin out drain_out check_file
+  dir=$(make_case check-cap); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"
+  check_file="$state/task.check.sh"
+  printf '%s\n' fm-pr-check-migration-scan-v1 > "$state/.pr-check-migration-scan-v1"
+  printf '%s\n' fm-pr-check-migration-v1 > "$state/.pr-check-migration-v1"
+  chmod 0600 "$state/.pr-check-migration-scan-v1" "$state/.pr-check-migration-v1"
+  cat > "$check_file" <<'SH'
+#!/usr/bin/env bash
+head -c 200 /dev/zero | tr '\0' 'x'
+SH
+  chmod 0700 "$check_file"
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" task >/dev/null \
+    || fail "could not register the capped custom check"
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WAKE_CHECK_PAYLOAD_MAX=64 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  wait_for_exit "$!" 40 || fail "watcher did not exit for the capped check output"
+  grep -Eq 'x{64} \[truncated; full output: '"$state"'/\.check-out-task\]' "$out" \
+    || fail "capped check wake does not end with the truncation marker: $(cat "$out")"
+  [ "$(wc -c < "$state/.check-out-task" | tr -d ' ')" -ge 200 ] \
+    || fail "the sidecar does not hold the full output bytes"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the capped check failed"
+  grep "$(printf '\tcheck\t')" "$drain_out" | grep -F '[truncated; full output:' >/dev/null \
+    || fail "queued check row does not carry the truncation marker"
+
+  # A small output stays byte-untouched and writes no sidecar.
+  dir=$(make_case check-uncapped); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  check_file="$state/small.check.sh"
+  printf '%s\n' fm-pr-check-migration-scan-v1 > "$state/.pr-check-migration-scan-v1"
+  printf '%s\n' fm-pr-check-migration-v1 > "$state/.pr-check-migration-v1"
+  chmod 0600 "$state/.pr-check-migration-scan-v1" "$state/.pr-check-migration-v1"
+  cat > "$check_file" <<'SH'
+#!/usr/bin/env bash
+printf 'merged: https://example.test/pr/2\n'
+SH
+  chmod 0700 "$check_file"
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" small >/dev/null \
+    || fail "could not register the small custom check"
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WAKE_CHECK_PAYLOAD_MAX=64 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  wait_for_exit "$!" 40 || fail "watcher did not exit for the small check output"
+  grep -F "check: $check_file: merged: https://example.test/pr/2" "$out" >/dev/null \
+    || fail "small check output was altered: $(cat "$out")"
+  [ ! -e "$state/.check-out-small" ] || fail "a small check output must not write a sidecar"
+  pass "check payloads are capped with a durable sidecar; small outputs stay untouched"
+}
+
 test_terminal_stale_surfaced() {
   local dir state fakebin out drain_out capture_file window key pane_hash sig pid
   dir=$(make_case terminal-stale); state="$dir/state"; fakebin="$dir/fakebin"
@@ -3022,6 +3094,8 @@ test_working_note_not_working_surfaced
 test_secondmate_status_note_surfaced_despite_busy_agent
 test_self_announced_close_does_not_rewake_but_next_note_does
 test_actionable_signal_surfaced
+test_signal_payload_carries_verbs
+test_check_payload_capped_with_sidecar
 test_terminal_stale_surfaced
 test_stale_terminal_status_overridden_by_active_run
 test_stale_echo_absorbed_after_surface
