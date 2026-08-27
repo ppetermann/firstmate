@@ -384,7 +384,7 @@ cmd_stamp() {
   new_marker="${new_marker}-->"
   new_line="${base} ${new_marker}"
   if [ "$new_line" != "$line" ]; then
-    LINES[$((lineno - 1))]=$new_line
+    LINES[lineno - 1]=$new_line
     fm_stow_plan_write_lines_atomic "$path"
   fi
   printf 'stamped %s:%s %s\n' "${path##*/}" "$lineno" "$new_marker"
@@ -515,7 +515,7 @@ cmd_check_destination() {
 
 cmd_receipt() {
   local snap="$STATE/.stow-plan-baseline" file before after b_total
-  local b_captain= b_shared= b_learn= total_after=0 have_total=0
+  local b_captain='' b_shared='' b_learn='' total_after=0 have_total=0
   if [ -r "$snap" ]; then
     b_captain=$(sed -n 's/^file=captain\.md estimated_tokens=//p' "$snap")
     b_shared=$(sed -n 's/^file=captain-shared\.md estimated_tokens=//p' "$snap")
