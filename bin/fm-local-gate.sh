@@ -18,12 +18,14 @@
 # Repo detection (worktree root): Cargo.toml -> cargo path; package.json ->
 # npm path; both -> cargo path wins with a printed note; neither -> gate
 # failure at repo-detect listing the markers that were looked for.
-# cargo path: when a documented containerized-build helper exists
-# (bin/dev.sh), every command is delegated to it (bin/dev.sh clippy
-# --all-targets --locked -- -D warnings, then bin/dev.sh test --locked)
-# because some hosts build nothing outside the container; otherwise cargo
-# runs directly (cargo clippy --all-targets --locked -- -D warnings, then
-# cargo test --locked).
+# cargo path: the fmt rung runs host-side first (cargo fmt --all --
+# --check; skipped with a note when rustfmt is absent - rustfmt only
+# parses, never compiles, so it never needs the container); then, when a
+# documented containerized-build helper exists (bin/dev.sh), every build
+# command is delegated to it (bin/dev.sh clippy --all-targets --locked --
+# -D warnings, then bin/dev.sh test --locked) because some hosts build
+# nothing outside the container; otherwise cargo runs directly (cargo
+# clippy --all-targets --locked -- -D warnings, then cargo test --locked).
 # npm path: install, then run every script present among check, typecheck,
 # and test (in that order) via npm run; absent scripts are skipped with a
 # printed note, present ones must pass.
@@ -207,6 +209,13 @@ fi
 if [ "$HAS_CARGO" = 1 ]; then
   if [ "$HAS_NPM" = 1 ]; then
     echo "note: both Cargo.toml and package.json present - using the cargo path"
+  fi
+  # fmt runs host-side even when a containerized helper exists: rustfmt only
+  # parses (never compiles), and helpers may mount the worktree read-only.
+  if cargo fmt --version >/dev/null 2>&1; then
+    run_step cargo-fmt cargo fmt --all -- --check
+  else
+    echo "note: rustfmt not on this host - fmt rung skipped (CI still gates it)"
   fi
   if [ -f bin/dev.sh ]; then
     echo "note: bin/dev.sh present - delegating every cargo command to the containerized-build helper"

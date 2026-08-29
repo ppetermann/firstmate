@@ -2,9 +2,10 @@
 # Behavior tests for bin/fm-local-gate.sh.
 #
 # Covers repo detection branches, the crew (two-arg) vs bare (one-arg) forms,
-# pass-marker write/remove semantics, the bin/dev.sh delegation branch, npm
-# script-presence detection, the npm clean-context install decision, and
-# failure propagation with the failing step named.
+# pass-marker write/remove semantics, the host-side cargo fmt rung, the
+# bin/dev.sh delegation branch, npm script-presence detection, the npm
+# clean-context install decision, and failure propagation with the failing
+# step named.
 # cargo, npm, and bin/dev.sh are PATH-mocked per fixture; node and git are
 # real, matching the repo's existing test practice (node is a required
 # firstmate tool and already used unguarded in tests/).
@@ -39,6 +40,9 @@ printf 'cargo %s\n' "$*" >> "${FM_TEST_CARGO_LOG:?}"
 case "$1" in
   clippy) exit "${FM_TEST_CARGO_RC_CLIPPY:-0}" ;;
   test) exit "${FM_TEST_CARGO_RC_TEST:-0}" ;;
+  fmt)
+    [ "${2:-}" = --version ] && exit "${FM_TEST_CARGO_RC_FMT_VERSION:-0}"
+    exit "${FM_TEST_CARGO_RC_FMT:-0}" ;;
 esac
 exit 0
 SH
@@ -177,6 +181,12 @@ test_cargo_path() {
     "direct cargo path must run clippy with warnings denied"
   assert_grep "cargo test --locked" "$dir/cargo.log" \
     "direct cargo path must run locked tests"
+  assert_grep "cargo fmt --all -- --check" "$dir/cargo.log" \
+    "direct cargo path must run the fmt rung"
+  case "$(head -n 1 "$dir/cargo.log")" in
+    "cargo fmt"*) ;;
+    *) fail "the fmt rung must run before the build commands" ;;
+  esac
   [ ! -e "$dir/home/state/task-a.gate-pass" ] \
     || fail "bare form must not write a pass marker"
   pass "fm-local-gate: direct cargo path"
@@ -213,6 +223,43 @@ test_cargo_path() {
   pass "fm-local-gate: cargo failure propagation and stale marker removal"
 }
 
+test_fmt_rung() {
+  local dir
+  # A red fmt names cargo-fmt and stops before the build commands.
+  dir=$(make_fixture fmt-fail)
+  printf '%s\n' '[package]' > "$dir/wt/Cargo.toml"
+  GATE_OUT=$(PATH="$dir/fakebin:$BASE_PATH" FM_HOME="$dir/home" \
+    FM_TEST_CARGO_LOG="$dir/cargo.log" FM_TEST_NPM_LOG="$dir/npm.log" \
+    FM_TEST_DEV_LOG="$dir/dev.log" FM_TEST_CARGO_RC_FMT=1 \
+    "$GATE" task-a "$dir/wt" 2> "$dir/gate.err")
+  GATE_RC=$?
+  expect_code 1 "$GATE_RC" "red fmt must fail the gate"
+  assert_contains "$(gate_err "$dir")" "gate failed: cargo-fmt" \
+    "red fmt must name cargo-fmt"
+  assert_no_grep "cargo clippy" "$dir/cargo.log" \
+    "a failed fmt must stop before clippy"
+
+  # rustfmt absent: the rung is skipped with a note and the suite continues.
+  dir=$(make_fixture fmt-absent)
+  printf '%s\n' '[package]' > "$dir/wt/Cargo.toml"
+  GATE_OUT=$(PATH="$dir/fakebin:$BASE_PATH" FM_HOME="$dir/home" \
+    FM_TEST_CARGO_LOG="$dir/cargo.log" FM_TEST_NPM_LOG="$dir/npm.log" \
+    FM_TEST_DEV_LOG="$dir/dev.log" FM_TEST_CARGO_RC_FMT_VERSION=1 \
+    "$GATE" task-a "$dir/wt" 2> "$dir/gate.err")
+  GATE_RC=$?
+  expect_code 0 "$GATE_RC" "absent rustfmt must not fail the gate"
+  assert_contains "$GATE_OUT" "rustfmt not on this host" \
+    "absent rustfmt must be noted as a skip"
+  assert_no_grep "cargo fmt --all" "$dir/cargo.log" \
+    "absent rustfmt must skip the fmt run"
+  assert_grep "cargo clippy" "$dir/cargo.log" \
+    "the suite must continue after the fmt skip"
+  assert_grep "cargo test --locked" "$dir/cargo.log" \
+    "the suite must continue after the fmt skip"
+
+  pass "fm-local-gate: host-side cargo fmt rung"
+}
+
 test_dev_sh_delegation() {
   local dir
   dir=$(make_fixture dev-sh)
@@ -236,8 +283,12 @@ SH
     "dev.sh must receive the clippy command"
   assert_grep "dev.sh test --locked" "$dir/dev.log" \
     "dev.sh must receive the test command"
-  [ ! -s "$dir/cargo.log" ] \
-    || fail "dev.sh delegation must never run bare cargo on the host"
+  assert_grep "cargo fmt --all -- --check" "$dir/cargo.log" \
+    "the fmt rung must run host-side even under dev.sh delegation"
+  assert_no_grep "cargo clippy" "$dir/cargo.log" \
+    "delegation must never run host cargo clippy"
+  assert_no_grep "cargo test" "$dir/cargo.log" \
+    "delegation must never run host cargo test"
 
   # A red delegated clippy names dev-clippy.
   GATE_OUT=$(PATH="$dir/fakebin:$BASE_PATH" FM_HOME="$dir/home" \
@@ -265,8 +316,10 @@ SH
     "non-executable dev.sh must print a note"
   assert_grep "dev.sh clippy" "$dir/dev.log" \
     "non-executable dev.sh must still run its commands"
-  [ ! -s "$dir/cargo.log" ] \
-    || fail "non-executable dev.sh must not fall back to host cargo"
+  assert_no_grep "cargo clippy" "$dir/cargo.log" \
+    "non-executable dev.sh must not fall back to host cargo clippy"
+  assert_no_grep "cargo test" "$dir/cargo.log" \
+    "non-executable dev.sh must not fall back to host cargo test"
 
   pass "fm-local-gate: bin/dev.sh delegation branch"
 }
@@ -427,6 +480,7 @@ test_marker_semantics() {
 test_usage_and_arg_forms
 test_repo_detection
 test_cargo_path
+test_fmt_rung
 test_dev_sh_delegation
 test_npm_suite
 test_npm_clean_context
