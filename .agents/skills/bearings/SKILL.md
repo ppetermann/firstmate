@@ -159,3 +159,7 @@ During a digest/build invocation, this skill changes no fleet state beyond its r
 Do not tear down a task, merge a PR, dispatch queued work, steer a worker except through the reconcile hook, answer a queued decision, clean up work, or mutate any other `state/` or `data/` file during that invocation.
 If the state gathered for the digest suggests an action, name it in its section and leave it to the normal lifecycle and configured authority.
 On a later board wake, this read-only invocation rule yields to "Handling a board wake" and its guarded authority for captain-selected dispatches and merges.
+
+## Monthly fleet review
+
+First fleet review of a month: run the Actions-cost read from `fleet-delivery-flow` and surface one line per billed repo.
