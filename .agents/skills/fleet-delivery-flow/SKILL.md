@@ -45,9 +45,10 @@ AGENTS.md `## Delivery` section; `data/projects.md` stays the posture registry.
    bin/fm-pr-merge.sh.
 6. Tails (batch when: user-facing fix >48h, or >=3 unreleased merges, or the captain
    asks):
-   - eve-members: merge IS the deploy; batch by grouping merges. Hold: repo var
-     AUTO_DEPLOY=false; release: delete the var + `gh-axi workflow run build.yml`.
-     Confirm deploy jobs green post-merge.
+   - eve-members: merge IS the release - a push-run on main deploys web+worker
+     automatically (verify both deploy jobs green post-merge). AUTO_DEPLOY=false is an
+     OPTIONAL emergency hold only (repo variable; absent = normal auto-deploy) - never
+     the default posture, and PR-run deploy jobs skipping is correct, not a hold.
    - maia: merge -> :latest + dev tarball, operator pulls manually; docs-only merges
      skip publish. Versioned cut: tag v* (semver images + notes-generated release).
    - crew-watch: release PR (bump + notes from
