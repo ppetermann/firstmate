@@ -1003,6 +1003,35 @@ test_missing_instructions_refuse_before_stopping_anything() {
   pass "fm-control relaunch: a worker with nothing to work from is never launched"
 }
 
+# Checked BEFORE record_note appends the progress note (data/fm-spawn-empty-prompt/report.md
+# episode 2: a relaunch of an already-broken task carried the same missing task
+# text forward, because the appended note alone would have made the file look
+# non-empty).
+test_empty_instructions_refuse_before_stopping_anything() {
+  local dir out rc
+  dir=$(new_case emptybrief rl12)
+  add_ship_task "$dir" rl12 claude
+  : > "$dir/home/data/rl12/brief.md"
+  out=$(run_control "$dir" rl12 relaunch --note "x"); rc=$?
+  expect_code 1 "$rc" "empty instructions should refuse"
+  assert_contains "$out" "no real content" "the refusal should name the empty instructions"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "a refused relaunch must not stop the agent"
+  [ -z "$(cat "$dir/fake/literal")" ] || fail "a refused relaunch must send nothing"
+  pass "fm-control relaunch: a byte-empty brief is never carried into a relaunch"
+}
+
+test_placeholder_instructions_refuse_before_stopping_anything() {
+  local dir out rc
+  dir=$(new_case placeholderbrief rl13)
+  add_ship_task "$dir" rl13 claude
+  printf '# brief\n\n{TASK}\n' > "$dir/home/data/rl13/brief.md"
+  out=$(run_control "$dir" rl13 relaunch --note "x"); rc=$?
+  expect_code 1 "$rc" "an unreplaced {TASK} placeholder should refuse"
+  assert_contains "$out" "no real content" "the refusal should name the placeholder instructions"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "a refused relaunch must not stop the agent"
+  pass "fm-control relaunch: an unfilled {TASK} placeholder is never carried into a relaunch"
+}
+
 test_checkpoint_refusal_leaves_the_record_byte_identical() {
   local dir before after
   dir=$(new_case bytes rl12)
@@ -1475,6 +1504,8 @@ test_muse_session_binding_is_retired_on_a_harness_switch
 test_cursor_session_binding_is_retired_on_a_harness_switch
 test_missing_worktree_refuses_before_stopping_anything
 test_missing_instructions_refuse_before_stopping_anything
+test_empty_instructions_refuse_before_stopping_anything
+test_placeholder_instructions_refuse_before_stopping_anything
 test_checkpoint_refusal_leaves_the_record_byte_identical
 test_checkpoint_refuses_uninspectable_head_and_status
 test_launch_failure_keeps_the_prior_record_and_reports_it

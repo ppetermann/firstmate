@@ -134,6 +134,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-brief-content-lib.sh
+. "$SCRIPT_DIR/fm-brief-content-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -790,6 +792,14 @@ do_relaunch() {
       RELAUNCH_BRIEF="$DATA/$ID/brief.md"
       [ -f "$RELAUNCH_BRIEF" ] \
         || die "task $ID has no instructions at $RELAUNCH_BRIEF; refusing to relaunch a worker with nothing to work from"
+      # Checked BEFORE record_note appends the progress note below: that append
+      # would otherwise make an already-empty or still-{TASK}-placeholder brief
+      # look non-empty, carrying a broken instruction set forward into the
+      # replacement worker with no diagnostic anywhere
+      # (data/fm-spawn-empty-prompt/report.md episode 2: a relaunch of an
+      # already-broken task reproduced the same missing task text).
+      fm_brief_has_content "$RELAUNCH_BRIEF" \
+        || die "task $ID's instructions at $RELAUNCH_BRIEF have no real content (empty, or the {TASK} placeholder was never replaced); refusing to relaunch a worker with nothing to work from"
       [ "$NOTE_SET" = 1 ] && [ -n "$NOTE" ] \
         || die "relaunch of a $KIND task requires --note (or --note-file): the replacement worker inherits the local copy but none of the conversation, so it must be told what happened"
       ;;

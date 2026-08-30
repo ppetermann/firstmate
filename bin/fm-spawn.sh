@@ -269,6 +269,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+# shellcheck source=bin/fm-brief-content-lib.sh
+. "$SCRIPT_DIR/fm-brief-content-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -1679,6 +1681,26 @@ else
   BRIEF="$DATA/$ID/brief.md"
 fi
 [ -f "$BRIEF" ] || { echo "error: no brief at $BRIEF" >&2; exit 1; }
+# Every embedding launch template reads $BRIEF through a live command
+# substitution inside the spawned pane's own shell
+# (fm-operational-input.sh's encode path silently returns nothing on an
+# empty body), so a brief with no real content must refuse HERE, loudly, in
+# fm-spawn's own process, rather than boot a harness with a genuinely empty
+# prompt no one is told about (data/fm-spawn-empty-prompt/report.md).
+fm_brief_has_content "$BRIEF" \
+  || { echo "error: $BRIEF has no real instructions (empty, or the {TASK} placeholder was never replaced); refusing to launch a worker with nothing to work from" >&2; exit 1; }
+# Kimi is the only verified harness whose launch template does not embed the
+# brief through __OPINPUT__ encode launch-brief (it gets a pointer after the
+# harness is up instead); every other one runs that exact encode invocation
+# inside the spawned pane. Run the real thing here, on the same file, in the
+# same process, before anything is sent to a pane: this is a delivery proof,
+# not a heuristic, because nothing else writes $BRIEF between this check and
+# the pane's own read moments later.
+if [ "$HARNESS" != kimi ] \
+   && ! "$FM_ROOT/bin/fm-operational-input.sh" encode launch-brief < "$BRIEF" > /dev/null; then
+  echo "error: $BRIEF could not be encoded for delivery to $ID's harness; refusing to launch a worker whose prompt would arrive empty" >&2
+  exit 1
+fi
 
 delivery_rigor_rank() {  # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task mode
   case "$1" in
