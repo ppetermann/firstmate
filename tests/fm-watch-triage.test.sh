@@ -3235,7 +3235,9 @@ test_heartbeat_backstop_surfaces_a_masked_status() {
   pid=$!
   wait_for_exit "$pid" 100 \
     || fail "heartbeat backstop missed a decision hidden behind a later working: line"
-  grep -Fx "heartbeat" "$out" >/dev/null || fail "backstop did not exit with a heartbeat wake"
+  grep -F "heartbeat: unsurfaced:" "$out" >/dev/null || fail "backstop did not exit with a named heartbeat wake: $(cat "$out")"
+  grep -F "needs-decision: pick A or B" "$out" >/dev/null \
+    || fail "backstop wake did not name the buried decision line: $(cat "$out")"
   [ "$(status_presentation_marker_offset "$state/.hb-surfaced-miss" "$state/miss.status")" = \
     "$(size_of "$state/miss.status")" ] \
     || fail "backstop did not record the masked status as surfaced through its end"
@@ -3256,7 +3258,9 @@ test_heartbeat_backstop_surfaces_unsurfaced_status() {
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=1 "$WATCH" > "$out" &
   pid=$!
   wait_for_exit "$pid" 100 || fail "heartbeat backstop did not surface an unsurfaced captain-relevant status"
-  grep -Fx "heartbeat" "$out" >/dev/null || fail "backstop did not exit with a heartbeat wake"
+  grep -F "heartbeat: unsurfaced:" "$out" >/dev/null || fail "backstop did not exit with a named heartbeat wake: $(cat "$out")"
+  grep -F "done: PR https://example.test/pr/5" "$out" >/dev/null \
+    || fail "backstop wake did not name the buried done: line: $(cat "$out")"
   [ "$(status_presentation_marker_offset "$state/.hb-surfaced-miss" "$state/miss.status")" = \
     "$(size_of "$state/miss.status")" ] \
     || fail "backstop did not record the status as surfaced through its end (would re-fire next heartbeat)"

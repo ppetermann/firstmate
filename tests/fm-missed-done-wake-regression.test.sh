@@ -26,13 +26,14 @@
 # (bin/fm-test-run.sh runs each tests/*.test.sh independently and treats an
 # unmapped basename as normal - see its family_for_basename header comment).
 #
-# EXPECTED STATE: both tests below currently FAIL against the classifier that
-# ships in this tree (there is no status_span_first_actionable yet - confirm
-# with `grep -rn status_span_first_actionable bin/`). They pin the drop
-# through the public interface (status append -> bin/fm-watch.sh ->
-# bin/fm-wake-drain.sh) and must start passing, unmodified, once the upstream
-# whole-span classification fix lands; do not "fix" them by weakening the
-# assertions or by teaching them about the old last-line behavior.
+# These tests pin the drop through the public interface (status append ->
+# bin/fm-watch.sh -> bin/fm-wake-drain.sh); do not "fix" a future regression
+# here by weakening the assertions or by teaching them about the old
+# last-line behavior. Both now pass: the first once upstream #3268 landed
+# status_span_first_actionable, the second once the heartbeat backstop
+# (bin/fm-watch.sh's heartbeat_scan_finds_actionable) started naming the
+# buried captain-relevant line in its wake reason instead of only signaling
+# that it found one - see FM_HEARTBEAT_ACTIONABLE_ROWS at its definition.
 set -u
 
 # shellcheck source=tests/wake-helpers.sh
@@ -55,10 +56,17 @@ watch_bg() {  # <state> <fakebin> <out> [extra env assignments...]
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$@" "$WATCH" > "$out" &
 }
 
-# Portable status-file signature, mirroring fm-watch.sh's stat_sig exactly
-# (also duplicated from tests/fm-watch-triage.test.sh for the same reason).
-seen_sig() {
-  if [ "$(uname)" = Darwin ]; then stat -f '%z:%Fm' "$1" 2>/dev/null; else stat -c '%s:%Y' "$1" 2>/dev/null; fi
+# Write a <status-file>'s .seen-* marker as though the signal path already
+# classified it through its current end - the v2 presentation-marker format
+# fm-classify-lib.sh's status_presentation_marker_commit owns (a raw stat
+# signature, this file's pre-#3268 format, no longer parses as current and
+# would leave the signal path treating the file as still-pending).
+mark_status_seen() {  # <status-file> <seen-marker-path>
+  local f=$1 marker=$2 record size ident
+  record=$(status_span_first_actionable_record "$f" 0)
+  size=${record%%$'\t'*}
+  ident=${record#*$'\t'}; ident=${ident%%$'\t'*}
+  status_presentation_marker_commit "$marker" "$f" "$size" "$ident"
 }
 
 test_masked_done_behind_trailing_routine_note_surfaces() {
@@ -84,13 +92,13 @@ test_masked_done_behind_trailing_routine_note_surfaces() {
 }
 
 test_masked_done_behind_trailing_routine_note_backstop_also_surfaces() {
-  local dir state fakebin out sig pid
+  local dir state fakebin out pid
   dir=$(make_case masked-done-backstop); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"
   printf 'working: implementing\ndone: ready in branch fm/example\nworking: cleaning up scratch files\n' > "$state/miss.status"
   # Simulate the per-wake path already having looked at (and absorbed) this
   # exact content, so only the heartbeat fleet-scan backstop is under test.
-  sig=$(seen_sig "$state/miss.status"); printf '%s' "$sig" > "$state/.seen-miss_status"
+  mark_status_seen "$state/miss.status" "$state/.seen-miss_status"
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=1 "$WATCH" > "$out" &
   pid=$!

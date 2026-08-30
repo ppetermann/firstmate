@@ -1003,6 +1003,27 @@ EOF
   return "$rc"
 }
 
+# Render the heartbeat backstop's named-row list, one "<task>: <line>" entry per
+# TAB-separated row (newline-separated rows), capped at 6 named rows with a
+# trailing "(more not listed)" marker when truncated. Each event line is capped
+# so one runaway status line cannot blow out the wake payload.
+_heartbeat_format_rows() {  # <task-TAB-line-per-row, newline-separated>
+  local list=$1 task line rows='' n=0
+  while IFS=$(printf '\t') read -r task line; do
+    [ -n "$task" ] || continue
+    if [ "$n" -ge 6 ]; then
+      rows="${rows}; (more not listed)"
+      break
+    fi
+    fm_cap_line_var "$line" 160
+    rows="${rows}; ${task}: ${FM_LINE_CAP_LINE}"
+    n=$((n + 1))
+  done <<EOF
+$list
+EOF
+  printf '%s' "${rows#; }"
+}
+
 # Cheap heartbeat fleet-scan (the always-on twin of the daemon's catch-all). 0 if
 # any status log carries a captain-relevant event past the position already
 # surfaced to firstmate (.hb-surfaced-<task>). It walks every log rather than only
@@ -1012,9 +1033,13 @@ EOF
 # surfaced. Because every captain-relevant signal/stale already marks itself
 # surfaced when it wakes firstmate, this normally finds nothing and the heartbeat
 # is absorbed; it surfaces only an event the per-wake path absorbed by mistake -
-# the fail-safe backstop.
+# the fail-safe backstop. Also fills FM_HEARTBEAT_ACTIONABLE_ROWS, a bounded
+# "<task>: <buried line>" summary the caller folds into the wake reason so the
+# backstop NAMES what it caught instead of only signaling that it caught
+# something - a signal-only wake left the captain to re-derive the buried event
+# from a whole-fleet review, exactly the friction that motivated this backstop.
 heartbeat_scan_finds_actionable() {
-  local f task record rest endpoint ident rc found=1 sig marker
+  local f task record rest endpoint ident events rc found=1 sig marker row_list=''
   FM_HEARTBEAT_SURFACE_ENDPOINTS=''
   for f in "$STATE"/*.status; do
     [ -e "$f" ] || [ -L "$f" ] || continue
@@ -1028,12 +1053,18 @@ heartbeat_scan_finds_actionable() {
       status_presentation_marker_reported_matches "$marker" "$sig" && continue
       FM_HEARTBEAT_SURFACE_ENDPOINTS="${FM_HEARTBEAT_SURFACE_ENDPOINTS}${f}"$'\t'"ERROR"$'\t'"${sig}"$'\n'
       found=0
+      row_list="${row_list}${task}"$'\t'"unreadable status log"$'\n'
       continue
     fi
     endpoint=${record%%$'\t'*}; rest=${record#*$'\t'}; ident=${rest%%$'\t'*}
     FM_HEARTBEAT_SURFACE_ENDPOINTS="${FM_HEARTBEAT_SURFACE_ENDPOINTS}${f}"$'\t'"${endpoint}"$'\t'"${ident}"$'\n'
-    [ "$rc" -eq 0 ] && found=0
+    if [ "$rc" -eq 0 ]; then
+      found=0
+      events=${rest#*$'\t'}
+      [ -n "$events" ] && row_list="${row_list}${task}"$'\t'"${events}"$'\n'
+    fi
   done
+  FM_HEARTBEAT_ACTIONABLE_ROWS=$(_heartbeat_format_rows "$row_list")
   return "$found"
 }
 
@@ -1783,13 +1814,17 @@ EOF
       wake "heartbeat"
     elif heartbeat_scan_finds_actionable; then
       # Backstop: a captain-relevant event the per-wake path absorbed by mistake.
-      # Enqueue first, then record every status log surfaced through its end so the
-      # next heartbeat does not re-fire it (enqueue-before-suppress preserved);
-      # this wake sends firstmate to the whole fleet, so every log is read.
-      fm_wake_append heartbeat heartbeat heartbeat || exit 1
+      # Name the buried event(s) in the wake reason itself so firstmate does not
+      # have to re-derive them from a whole-fleet review; enqueue first, then
+      # record every status log surfaced through its end so the next heartbeat
+      # does not re-fire it (enqueue-before-suppress preserved) - this wake still
+      # sends firstmate to the whole fleet, so every log is read regardless of
+      # what got named here.
+      reason="heartbeat: unsurfaced: ${FM_HEARTBEAT_ACTIONABLE_ROWS} - named events first; the full fleet review still applies"
+      fm_wake_append heartbeat heartbeat "$reason" || exit 1
       touch "$STATE/.last-heartbeat"
       mark_all_captain_relevant_surfaced || true
-      wake "heartbeat"
+      wake "$reason"
     else
       if ! mark_all_captain_relevant_surfaced; then
         fm_wake_append heartbeat heartbeat heartbeat || exit 1
