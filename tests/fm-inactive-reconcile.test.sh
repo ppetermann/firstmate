@@ -112,12 +112,27 @@ outcome_count() { # <home> <suffix>
   find "$1/state/terminal-outcomes" -type f -name "*.$2" 2>/dev/null | wc -l | tr -d ' '
 }
 
-prime_seen() { # <state> <status>
+prime_seen() { # <state> <status-or-turn-ended-file>
   FM_STATE_OVERRIDE="$1" bash -c '
     . "$1"
-    size=$(_fm_status_file_size "$3") || exit 1
-    ident=$(_fm_open_decisions_file_ident "$3") || exit 1
-    fm_wake_status_seen_commit "$2" "$3" "$size" "$ident"
+    # fm-wake-lib.sh loads the classifier lazily (#3268); force it before
+    # calling its private helpers directly.
+    _fm_wake_require_classify
+    case "$3" in
+      *.status)
+        size=$(_fm_status_file_size "$3") || exit 1
+        ident=$(_fm_open_decisions_file_ident "$3") || exit 1
+        fm_wake_status_seen_commit "$2" "$3" "$size" "$ident"
+        ;;
+      *)
+        # A non-.status signal file (e.g. .turn-ended) is compared against its
+        # marker as a plain signature string, not the .status presentation-marker
+        # format - see bin/fm-wake-lib.sh fm_wake_signal_seen_current and
+        # bin/fm-watch.sh:1511 which writes markers the same way in production.
+        sig=$(fm_wake_signal_sig "$3") || exit 1
+        printf "%s" "$sig" > "$(fm_wake_signal_seen_path "$2" "$3")"
+        ;;
+    esac
   ' _ "$ROOT/bin/fm-wake-lib.sh" "$1" "$2"
 }
 

@@ -988,7 +988,7 @@ test_unreadable_status_reports_once_per_file_state() {
   watch_bg "$state" "$fakebin" "$out"
   pid=$!
   wait_for_exit "$pid" 100 || { reap "$pid"; fail "a dangling status symlink was not reported"; }
-  grep -Fx "signal: $status_file" "$out" >/dev/null \
+  grep -Fx "signal: $status_file | task=none" "$out" >/dev/null \
     || fail "a dangling status symlink did not use the immediate signal path: $(cat "$out")"
   sig=$(status_observed_signature "$status_file")
   status_presentation_marker_reported_matches "$marker" "$sig" \
@@ -1054,7 +1054,7 @@ test_permission_recovery_surfaces_preserved_status() {
   after_ident=$(_fm_open_decisions_file_ident "$status_file")
   [ "$after_ident" = "$before_ident" ] || { reap "$pid"; fail "the permission-only recovery changed file identity"; }
   wait_for_exit "$pid" 100 || { reap "$pid"; fail "readability recovery did not surface preserved content"; }
-  grep -Fx "signal: $status_file" "$out" >/dev/null \
+  grep -Fx "signal: $status_file | task=working" "$out" >/dev/null \
     || fail "readability recovery did not use the actionable signal path: $(cat "$out")"
   [ "$(status_presentation_marker_offset "$marker" "$status_file")" = "$(size_of "$status_file")" ] \
     || fail "readability recovery did not classify from the unadvanced position"
