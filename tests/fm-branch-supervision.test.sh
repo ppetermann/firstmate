@@ -144,6 +144,67 @@ test_outcome_startup_replay_preserves_silence() {
   pass "startup replay skips silent outcomes and preserves visible and legacy rows"
 }
 
+test_outcome_loop_check_circuit_breaker() {
+  local home out
+  home="$TMP_ROOT/store-loop-home"
+  mkdir -p "$home/state"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" loop-check) || fail "loop-check failed on an empty store"
+  [ "$out" = 0 ] || fail "loop-check tripped on an empty store: $out"
+
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task task-1 --verdict routine --summary 'reconciled task-1 from a stale wake' --wake 'signal: a' >/dev/null \
+    || fail "distinct-row append failed"
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task task-2 --verdict routine --summary 'steered task-2 back on track' --wake 'signal: b' >/dev/null \
+    || fail "distinct-row append failed"
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task task-3 --verdict routine --summary 'confirmed task-3 landed cleanly' --wake 'signal: c' >/dev/null \
+    || fail "distinct-row append failed"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" loop-check) || fail "loop-check failed on distinct rows"
+  [ "$out" = 0 ] || fail "loop-check tripped on three ordinary distinct rows: $out"
+
+  # A quiet fleet legitimately produces many identical silent heartbeat rows
+  # in a row - that is expected, not a stuck loop, and must never trip.
+  for _ in 1 2 3 4 5 6; do
+    FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+      --task fleet --verdict routine --summary 'fleet quiet, nothing changed' --wake heartbeat --silent true >/dev/null \
+      || fail "silent heartbeat append failed"
+  done
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" loop-check) || fail "loop-check failed on silent heartbeats"
+  [ "$out" = 0 ] || fail "loop-check tripped on repeated legitimate silent heartbeats: $out"
+
+  # The 2026-08-30 incident shape: degenerate near-empty rows repeated every
+  # poll. Four such rows within the default six-row window must trip.
+  for _ in 1 2 3 4; do
+    FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+      --task . --verdict routine --summary . --wake . >/dev/null \
+      || fail "degenerate-row append failed"
+  done
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" loop-check) || fail "loop-check failed on a degenerate-row loop"
+  case "$out" in
+    1$(printf '\t')*"identical or empty"*) ;;
+    *) fail "loop-check did not trip and name the degenerate-row loop: $out" ;;
+  esac
+
+  # --window/--threshold narrow the check to exactly the rows under test.
+  local home2
+  home2="$TMP_ROOT/store-loop-home-override"
+  mkdir -p "$home2/state"
+  FM_HOME="$home2" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task . --verdict routine --summary . --wake . >/dev/null || fail "override-row append failed"
+  FM_HOME="$home2" "$ROOT/bin/fm-branch-outcome.sh" append \
+    --task . --verdict routine --summary . --wake . >/dev/null || fail "override-row append failed"
+  out=$(FM_HOME="$home2" "$ROOT/bin/fm-branch-outcome.sh" loop-check --window 2 --threshold 2) \
+    || fail "loop-check --window/--threshold failed"
+  case "$out" in
+    1$(printf '\t')*) ;;
+    *) fail "loop-check ignored --window/--threshold overrides: $out" ;;
+  esac
+
+  pass "loop-check bounds repeated empty/identical branch outcome rows without tripping on legitimate quiet heartbeats"
+}
+
 # --- lease contract -----------------------------------------------------------
 
 test_lease_exclusivity_release_stale_and_sweep() {
@@ -539,6 +600,7 @@ test_branch_cannot_force_teardown_or_directly_relaunch() {
 test_branch_prompt_is_byte_stable_and_above_cache_floor
 test_outcome_store_is_append_only_with_cursor_reads
 test_outcome_startup_replay_preserves_silence
+test_outcome_loop_check_circuit_breaker
 test_lease_exclusivity_release_stale_and_sweep
 test_mutating_scripts_refuse_the_other_actors_lease
 test_main_owned_actions_refuse_the_branch_actor

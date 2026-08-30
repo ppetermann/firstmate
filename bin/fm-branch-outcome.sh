@@ -41,6 +41,29 @@
 #     true, and mark every unread row read. Prints nothing when nothing visible
 #     is unread, so a home that never ran the branch stays silent. Run it only
 #     when the session holds the lock (fm-session-start.sh owns the call site).
+#   fm-branch-outcome.sh loop-check [--window <n>] [--threshold <n>]
+#     Circuit breaker for a stuck branch (upstream has no equivalent guard;
+#     see data/fm-upstream-degradation-compare/report.md follow-up 4). Looks
+#     at the most recent --window rows (default 6, or FM_BRANCH_LOOP_WINDOW),
+#     excluding a silent fleet-heartbeat row - a legitimate run of "nothing
+#     changed" heartbeats is expected on a quiet fleet and is never evidence of
+#     a stuck loop. A row counts against the breaker when its summary is
+#     degenerate (trimmed to 3 characters or fewer, matching the observed
+#     "task/wake/summary all '.'" incident shape) or when a non-captain-verdict
+#     row exactly repeats a neighboring row (task, wake, summary, and verdict
+#     all equal - a genuine content freeze, never coincidental for distinct
+#     fleet events). A captain-verdict row is exempt from the repeat check
+#     (though never from the degenerate check): the tool contract gates that
+#     verdict on directly answering an explicit captain request, so identical
+#     captain outcomes reflect the captain asking the same thing repeatedly,
+#     not a stuck agent repeating itself unprompted. Trips when at least
+#     --threshold (default 4, or
+#     FM_BRANCH_LOOP_THRESHOLD) of the window rows qualify. Always prints
+#     exactly one line and exits 0: "0" when not tripped, "1<TAB><reason>" when
+#     tripped. The caller (the Pi branch extension's fm_branch_report tool) is
+#     the one place that acts on a trip: it stops prompting the branch,
+#     reclaims its row grant, and surfaces the trip as one captain-relevant
+#     outcome - this subcommand only judges, never mutates state or the grant.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,7 +75,7 @@ CURSOR="$STATE/.branch-outcomes-cursor"
 LOCK="$STATE/.branch-outcomes.lock"
 
 usage() {
-  echo "usage: fm-branch-outcome.sh append --task <id> --verdict routine|captain --summary <text> [--wake <text>] [--silent true|false] | unread | mark-read --through <seq> | list [--recent <n>] | startup-replay" >&2
+  echo "usage: fm-branch-outcome.sh append --task <id> --verdict routine|captain --summary <text> [--wake <text>] [--silent true|false] | unread | mark-read --through <seq> | list [--recent <n>] | startup-replay | loop-check [--window <n>] [--threshold <n>]" >&2
   exit 2
 }
 
@@ -198,6 +221,65 @@ case "$CMD" in
       [ -z "$LAST" ] || advance_cursor "$LAST"
     fi
     fm_lock_release "$LOCK"
+    ;;
+  loop-check)
+    WINDOW=${FM_BRANCH_LOOP_WINDOW:-6}
+    THRESHOLD=${FM_BRANCH_LOOP_THRESHOLD:-4}
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --window) WINDOW=${2:-}; shift 2 || usage ;;
+        --threshold) THRESHOLD=${2:-}; shift 2 || usage ;;
+        *) usage ;;
+      esac
+    done
+    case "$WINDOW" in ''|*[!0-9]*|0) usage ;; esac
+    case "$THRESHOLD" in ''|*[!0-9]*|0) usage ;; esac
+    fm_lock_acquire_wait "$LOCK"
+    if [ ! -s "$STORE" ]; then
+      fm_lock_release "$LOCK"
+      printf '0\n'
+      exit 0
+    fi
+    RESULT=$(tail -n "$WINDOW" "$STORE" | jq -s -r --argjson threshold "$THRESHOLD" '
+      def same($a; $b): $a.task == $b.task and $a.wake == $b.wake
+        and $a.summary == $b.summary and $a.verdict == $b.verdict;
+      map(select(.silent != true)) as $rows
+      | ($rows | length) as $n
+      | [ range(0; $n) as $i
+          | $rows[$i] as $r
+          | (($r.summary // "") | length) <= 3 as $empty
+          # A row counts as "identical" when either neighbor matches it, so a
+          # run of N mutually-identical rows contributes all N (not N-1) - the
+          # plain reading of "N identical rows", not merely N-1 repeats of a
+          # first occurrence that itself goes uncounted. A captain-verdict row
+          # never counts here (though it still can via $empty): the tool
+          # contract gates that verdict on directly answering an explicit
+          # captain request, so a run of identical captain outcomes reflects
+          # the captain asking the same thing repeatedly, not a stuck agent
+          # repeating itself unprompted - the incident this guards against.
+          | ($r.verdict != "captain"
+             and (($i > 0 and same($rows[$i - 1]; $r)) or ($i < $n - 1 and same($rows[$i + 1]; $r)))) as $dup
+          | select($empty or $dup)
+        ] as $bad
+      | ($bad | length) as $count
+      | (if $n > 0 then $rows[$n - 1] else null end) as $last
+      | [ (if $count >= $threshold then "1" else "0" end),
+          ($count | tostring),
+          ($n | tostring),
+          (if $last then ($last.task // "") else "" end),
+          (if $last and (($last.summary // "") | length) > 0 then $last.summary else "(empty)" end)
+        ] | @tsv
+    ') || { fm_lock_release "$LOCK"; exit 1; }
+    fm_lock_release "$LOCK"
+    IFS=$(printf '\t') read -r TRIPPED COUNT N LAST_TASK LAST_SUMMARY <<EOF
+$RESULT
+EOF
+    if [ "$TRIPPED" = 1 ]; then
+      printf '1\t%s of the last %s branch outcome rows look identical or empty (most recent: %s: %s)\n' \
+        "$COUNT" "$N" "$LAST_TASK" "$LAST_SUMMARY"
+    else
+      printf '0\n'
+    fi
     ;;
   *) usage ;;
 esac

@@ -593,6 +593,21 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  // Circuit breaker for a stuck branch bounding repeated empty/identical
+  // outcome rows - upstream has no equivalent guard
+  // (data/fm-upstream-degradation-compare/report.md follow-up 4). The
+  // judgment itself lives entirely in fm-branch-outcome.sh's loop-check
+  // (portable, host-testable, no Pi dependency); this just parses its
+  // "0" / "1<TAB><reason>" contract. A run failure is treated as "not
+  // tripped" - a broken judge must never itself become the reason prompting
+  // stops.
+  function checkBranchOutcomeLoop(): { tripped: boolean; reason: string } {
+    const result = runOutcomeScript(["loop-check"]);
+    if (!result.ok || !result.stdout.startsWith("1")) return { tripped: false, reason: "" };
+    const reason = result.stdout.slice(1).replace(/^\t/, "").trim();
+    return { tripped: true, reason: reason || "repeated or empty branch outcome rows" };
+  }
+
   // Append-only merge into main. The store row is already durable when this
   // runs; the note is a cache of it at main's tail. Delivery modes per the
   // design: routine+idle appends now with no turn, routine+busy appends after
@@ -684,6 +699,18 @@ export default function (pi: ExtensionAPI) {
         })),
       }),
       execute: async (_toolCallId, params) => {
+        // A prior call on this same generation already tripped the loop
+        // circuit breaker (see the append-time check below): refuse without
+        // touching the store again, so a model that keeps calling this tool
+        // after being told to stop cannot keep growing the very loop that
+        // tripped it or send a second captain alert for the same trip.
+        if (branchBroken) {
+          return {
+            content: [{ type: "text", text: `report refused: ${branchBroken}` }],
+            details: undefined,
+            isError: true,
+          };
+        }
         const task = String((params as { task: unknown }).task || "").trim();
         const verdictRaw = String((params as { verdict: unknown }).verdict || "");
         const summary = String((params as { summary: unknown }).summary || "").trim();
@@ -719,6 +746,26 @@ export default function (pi: ExtensionAPI) {
             content: [{ type: "text", text: `recorded seq ${appended.stdout}, but merge refused after supervision replacement or lock loss` }],
             details: undefined,
             isError: true,
+          };
+        }
+        // This report is fully handled; now check whether IT, plus the recent
+        // rows before it, form a stuck loop. Detection runs after the merge
+        // above so the report just handled still reaches main normally even
+        // when it turns out to be the row that trips the breaker - a
+        // suspected loop is reason to stop future prompting, never reason to
+        // swallow an already-handled outcome.
+        const loop = checkBranchOutcomeLoop();
+        if (loop.tripped) {
+          branchBroken = `circuit breaker: ${loop.reason}`;
+          releaseEligibleRowsSnapshot(state, wakeGrantScript, String(toolGeneration));
+          const alertSummary =
+            `Supervision branch circuit breaker tripped: ${loop.reason}. ` +
+            "Row grant reclaimed; prompting paused until the next session start.";
+          const alert = runOutcomeScript(["append", "--task", "fleet", "--verdict", "captain", "--summary", alertSummary]);
+          if (alert.ok) mergeIntoMain(toolGeneration, alert.stdout, "fleet", "captain", alertSummary, false);
+          return {
+            content: [{ type: "text", text: `recorded seq ${appended.stdout} and merged [${verdict}] into main; ${branchBroken} - stop calling this tool and end your turn now` }],
+            details: undefined,
           };
         }
         return {
