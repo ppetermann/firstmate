@@ -40,9 +40,13 @@ pass and never writes markers, archives, or destinations except through the owne
    "yes, but weaker", rewrite it weaker in place. Evidence for the weakening must be
    nameable, not vibes.
 3. **Moveable scope.** The nameable-context test: a session that never touches the
-   trigger loses nothing by not having the fact loaded. Move to a reference owner per
-   stow's destination rules (local untracked skill via the repository-local exclude
-   file, an existing JIT note, or a project surface through its delivery path). Leave no
+   trigger loses nothing by not having the fact loaded.
+   The captain-endorsed placement criterion (2026-08-28): a need that announces itself
+   by domain belongs to a local skill; one that can ambush from outside its domain
+   stays in memory.
+   Move to a reference owner per stow's destination rules (local untracked skill via
+   the repository-local exclude file, an existing JIT note, or a project surface
+   through its delivery path). Leave no
    pointer by default; at most one line when the cost of a missed load is a known trap.
 4. **Procedure stored as fact.** Memory entries that are really HOW-TO knowledge -
    steps, checklists, brief-building rules - belong in a skill with a precise trigger,
