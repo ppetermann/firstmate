@@ -419,9 +419,16 @@ _fm_decision_key_transition_allowed() {  # <key> <note>
 }
 
 _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb>
-  local open=$1 line=$2 resolve=$3 held=$4 verb key note stripped
-  stripped=${line//[[:space:]]/}
-  [ -n "$stripped" ] || { printf '%s' "$open"; return 0; }
+  local open=$1 line=$2 resolve=$3 held=$4 verb key note
+  # Blank-line guard. A `case` glob answers "does this line hold any non-space
+  # character" in one pattern match; the equivalent ${line//[[:space:]]/} costs
+  # tens of milliseconds per line under bash 3.2's global bracket-class
+  # substitution, which is the whole per-line cost of both folds on a status log
+  # of ordinary width. Same verdict, bounded cost.
+  case "$line" in
+    *[![:space:]]*) ;;
+    *) printf '%s' "$open"; return 0 ;;
+  esac
   verb=$(status_line_verb "$line")
   key=$(_fm_decision_key "$line")
   _fm_decision_key_transition_allowed "$key" "$(status_line_note "$line")" \
@@ -672,7 +679,7 @@ _fm_status_read_span() {  # <status-file> <start-offset> <byte-length>
     "$FM_STATUS_SPAN_READER" "$f" "$start" "$length"
     return
   fi
-  perl -MFcntl=:DEFAULT -e '
+  LC_ALL=C perl -MFcntl=:DEFAULT -e '
     my ($path, $start, $length) = @ARGV;
     sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW) or exit 1;
     sysseek($file, $start, 0) == $start or exit 1;
@@ -1361,13 +1368,16 @@ EOF
 # It is never authoritative current crew state, and consumers must not let an open
 # phase outrank a structured home snapshot or fm-crew-state result.
 _fm_status_open_activities_stream() {
-  local line verb key note resolve held open='' stripped pause
+  local line verb key note resolve held open='' pause
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   pause=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
   while IFS= read -r line || [ -n "$line" ]; do
-    stripped=${line//[[:space:]]/}
-    [ -n "$stripped" ] || continue
+    # Blank-line guard; see _fm_decision_fold_line for why this is a glob.
+    case "$line" in
+      *[![:space:]]*) ;;
+      *) continue ;;
+    esac
     verb=$(status_line_verb "$line")
     key=$(_fm_decision_key "$line")
     case "$verb" in
@@ -1598,11 +1608,14 @@ crew_absorb_class() {  # <id>
 
 # 0 if crew <id> shows POSITIVE evidence it is still working (crew_absorb_class
 # reports `working`). This is the "provably working" predicate at the heart of
-# absorb-only-when-provably-working: a no-verb turn-end or stale wake is absorbed
-# ONLY when this returns 0, and SURFACED otherwise (the crew may be done, waiting
-# on a decision, or wedged). For stale panes it is checked before trusting the
-# status log so a pre-validation captain-relevant line does not override an active
-# run. See crew_absorb_class for the exact working/paused/none decision.
+# absorb-only-on-positive-evidence. This is the sole proof for stale wakes and the
+# shared authoritative proof for no-verb signals. Where a home opts in, fm-watch.sh
+# may additionally absorb a bare turn-end on bounded pane churn, while every other
+# failed verdict surfaces
+# because the crew may be done, waiting on a decision, or wedged. For stale panes
+# it is checked before trusting the status log so a pre-validation captain-relevant
+# line does not override an active run. See crew_absorb_class for the exact
+# working/paused/none decision.
 crew_is_provably_working() {  # <id>
   [ "$(crew_absorb_class "$1")" = working ]
 }

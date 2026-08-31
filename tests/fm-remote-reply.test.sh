@@ -14,6 +14,9 @@ REMOTE="$TMP_ROOT/remote"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/fake")
 CLAIMS="$TMP_ROOT/claims"
 mkdir -p "$PARENT/data" "$PARENT/state" "$REMOTE/state" "$REMOTE/data/reply" "$CLAIMS"
+# A home's state directory must read as private (fm_procevent_private_directory_valid)
+# regardless of the ambient umask a given machine happens to run tests under.
+chmod 0700 "$PARENT/state" "$REMOTE/state"
 # shellcheck source=bin/fm-remote-job-lib.sh
 . "$ROOT/bin/fm-remote-job-lib.sh"
 # The recorded worker pid is the serving child, not its restart supervisor, so

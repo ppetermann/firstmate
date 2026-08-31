@@ -20,6 +20,9 @@ command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; exit
 make_home() {  # <name>
   local home="$TMP_ROOT/$1" fakebin
   mkdir -p "$home/data" "$home/state" "$home/config" "$home/projects"
+  # A home's state directory must read as private (fm_procevent_private_directory_valid)
+  # regardless of the ambient umask a given machine happens to run tests under.
+  chmod 0700 "$home/state"
   cp "$ROOT/.tasks.toml" "$home/.tasks.toml"
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight
@@ -90,7 +93,8 @@ write_origin_meta() {  # <home> <id> [kind]
     "project=$home/projects/sample" \
     "harness=codex" \
     "kind=$kind" \
-    "mode=$kind"
+    "mode=$kind" \
+    "spawn_gen=fixture-$id"
 }
 
 # Reproduces the loss exactly with privacy-safe synthetic names: the investigation

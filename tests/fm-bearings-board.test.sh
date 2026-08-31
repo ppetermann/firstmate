@@ -16,6 +16,9 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 make_home() {  # <name>
   local home="$TMP_ROOT/$1" fakebin
   mkdir -p "$home/state" "$home/data"
+  # A home's state directory must read as private (fm_procevent_private_directory_valid)
+  # regardless of the ambient umask a given machine happens to run tests under.
+  chmod 0700 "$home/state"
   fakebin=$(fm_fakebin "$home")
   fm_fake_exit0 "$fakebin" lavish-axi
   printf '%s\n' "$home"

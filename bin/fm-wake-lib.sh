@@ -1712,11 +1712,10 @@ fm_wake_status_cursor_offset() {  # <validated-status-path> -> already-presented
 # non-blank line exists.
 fm_wake_unread_events() {  # <validated-status-path> <unused-tail-byte-cap> <min-offset> [<end-offset>]
   local path=$1 min_offset=$3 end_offset=${4:-} result size chunk chunk_start
-  local LC_ALL=C
   FM_WAKE_EVENT_LINE=
   FM_WAKE_UNREAD_LINES=
   case "$min_offset" in ''|*[!0-9]*) min_offset=0 ;; esac
-  result=$(perl -MFcntl=:DEFAULT -e '
+  result=$(LC_ALL=C perl -MFcntl=:DEFAULT -e '
     my ($path, $start, $end) = @ARGV;
     sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW) or exit 1;
     my @stat = stat $file or exit 1;

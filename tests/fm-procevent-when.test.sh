@@ -37,7 +37,13 @@ when_teardown() {
 }
 trap when_teardown EXIT
 
-new_home() { mkdir -p "$1/state"; WHEN_HOMES+=("$1"); }
+new_home() {
+  mkdir -p "$1/state"
+  # A home's state directory must read as private (fm_procevent_private_directory_valid)
+  # regardless of the ambient umask a given machine happens to run tests under.
+  chmod 0700 "$1/state"
+  WHEN_HOMES+=("$1")
+}
 
 wake_payloads() { awk -F '\t' '{print $5}' "$1/state/.wake-queue" 2>/dev/null; }
 

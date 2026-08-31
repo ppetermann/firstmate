@@ -85,7 +85,8 @@ Two firstmate-specific rules layer on top of that guidance:
 - ask-user findings are never yours to answer: escalate to firstmate (rule 6) and stop.
   Firstmate applies \`ask-user-authority\` and obtains any required captain decision.
   When the decision comes back, feed it to the gate with \`no-mistakes axi respond\` and let the pipeline apply it - do not route the question to "the user" or implement the fix yourself.
-- Avoid \`--yes\`: it would silently bypass firstmate's authority check and any required captain escalation.
+- NEVER pass \`--yes\` (or \`-y\`) to \`no-mistakes axi run\` or \`no-mistakes axi respond\`. It is banned fleet-wide.
+  It auto-resolves every gate including ask-user findings with no escalation, and answering your own ask-user finding is a hard rule violation.
 
 Before reporting, write the PR description for HUMAN reviewers - what the change is and why, how it works, test coverage, limitations - never the pipeline intent or any prompt-style text; a pipeline may pre-fill the body, so replace it.
 Give the PR a title that names what the change does for the project in plain words - never the task id, the branch name, or a pipeline-generated prefix.
