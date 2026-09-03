@@ -230,17 +230,28 @@ SH
 fm_test_spawn_home() {
   local home=$1 harness=${2-}
   mkdir -p "$home/data" "$home/projects" "$home/state" "$home/config"
+  # Keep the fixture's state root private regardless of the ambient umask a
+  # given machine happens to run tests under; upstream's process-event state
+  # root gate refuses a group-writable directory (tests/wake-helpers.sh).
+  chmod 0700 "$home/state"
   touch "$home/state/.last-watcher-beat"
   if [ -n "$harness" ]; then
     printf '%s\n' "$harness" > "$home/config/crew-harness"
   fi
 }
 
-# fm_test_spawn_brief <home> <id> [text]
+# fm_test_spawn_brief <home> <id> [captain-intent]
 fm_test_spawn_brief() {
-  local home=$1 id=$2 text=${3:-brief for $2}
+  local home=$1 id=$2 intent=${3:-brief for $2}
   mkdir -p "$home/data/$id"
-  printf '%s\n' "$text" > "$home/data/$id/brief.md"
+  cat > "$home/data/$id/brief.md" <<EOF
+# Task
+## Captain's intent
+$intent
+
+## Firstmate spec
+Exercise the spawn behavior under test.
+EOF
 }
 
 # fm_test_make_spawn_fakebin <dir> [extra-exit0-tool...]

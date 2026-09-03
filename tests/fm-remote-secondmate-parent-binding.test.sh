@@ -48,6 +48,7 @@ HERDR_LOG="$TMP_ROOT/remote-herdr.log"
 CLAIMS="$TMP_ROOT/claims"
 PUBLISH_PID=
 mkdir -p "$PARENT/data" "$PARENT/state" "$PARENT/config" "$PARENT/projects" "$REMOTE_ROOT" "$CLAIMS"
+chmod 0700 "$PARENT/state"
 
 cleanup() {
   local worker_pid=''
@@ -231,6 +232,7 @@ esac
 # --- a finished child worker inside the remote secondmate home --------------
 CHILD_WT="$REMOTE_HOME/projects/alpha"
 mkdir -p "$REMOTE_HOME/state"
+chmod 0700 "$REMOTE_HOME/state"
 # This regression exercises remote-parent binding, not backlog mutation. Keep
 # its synthetic child home on the supported hand-edited backend so teardown's
 # fused automatic close is correctly exempt without requiring a tasks-axi mock.

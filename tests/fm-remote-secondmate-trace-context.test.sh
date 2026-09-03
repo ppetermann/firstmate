@@ -33,6 +33,7 @@ TMUX_LOG="$TMP_ROOT/remote-tmux.log"
 TMUX_STATE="$TMP_ROOT/remote-tmux.state"
 CLAIMS="$TMP_ROOT/claims"
 mkdir -p "$PARENT/data" "$PARENT/state" "$PARENT/config" "$PARENT/projects" "$REMOTE_ROOT" "$CLAIMS"
+chmod 0700 "$PARENT/state"
 trap 'FM_HOME="$PARENT" FM_PROCEVENT_CLAIM_ROOT="$CLAIMS" "$ROOT/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true; if [ -f "$TMP_ROOT/remote-jobs/worker.pid" ]; then kill "$(cat "$TMP_ROOT/remote-jobs/worker.pid")" 2>/dev/null || true; fi; rm -rf -- "$TMP_ROOT"' EXIT
 
 # The remote host's tracked code root is this branch, as a real git repository:
@@ -259,6 +260,7 @@ pass "boundary: each remote-routed second mate roots its own trace and never ado
 # accepts it as ordinary inherited material rather than by name.
 PROTOCOL_HOME="$TMP_ROOT/protocol-home"
 mkdir -p "$PROTOCOL_HOME/config" "$PROTOCOL_HOME/data" "$PROTOCOL_HOME/state"
+chmod 0700 "$PROTOCOL_HOME/state"
 : > "$TMP_ROOT/flag-payload"
 FLAG_BYTES=$(LC_ALL=C wc -c < "$TMP_ROOT/flag-payload" | tr -d ' ')
 if command -v shasum >/dev/null 2>&1; then
@@ -283,6 +285,7 @@ pass "allowlist: the remote receiver accepts exactly the declared inherited-mate
 # valid W3C value. Nothing else may reach `export TRACEPARENT=`.
 FLAG_HOME="$TMP_ROOT/flag-home"
 mkdir -p "$FLAG_HOME/state" "$FLAG_HOME/data" "$FLAG_HOME/config" "$FLAG_HOME/projects" "$TMP_ROOT/flag-proj"
+chmod 0700 "$FLAG_HOME/state"
 VALID='00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab-bbbbbbbbbbbbbbbb-01'
 try_flag() { # <expect-substring> <message> [extra args...]
   local expect=$1 message=$2 out

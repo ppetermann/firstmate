@@ -197,7 +197,7 @@ make_spawn_case() {
   wt="$case_dir/wt"
   fakebin=$(make_spawn_fakebin "$case_dir/fake")
   mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
-  printf 'brief for claude trust gate\n' > "$home/data/$id/brief.md"
+  printf '# Task\n## Captain'"'"'s intent\nbrief for claude trust gate\n\n## Firstmate spec\nExercise the spawn behavior under test.\n' > "$home/data/$id/brief.md"
   printf 'claude\n' > "$home/config/crew-harness"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   touch "$home/state/.last-watcher-beat"

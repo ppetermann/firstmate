@@ -117,7 +117,7 @@ EOF
     "grok registry dir survived last-task teardown"
 
   mkdir -p "$home/data/grok-respawn-x2"
-  printf 'brief\n' > "$home/data/grok-respawn-x2/brief.md"
+  fm_test_spawn_brief "$home" grok-respawn-x2 'brief'
   out=$(run_grok_spawn "$home" "$proj" "$wt" "$fakebin" "$grok_home" "grok-respawn-x2")
   status=$?
   expect_code 0 "$status" "grok re-spawn after global hook removal should succeed"

@@ -58,6 +58,7 @@ make_case() {
   dir="$TMP_ROOT/$name"
   fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
+  chmod 0700 "$dir/state"
   # A real fleet home always has state/ already created (by session start)
   # before any process-event bind runs, and it must read as private
   # regardless of the ambient umask a given machine happens to run tests
@@ -165,6 +166,7 @@ make_supercase() {
   dir="$TMP_ROOT/$name"
   fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
+  chmod 0700 "$dir/state"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -244,6 +246,7 @@ make_bordered_case() {
   local name=$1 dir fakebin
   dir="$TMP_ROOT/$name"; fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
+  chmod 0700 "$dir/state"
   printf '╭─────╮\n│ >   │\n╰─────╯\n' > "$dir/composer"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash

@@ -23,6 +23,11 @@ make_case() {  # <name> <id>
   printf 'window=test:fm-%s\nkind=scout\n' "$id" > "$dir/home/state/$id.meta"
   FM_HOME="$dir/home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --scout >/dev/null 2>&1 \
     || fail "could not scaffold a scout brief for the promotion fixture"
+  # A scaffold still carrying its placeholders is refused by bin/fm-dod-lib.sh,
+  # so fill the Task subsections the way firstmate does before dispatch.
+  perl -0pi -e 's/\{TASK\}/investigate the reported fault/; s/\{FIRSTMATE_SPEC\}/Reproduce it, then report./' \
+    "$dir/home/data/$id/brief.md" \
+    || fail "could not fill the scout brief placeholders"
   printf '%s\n' "$dir"
 }
 
@@ -74,7 +79,12 @@ test_promotion_records_ship_contract_in_instructions() {
   pass "fm-promote: publishes the ship contract in ship-instructions.md and emits the send-ready steer"
 }
 
-test_promotion_tolerates_missing_brief_and_other_modes() {
+# Upstream 28fb5ac made a promoted worker's `--intent` the captain's own words,
+# carried out of the scout brief's `## Captain's intent`. With no brief there are
+# no captain words to carry, so promotion now refuses instead of publishing a ship
+# contract with an empty intent - superseding this fork's earlier tolerance, which
+# predates that contract. The task record must survive the refusal untouched.
+test_promotion_refuses_a_missing_brief_and_records_every_mode() {
   local dir id brief instructions
   id=promote-nobrief
   dir=$(make_case promote-nobrief "$id")
@@ -82,9 +92,11 @@ test_promotion_tolerates_missing_brief_and_other_modes() {
   instructions="$dir/home/data/$id/ship-instructions.md"
   rm -f "$brief"
   run_promote "$dir" "$id" local-only
-  expect_code 0 "$RC" "promotion without a scout brief must still succeed"
-  assert_grep 'kind=ship' "$dir/home/state/$id.meta" "meta flip missing without a brief"
-  assert_present "$instructions" "promotion without a scout brief still published no ship instructions"
+  [ "$RC" -ne 0 ] || fail "promotion without a scout brief must refuse, not invent an empty intent"
+  printf '%s\n' "$ERR" | grep -F 'before promotion' >/dev/null \
+    || fail "the refusal did not name the missing brief content: $ERR"
+  assert_grep 'kind=scout' "$dir/home/state/$id.meta" "a refused promotion must leave the task a scout"
+  assert_absent "$instructions" "a refused promotion must publish no ship instructions"
 
   id=promote-nm
   dir=$(make_case promote-nm "$id")
@@ -94,10 +106,10 @@ test_promotion_tolerates_missing_brief_and_other_modes() {
   assert_grep 'Delivery contract: mode=no-mistakes' "$instructions" \
     "no-mistakes ship instructions do not carry their contract"
   # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
-  assert_grep 'make `--intent` preserve all relevant content' "$instructions" \
+  assert_grep 'pass `--intent` as only this brief' "$instructions" \
     "no-mistakes ship instructions lost the --intent contract"
-  pass "fm-promote: tolerates a missing scout brief and records every mode's contract"
+  pass "fm-promote: refuses a missing scout brief and records every mode's contract"
 }
 
 test_promotion_records_ship_contract_in_instructions
-test_promotion_tolerates_missing_brief_and_other_modes
+test_promotion_refuses_a_missing_brief_and_records_every_mode
