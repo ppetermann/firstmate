@@ -19,7 +19,14 @@ SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-claude-trust-gate)
 PYTHON_BIN=$(command -v python3) || fail "test needs python3"
 PYTHON_BIN_DIR=$(dirname "$PYTHON_BIN")
-BASE_PATH=${FM_TEST_BASE_PATH:-$PYTHON_BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin}
+# A claude spawn pre-registers workspace trust before launch, and
+# bin/fm-claude-trust.sh refuses rather than degrading when node is missing, so
+# the hermetic PATH this suite builds has to carry the real interpreter the way
+# it already carries python3. Without it every claude spawn here fails on the
+# registration instead of exercising the readiness gate under test.
+NODE_BIN=$(command -v node) || fail "test needs node (bin/fm-claude-trust.sh requires it)"
+NODE_BIN_DIR=$(dirname "$NODE_BIN")
+BASE_PATH=${FM_TEST_BASE_PATH:-$PYTHON_BIN_DIR:$NODE_BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin}
 
 cleanup_claude_gate() {
   rm -rf "$TMP_ROOT"
