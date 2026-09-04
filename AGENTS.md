@@ -540,3 +540,9 @@ Keep this file for knowledge useful to almost every future agent session in this
 Do not repeat what the codebase already shows; point to the authoritative file, skill, command, or doc.
 Prefer rewriting or pruning existing entries over appending new ones.
 When updating this file, preserve every safety boundary and keep the always-loaded contract concise.
+
+**Adopting or changing any cross-cutting contract is not finished until every procedure it changes is patched in the same change.**
+A rule fires only where the procedure being executed states it; a rule living only in a skill, in `data/captain.md`, or in a plan document is present but unreachable at the moment of decision.
+So when a contract is adopted, patch each affected step here and in the generated brief templates and intake skills, and say which procedures were patched.
+Evidence this is not theory: the delivery flow adopted 2026-08-30 as a skill plus a captain.md paragraph, with none of its four affected procedures patched, produced four failures in one 2026-09-04 session - PRs opened ready against an always-draft rule, a project registered off the flow, and a per-repo landing queue run as one global queue while both files stated it correctly.
+If you are writing the same rule a third time, its placement is the defect, not its wording.
