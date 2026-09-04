@@ -29,7 +29,7 @@ A whole-project review has no completion window: commission it as its own scout 
 
 ## Reviewer binding
 
-The review round is always executed by a pi-harness worker on GLM-5.3, the primary's own stack, never by an opencode or other task worker.
+A review round is judgement work: it takes the JUDGEMENT AND CORRECTION class of `config/crew-dispatch.json` under the active setup - opus on the Claude setup, glm-5.3 on the GLM setup (captain, 2026-09-04). Read that config at dispatch rather than binding a harness or model here.
 Both paths below deliver the filled worker block: `{OCR_BASE}` becomes the project's default-branch ref, normally `origin/main`, the same base the ship branch was created from, and any captain-requested `--exclude` patterns are appended to the preview and rule commands.
 
 Path one: the task's own worker already runs pi on GLM-5.3.
@@ -38,7 +38,7 @@ At intake, paste the block into the brief's `{TASK}` area as a task-specific con
 Mid-task, write the filled block to `data/<task-id>/ocr-review.md` in the active home and steer through fail-closed `fm-send` with this single line: `Captain requests an OCR review round before completion: read and execute data/<task-id>/ocr-review.md`.
 
 Path two: the task's worker runs on any other stack.
-Firstmate spawns a separate reviewer worker, scout shape and report-only, on pi/GLM-5.3 in the same project.
+Firstmate spawns a separate reviewer worker, scout shape and report-only, in the same project on the reviewer profile resolved above.
 The reviewer executes the block against the ship branch, replacing the block's HEAD targets with the ship branch so the preview reads `ocr delegate preview --from <base> --to <ship branch>`, and reports findings without changing code.
 The reviewer reviews, the implementer fixes: firstmate relays the findings to the task worker, which fixes or rejects each one under the existing authority contract.
 
@@ -83,7 +83,7 @@ A captain ask like "review the whole project" is not workspace mode.
 Workspace mode reviews uncommitted working-tree changes only, and fleet branches are committed before review, so a workspace preview would come back empty.
 The ask takes the scan shape instead.
 Run `ocr delegate rule -f json` over the project's source paths, batched, then review each full file against its rule group plus the project context.
-The scan runs on a pi/GLM-5.3 worker as a scout, and the coverage, failure-soft, and reporting contracts in the sections below apply unchanged.
+The scan runs as a scout on the reviewer profile resolved above, and the coverage, failure-soft, and reporting contracts in the sections below apply unchanged.
 
 ## Reporting and translation
 

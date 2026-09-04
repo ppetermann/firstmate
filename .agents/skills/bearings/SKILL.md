@@ -167,3 +167,9 @@ On a later board wake, this read-only invocation rule yields to "Handling a boar
 ## Monthly fleet review
 
 First fleet review of a month: run the Actions-cost read from `fleet-delivery-flow` and surface one line per billed repo.
+
+## LAN binding for the board (captain, 2026-09-04)
+
+The captain approved binding Lavish beyond loopback so boards are reachable from his machine: 127.0.0.1 links are dead to him. Start the server with `LAVISH_AXI_HOST=192.168.1.61` and that host in `LAVISH_AXI_ALLOWED_HOSTS`; the setting takes effect at server start, so a loopback server already running must be restarted before a board is reachable.
+
+He accepted the exposure knowingly: beyond loopback this is an unauthenticated server that can read and serve arbitrary local files to anything on the LAN. Do not widen it further - not 0.0.0.0, not a public interface - and do not re-decide it quietly in either direction.

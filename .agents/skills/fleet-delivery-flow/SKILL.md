@@ -66,7 +66,7 @@ surface one line per repo in the digest. Billing API endpoints 404 for this toke
 A intake: registry mode/yolo -> PR shape -> plan-first if sizeable -> trigger audit ->
   brief points at the project's Delivery section.
 B pre-push: ladder green (gate-pass head= matches) -> pushed once -> DRAFT opened ->
-  merge watch armed (bin/fm-pr-check.sh <id> <PR url>) -> zero Actions runs fired ->
+  merge watch AND PR-readiness watch armed (bin/fm-pr-check.sh <id> <PR url>; readiness recipe in process-event-sources) -> zero Actions runs fired ->
   backlog updated.
 C flip: landing turn -> rebased -> ladder green -> flip -> verify CI + ocr-review on
   this head (else seen-state recovery) -> CodeRabbit in flight where applicable.

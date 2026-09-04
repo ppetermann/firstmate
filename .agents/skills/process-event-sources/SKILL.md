@@ -65,6 +65,23 @@ Eligibility is a firstmate judgment made BEFORE arming, because the scripts cann
 Never bind an action that is destructive, irreversible, or security-sensitive, an action needing captain approval or any gate decision, or an action whose right form depends on what the condition finds - those keep the existing check-fires-then-firstmate-decides flow, for which a plain custom check or another adapter stays correct.
 When in doubt, arm only the condition half as an ordinary check and keep the action as a wake-time decision.
 
+### The PR-readiness watch (armed for every PR task)
+
+`AGENTS.md` section 7 arms this in the same step that records the PR. It is a condition-only watch: the action is `true`, so nothing is ever done to the pull request - the wake means "look now", never "merge now", and firstmate still runs the merge-ready legs afterwards.
+
+```sh
+bin/fm-procevent-when.sh arm pr-ready-<task-id> --interval 120 --stable 2 \
+  --condition bash -c 'bin/fm-pr-state.sh <PR url> --json | jq -e ".ready==\"yes\" or .state!=\"OPEN\"" >/dev/null' \
+  --action true
+```
+
+Three things in that command are load-bearing, each learned rather than assumed:
+- The `bash -c ... | jq -e` wrapper exists because `bin/fm-pr-state.sh` exits 0 on every successful read whatever `ready=` says, while this adapter needs exit 0 for true and 1 for a clean false. `jq -e` supplies that. A failed read prints unparseable text, `jq` exits 2, and the adapter counts it as a condition error - three consecutive errors stop the watch and wake, so a broken condition is never a silent seven-day poll.
+- The `or .state != "OPEN"` half is what retires the watch when the captain merges or closes the PR himself. Teardown does NOT sweep these sources; without that half, a self-merged PR leaves a watch that wakes `never-true` a week later. When he merges first, the readiness line simply lands in the same drain as the merge poll's own wake - that fold is designed, not a fault.
+- `ready=yes` requires OPEN, not draft, checks passing, and an APPROVED review. It does not check that the branch is current with main, which the captain requires - hence "look now".
+
+Retire the source after handling its wake (`retire` is idempotent) to clear its private spec files.
+
 `bin/fm-procevent.sh --help`, `bin/fm-procevent-lavish.sh --help`, `bin/fm-procevent-when.sh --help`, `bin/fm-procevent-quota.sh --help`, and `bin/fm-procevent-remote-reply.sh --help` own the exact commands and flags.
 
 An explicitly enabled external adapter registers through `bin/fm-procevent.sh register-extension`, never through a package-discovered script or package-supplied argv.
