@@ -59,6 +59,8 @@ config/x-mode.env    generated Relay watcher cadence; LOCAL, gitignored; source 
   <id>.herdr-presentation  quarantinable attempt and restart-binding journal for Herdr's optional visual projection; never task or endpoint authority; see docs/herdr-backend.md "Presentation spaces"
   <id>.check-trust   private content binding created by fm-check-register.sh for an intentional custom check
   <id>.gate-pass     local validation gate pass marker (head= and ts=) written by bin/fm-local-gate.sh; removed by a later failing gate run or by teardown
+  <id>.backlog-close  marker for an in-progress backlog close, written before the close and removed after, so an interrupted transition is recoverable rather than silently half-applied; bin/fm-backlog-transition-lib.sh owns its format and mechanics, and fm-spawn.sh, fm-teardown.sh and fm-bootstrap.sh write or read it
+  <task>.branch-outcome-index  bounded per-task index of outcomes already delivered to the captain, so a report is not delivered twice; paired with the .branch-outcome-index-ready flag, both owned by bin/fm-branch-outcome.sh and read by bin/fm-wake-drain.sh
   <id>.pr-poll       private validated data sidecar for the byte-static PR merge poll
   <id>.pr-poll-registration  private transactional provenance record binding the task, canonical metadata identity, sidecar, and static poll publication
   <id>.pr-poll-retirement  private identity-bound crash-recovery receipt for one exact validated merged result; removed after its poll artifacts retire
