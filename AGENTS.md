@@ -269,6 +269,16 @@ Supervise all live work under section 8.
 
 ### Selected delivery path and merge authority
 
+Load `fleet-delivery-flow` at every ship intake and before every delivery, flip, or landing decision; it owns the six phases, the checklists, and the per-project release tails.
+Its load-bearing steps are stated here because a contract that lives only in a skill does not fire at the moment of deciding:
+
+- Every PR opens as a DRAFT and stays one until its landing turn. Drafts run no CI and draw no review round.
+- Firstmate owns the flip, never the worker. The flip is the sole trigger for the one CI run and the one review round, so it happens on the final head.
+- The landing queue is PER REPOSITORY: at most one ready PR per repo, and a draft on a repo with no ready PR flips immediately rather than waiting behind another repo's work.
+- Rebase onto the current default branch before flipping, so the reviewed head is the head that merges.
+- Before presenting a PR as merge-ready, check all six legs live in that same turn; name the failing leg instead of presenting it.
+- A converging cascade of review findings means stop and merge, not another round.
+
 The selected delivery path owns its own rigor.
 When no-mistakes is selected, no-mistakes alone owns review, fixes, tests, documentation, push, PR, and CI; otherwise follow the faster path without adding an independent reviewer.
 Never hold work outside no-mistakes for a manual clean verdict, stack serial manual reviews, or infer authority for one from security, architecture, or risk alone.
