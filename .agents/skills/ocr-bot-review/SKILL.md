@@ -32,6 +32,17 @@ On an `ocr-pr <owner/repo>#<n> <head_sha>` `check:` wake, run one reviewer round
    If the repository has no clone under `projects/` yet, load `project-management` and clone it through the normal add intake first.
 5. Scaffold with `fm-brief.sh ocrrev-<slug> <repo> --scout`, then replace `{TASK}` with the filled reviewer brief block below.
 
+
+### Declining a round is not free - clear the seen record when you do
+
+The poll records a PR's head as seen whether or not a round actually ran, and it re-detects a head only when the head changes or the PR was previously recorded as a draft. So declining a wake at a given head means that head will never be offered again.
+
+That is correct when the PR is finished with. It is WRONG in the case that produced it on 2026-09-04: a validated-path PR is opened ready by its tool, the poll sees it ready and wakes, firstmate declines because the round belongs at the landing turn, the worker then converts it to a draft, and the flip later returns it to the SAME head - already recorded as seen and not-draft, so no round is ever offered. The PR sat ready with green CI and no reviewer until a post-flip check caught it.
+
+So whenever you decline a round for a PR that will still need one later, delete that PR's line from `state/ocrbot/seen/<owner>__<repo>` in the same turn. The next poll then treats it as a first sighting. Do NOT rely on the flip alone to re-trigger detection.
+
+Distinguish the two cases before assuming a fault: a PR recorded with draft flag `1` DOES re-trigger on the flip - the poll handles that transition. Only a head recorded while ready is lost.
+
 On an `ocrbot-error <detail>` `check:` wake there is no review round.
 Relay the diagnostic to the captain as a bot configuration or credential blocker, translated per AGENTS.md section 9, and stop; the poll already deduplicates the error, so one wake is one report.
 
