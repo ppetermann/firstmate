@@ -9,8 +9,17 @@ Part of the harness-adapters skill; load per its "Per-harness facts" table. Veri
 | Interrupt | single Escape |
 | Skill invocation | `/<skill>` (e.g. `/no-mistakes`) |
 
-First launch in a fresh worktree may show a project-trust confirmation ("Is this a project you created or one you trust?" with "Yes, I trust this folder" preselected, accepted by Enter; verified on Claude Code 2.1.231).
-`bin/fm-spawn.sh` gates every claude launch against this dialog automatically, and no manual peek or Enter is needed for a crewmate, scout, or secondmate.
+## Workspace trust
+
+Claude gates a folder it has never seen behind an interactive workspace-trust dialog, so every fresh task worktree would hit it.
+`--dangerously-skip-permissions` does not cover that gate: `claude --help` records that the dialog is skipped only in non-interactive mode, through `-p` or a non-TTY stdout, and a crewmate pane is interactive.
+A crewmate or scout spawn therefore PRE-REGISTERS the worktree before launch and the dialog does not appear: `bin/fm-claude-trust.sh` records `hasTrustDialogAccepted` for that worktree path in `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`, and `bin/fm-spawn.sh` refuses the spawn when the write fails rather than launching a worker that would wedge.
+A `--secondmate` launch is deliberately excluded because `bin/fm-spawn.sh` runs its per-harness pre-launch setup only for non-secondmate kinds, so a claude secondmate home keeps its own one-time trust decision; that is rarely felt because a secondmate home is persistent and its trust decision is made once, unlike a per-task worktree that is new every time.
+
+Behind that pre-registration, `bin/fm-spawn.sh` still gates every claude launch on the dialog, so no manual peek or Enter is needed for a crewmate, scout, or secondmate.
+The two rendering observations on record CONFLICT and are not reconciled: this fleet verified "Is this a project you created or one you trust?" with "Yes, I trust this folder" preselected and accepted by Enter on Claude Code 2.1.231 (2026-08-13), while upstream reports a rendering whose selection starts on `No, exit`, where a sent Enter would end the session instead of accepting.
+Pre-registration is what makes that disagreement cheap: the dialog should never appear for a crewmate or scout, and the gate below never treats a sent Enter as success on its own.
+Re-verify the rendering against the installed version before relying on the Enter path, and treat a visible trust dialog as evidence pre-registration did not take effect - inspect the trust store and the spawn's error output first.
 Readiness is the gate's PRIMARY signal: its real question is "did the agent start processing the brief?", not "is the prompt on screen?".
 For a crewmate or scout, processing is confirmed through the busy-state hook protocol (claude's `UserPromptSubmit` advancing the seeded record past the `fm-spawn` entry), a protocol fact rather than a rendered string, so that path is version-drift-safe.
 Trust-prompt recognition is only a secondary aid that clears a known blocker so processing can start: it reads more than one independent rendered fragment and lets any one carry the detection, so no single vendor string is load-bearing.
@@ -27,6 +36,12 @@ As defense in depth for any pane that flag cannot reach, including the captain's
 Its broader dark-TRUECOLOR placeholder handling and dark-theme tradeoff are documented in `docs/herdr-backend.md` "Composer and injection safety", with active captures in `docs/verification/runtime-backends.md`.
 That styled capture is internal to the boolean detector only.
 `fm-peek` and every other human or LLM-facing capture path stays plain `tmux capture-pane` with no escape codes.
+
+## Feedback drafts
+
+The spawn disables Claude's `/bug` and `/feedback` model-drafted feedback flow for every Claude worker and secondmate, so a fleet-launched agent never queues or submits a bug report on the captain's behalf.
+Two controls are layered deliberately: `CLAUDE_CODE_SEND_FEEDBACK=0` is read directly and is not subject to managed-settings precedence, while `--settings '{"feedbackDrafts":"off"}'` sets the documented settings key that a managed policy CAN override back on.
+Both are per-launch and never touch the captain's global `~/.claude/settings.json`; `launch_template()` in `bin/fm-spawn.sh` owns their exact mechanics.
 
 **Primary-session guard fact (verified 2026-07-04, Claude Code 2.1.201; preserved 2026-07-08, Claude Code 2.1.204; Stop-owned auto-arm revalidated 2026-07-24, Claude Code 2.1.219).**
 This is separate from the per-task crewmate turn-end hook above (that one just `touch`es a marker file in a task's own `.claude/settings.local.json`).
