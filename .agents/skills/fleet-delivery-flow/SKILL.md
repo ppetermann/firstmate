@@ -40,8 +40,12 @@ such section is NOT on this flow yet - resolve it at registration
    Converging cascade = stop and merge. Every thread resolved or rejected in-thread.
 5. Merge-ready contract, all six legs live in the reporting turn:
    (1) `gh-axi pr checks <n>` all required jobs run AND passed on the current head;
-   (2) `gh-axi pr view <n> --reviews` binding review APPROVED (CodeRabbit on
-       maia/eve-members; the OCR bot's approving review on crew-watch);
+   (2) `gh-axi pr view <n> --reviews` binding review APPROVED. The OCR bot gates
+       every repo in `config/ocr-bot/repos` - read that file, do not carry a list
+       here: today maia, eve-members, crew-watch, ocr-review-service and
+       maia-eve-secretary. CodeRabbit binds additionally on maia and eve-members.
+       maia-eve-secretary and ocr-review-service have the bot only and no
+       CodeRabbit, so never wait for a reviewer that was never installed;
    (3) zero unresolved threads; (4) reviewed head == current head;
    (5) title/body describe the change; (6) full https URL in the report.
    Any failed leg: not ready — name the leg. The captain merges; record via
