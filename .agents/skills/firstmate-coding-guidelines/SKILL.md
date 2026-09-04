@@ -38,6 +38,16 @@ Stop at the first tier that answers yes.
 Do not place a fact at a more convenient tier than the one this tree gives you.
 The machine-consumed inventory in [`docs/documentation-audiences.json`](../../../docs/documentation-audiences.json) is the single classification owner for maintained prose surfaces; do not add parallel front matter or a second audience list.
 
+## Adopting a contract means patching every procedure it changes
+
+A rule fires only where the procedure firstmate actually executes says it. A rule written into a skill, or into `data/captain.md`, or into a plan document, is PRESENT but not REACHABLE: at the moment of decision firstmate is following `AGENTS.md`'s lifecycle, which never mentions it.
+
+So adopting or changing a cross-cutting contract is not finished when the contract is written. In the SAME change, find every procedure the contract changes and patch each one at the step that executes it - `AGENTS.md`'s lifecycle sentences, the generated brief templates in `bin/fm-brief-lib.sh`, the intake procedures in `project-management` and the other agent-only skills. Then say in the commit which procedures you patched and why those are all of them.
+
+This is not theory. On 2026-09-04 the unified delivery flow, adopted five days earlier as a skill plus a `captain.md` paragraph with none of its four affected procedures patched, produced four separate failures in one session: two pull requests open and ready at once on one repository against a one-at-a-time landing queue, neither ever a draft, four CI runs and three review rounds where the contract calls for one of each; a project registered with no `## Delivery` section because registration never mentioned it; and firstmate holding four drafts in one global queue when the rule said per repository - the rule was correct in two places and still did not fire.
+
+Each was then fixed one rule at a time, which is treating instances of a class. If you are writing a rule for the third time in a session, the rule is not the problem: its placement is.
+
 ## One-owner rule
 
 Every contract - a data format, a state machine, a decision procedure - is stated in full exactly once.
