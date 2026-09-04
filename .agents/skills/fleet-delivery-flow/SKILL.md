@@ -34,8 +34,13 @@ such section is NOT on this flow yet - resolve it at registration
 4. Gauntlet: one CI run + one review round on the flip head. Post-flip verify within
    ~5 min: `gh-axi pr checks <n>` must list the CI context(s) and ocr-review. If
    ocr-review is missing (resident bot missed the flip):
-   `sed -i '/^<n> /d' $FM_HOME/state/ocrbot/seen/ppetermann__<repo>` and it
-   re-detects next poll (retires with ocr-review-service). Flip-CI failure: fix via
+   `sed -i '/^<n> /d' $FM_HOME/state/ocrbot/seen/ppetermann__<repo>` AND
+   `rm -f $FM_HOME/state/ocrbot/etag/ppetermann__<repo>`, then it re-detects next
+   poll (retires with ocr-review-service). The etag half is load-bearing: the poll
+   short-circuits on an unchanged PR listing and never re-reads the seen file, so
+   clearing seen alone is inert until something else changes that repo's listing
+   (measured 2026-09-04 on maia-eve-secretary#44 - seen cleared at 18:32, the repo
+   was still not polled at 18:40 while two sibling repos polled twice). Flip-CI failure: fix via
    ladder + one push; longer work: `gh-axi pr ready <n> --undo`, iterate, re-flip.
    Converging cascade = stop and merge. Every thread resolved or rejected in-thread.
 5. Merge-ready contract, all six legs live in the reporting turn:
