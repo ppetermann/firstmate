@@ -16,6 +16,9 @@ The bar rule: the project's committed CI is the single definition of green; the 
 ladder is that CI run early. gate == CI. A gate failure outside the diff never widens
 the PR — it becomes a chore task. Worker-facing commands live in each project's
 AGENTS.md `## Delivery` section; `data/projects.md` stays the posture registry.
+A project whose AGENTS.md has no
+such section is NOT on this flow yet - resolve it at registration
+(`project-management`) before dispatching ship work there.
 
 ## Phases
 0. Intake: mode+yolo from registry; one task = one PR; trigger audit when workflows in

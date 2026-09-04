@@ -79,6 +79,18 @@ cd projects/<name> && no-mistakes init && no-mistakes doctor
 ```
 
 Initialization configures the local gate and does not vendor a no-mistakes skill into the project.
+
+## Put the project on the delivery flow
+
+Registration is not finished until the project's `AGENTS.md` carries a committed `## Delivery` section (captain, 2026-09-04: "you registered this project, so you didn't add it, please make sure this doesn't happen again").
+Resolve it at add or create intake, in the same breath as the no-mistakes initialization above - not as an afterthought.
+`fleet-delivery-flow` owns the contract; the section is its worker-facing half: the project's local ladder commands, trigger map, draft and flip mechanics, review setup, release tail, and batching triggers.
+
+Firstmate never writes a project's `AGENTS.md`. Route it through a crewmate on that project's own delivery path using `bin/fm-ensure-agents-md.sh`, exactly as `AGENTS.md` section 6 requires.
+Point that section at the shared contract rather than copying it, so one flow does not become one copy per project that drifts.
+
+A project with no such section is not yet on the flow: say so plainly rather than assuming a worker there will infer a contract that is written nowhere it reads.
+Every project registered between the flow's adoption and 2026-09-04 was missing one, which is how two pull requests on one repo ran outside the flow the day it mattered.
 Do not create a commit merely because initialization ran.
 If doctor reports an environment, authentication, or daemon problem, resolve that blocker before dispatching work and never restart the shared daemon from a project operation.
 

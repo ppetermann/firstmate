@@ -59,8 +59,13 @@ pass and never writes markers, archives, or destinations except through the owne
 Never move safety-relevant diagnostics or facts that fire in any session with live work
 (worker-state reads, output-truncation discipline, quota/dispatch arithmetic), and never
 archive a unique current fact - archive is a move with provenance, not deletion.
-Captain-preference entries in `data/captain.md` change only through inspect-then-update
-or the captain's own words; the audit may propose, not rewrite, his rulings.
+The SUBSTANCE of a captain ruling is his: preserve it faithfully, attribute it in his
+words, and never invent, soften, broaden, or drop a live one. The ARRANGEMENT of the
+file is firstmate's and needs no permission - wording, ordering, deduplication, and
+compressing firstmate's own narration around a ruling. Captain, 2026-09-04: "i dont
+maintain files in your setup, these files are yours ... thats for you to pick whats
+the most efficient." Asking permission to deduplicate two entries is exactly the
+overcaution hunt 2 exists to catch.
 
 ## Receipt
 
