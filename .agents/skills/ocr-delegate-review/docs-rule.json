@@ -1,0 +1,11 @@
+{
+  "include": [
+    "**/*.md"
+  ],
+  "rules": [
+    {
+      "path": "**/*.md",
+      "rule": "#### Documentation accuracy\nDoes every claim about behavior, commands, flags, defaults, file paths, and triggers match the code and configuration at this head? Cite the contradicting file:line for any mismatch.\nA claim about branch protection, required checks, merge gating, or anything else that lives outside the repository is verified against the live API, not against another document.\n\n#### One owner\nDoes the text restate a fact that already has an authoritative owner elsewhere (code doc comment, another doc)? Prefer a pointer over a copy.\nWhen the text names an owner, open that owner: confirm it actually carries the fact, and grep for surviving copies of the same fact elsewhere - other docs AND code comments - because a change that declares single ownership without retiring the other copies has not achieved it.\n\n#### Completeness\nDoes the change leave a stale statement elsewhere in the docs (grep for the old wording)? Check the whole repository, not the diff window: a consolidation typically leaves its worst copy standing outside the files it edited."
+    }
+  ]
+}

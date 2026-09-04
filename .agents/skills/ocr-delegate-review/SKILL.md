@@ -30,7 +30,9 @@ A whole-project review has no completion window: commission it as its own scout 
 ## Reviewer binding
 
 A review round is judgement work: it takes the JUDGEMENT AND CORRECTION class of `config/crew-dispatch.json` under the active setup - opus on the Claude setup, glm-5.3 on the GLM setup (captain, 2026-09-04). Read that config at dispatch rather than binding a harness or model here.
-Both paths below deliver the filled worker block: `{OCR_BASE}` becomes the project's default-branch ref, normally `origin/main`, the same base the ship branch was created from, and any captain-requested `--exclude` patterns are appended to the preview and rule commands.
+Both paths below deliver the filled worker block: `{OCR_BASE}` becomes the project's default-branch ref, normally `origin/main`, the same base the ship branch was created from; `{OCR_RULE}` becomes the absolute path to `docs-rule.json` beside this skill in the active firstmate home; and any captain-requested `--exclude` patterns are appended to the preview and rule commands.
+`docs-rule.json` is what makes documentation reviewable at all: `ocr` classifies no Markdown, so without it every `.md` file comes back `unsupported_ext` and a doc-only diff previews as zero reviewable files.
+It adds a documentation group and displaces nothing - a mixed diff keeps its `**/*.rs` system group and gains the `**/*.md` custom one (verified 2026-09-04 against maia-eve-secretary's 20845d0..15e7e7a: 3 excluded became 3 reviewable, and `src/tick.rs` kept its system group).
 
 Path one: the task's own worker already runs pi on GLM-5.3.
 Steer the block to that worker before its completion step.
@@ -44,7 +46,7 @@ The reviewer reviews, the implementer fixes: firstmate relays the findings to th
 
 ## Worker block
 
-Paste this block verbatim, after replacing `{OCR_BASE}`:
+Paste this block verbatim, after replacing `{OCR_BASE}` and `{OCR_RULE}`:
 
 ```markdown
 ## OCR review round (captain-requested for this task)
@@ -56,9 +58,9 @@ OCR only selects files and supplies rules; YOU perform the review with your own 
    `working: OCR review skipped (ocr not installed); continuing delivery`
    to the status file and continue the normal delivery steps. Do the same, after one retry,
    if any ocr command below exits nonzero or prints unparseable JSON (use the error's first line as the reason).
-2. Run `ocr delegate preview --from {OCR_BASE} --to HEAD -f json`.
+2. Run `ocr delegate preview --from {OCR_BASE} --to HEAD --rule {OCR_RULE} -f json`.
    If `reviewable_count` is 0, note "no reviewable files (<total_files> excluded)" for your done summary and continue the delivery steps.
-3. Run `ocr delegate rule -f json <every path in reviewable_files>`.
+3. Run `ocr delegate rule --rule {OCR_RULE} -f json <every path in reviewable_files>`.
 4. For each reviewable file, run `git diff <merge_base from step 2>..HEAD -- <path>` and review the diff
    against that file's rule group AND this brief's task intent. Tag each finding with category (bug/security/performance/maintainability/test/style/documentation/other) and severity (critical/high/medium/low), plus path and line range in the new file.
    Track a checklist keyed by (path, status);
@@ -82,7 +84,7 @@ OCR only selects files and supplies rules; YOU perform the review with your own 
 A captain ask like "review the whole project" is not workspace mode.
 Workspace mode reviews uncommitted working-tree changes only, and fleet branches are committed before review, so a workspace preview would come back empty.
 The ask takes the scan shape instead.
-Run `ocr delegate rule -f json` over the project's source paths, batched, then review each full file against its rule group plus the project context.
+Run `ocr delegate rule --rule {OCR_RULE} -f json` over the project's source paths, batched, then review each full file against its rule group plus the project context.
 The scan runs as a scout on the reviewer profile resolved above, and the coverage, failure-soft, and reporting contracts in the sections below apply unchanged.
 
 ## Reporting and translation
@@ -103,7 +105,8 @@ Relay any skip to the captain in the next natural reply, since a requested-but-s
 The round never blocks a delivery path: the selected delivery path, its automated gates, and the configured merge authority remain the authoritative rigor.
 If `ocr` is not on PATH, the worker appends the skip status line and the delivery path continues unchanged.
 If `ocr delegate preview` or `ocr delegate rule` exits nonzero or prints unparseable JSON, the worker retries once, then skips with the error's first line as the reason.
-An empty preview (`reviewable_count: 0`, common for doc-only diffs) is not an error: note "no reviewable files (N excluded)" in the done clause and continue.
+An empty preview (`reviewable_count: 0`) is not an error: note "no reviewable files (N excluded)" in the done clause and continue.
+With `docs-rule.json` passed, a doc-only diff is no longer empty, so an empty preview now means the diff genuinely holds nothing this reviewer selects - a `.md` file coming back `unsupported_ext` means the rule file was not passed, and the round must be re-run with it.
 The worker runs at most two preview-to-review rounds; residual findings are reported, never looped.
 A finding the worker cannot resolve is either rejected with a one-line reason or escalated through the existing `needs-decision` contract; it is never silently dropped.
 

@@ -49,7 +49,7 @@ Relay the diagnostic to the captain as a bot configuration or credential blocker
 ## Reviewer brief block
 
 Replace `{OCR_HOME}`, `{OCR_REPO}`, `{OCR_PR}`, `{OCR_HEAD}`, and `{OCR_BASE_REF}` with the firstmate home path, the `owner/repo`, the PR number, the recorded head SHA, and the PR's base ref.
-Replace `{OCR_CORE}` with steps 2-4 of the `ocr-delegate-review` worker block pasted verbatim, with its `{OCR_BASE}` resolved to `git merge-base {OCR_BASE_REF} {OCR_HEAD}`; the pasted steps keep their own numbering and the round's steps resume after them.
+Replace `{OCR_CORE}` with steps 2-4 of the `ocr-delegate-review` worker block pasted verbatim, with its `{OCR_BASE}` resolved to `git merge-base {OCR_BASE_REF} {OCR_HEAD}` and its `{OCR_RULE}` resolved to `{OCR_HOME}/.agents/skills/ocr-delegate-review/docs-rule.json`, which the round must always carry so a documentation change is reviewed rather than excluded; the pasted steps keep their own numbering and the round's steps resume after them.
 Then paste the whole block into the brief's `{TASK}` area.
 
 ```markdown
