@@ -98,17 +98,25 @@ test_promotion_refuses_a_missing_brief_and_records_every_mode() {
   assert_grep 'kind=scout' "$dir/home/state/$id.meta" "a refused promotion must leave the task a scout"
   assert_absent "$instructions" "a refused promotion must publish no ship instructions"
 
-  id=promote-nm
-  dir=$(make_case promote-nm "$id")
+  id=promote-lo
+  dir=$(make_case promote-lo "$id")
+  instructions="$dir/home/data/$id/ship-instructions.md"
+  run_promote "$dir" "$id" local-only
+  expect_code 0 "$RC" "promotion to local-only must succeed"
+  assert_grep 'Delivery contract: mode=local-only' "$instructions" \
+    "local-only ship instructions do not carry their contract"
+  assert_grep 'Do NOT push, do NOT open a PR, do NOT merge' "$instructions" \
+    "local-only ship instructions lost their no-remote contract"
+
+  id=promote-retired
+  dir=$(make_case promote-retired "$id")
   instructions="$dir/home/data/$id/ship-instructions.md"
   run_promote "$dir" "$id" no-mistakes
-  expect_code 0 "$RC" "promotion to no-mistakes must succeed"
-  assert_grep 'Delivery contract: mode=no-mistakes' "$instructions" \
-    "no-mistakes ship instructions do not carry their contract"
-  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
-  assert_grep 'pass `--intent` as only this brief' "$instructions" \
-    "no-mistakes ship instructions lost the --intent contract"
-  pass "fm-promote: refuses a missing scout brief and records every mode's contract"
+  [ "$RC" -ne 0 ] || fail "promotion to the retired no-mistakes mode must refuse"
+  printf '%s\n' "$ERR" | grep -F 'must be one of direct-PR, local-only' >/dev/null \
+    || fail "the retired-mode refusal did not name the accepted modes: $ERR"
+  assert_absent "$instructions" "a refused promotion must publish no ship instructions"
+  pass "fm-promote: refuses a missing scout brief and a retired mode, and records every live mode's contract"
 }
 
 test_promotion_records_ship_contract_in_instructions

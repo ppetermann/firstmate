@@ -118,7 +118,7 @@ test_ship_spawn_exports_per_task_session() {
   IFS='|' read -r home proj wt fakebin launchlog id <<EOF
 $rec
 EOF
-  out=$(run_spawn "$home" "$wt" "$fakebin" "$launchlog" "$id" "$proj" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$wt" "$fakebin" "$launchlog" "$id" "$proj" --mode direct-PR --yolo off)
   status=$?
   expect_code 0 "$status" "ship spawn should succeed"
   assert_contains "$out" "spawned $id" "ship spawn should report success"
@@ -165,10 +165,10 @@ EOF
   IFS='|' read -r hb pb wb fb lb ib <<EOF
 $rec_b
 EOF
-  out=$(run_spawn "$ha" "$wa" "$fa" "$la" "$ia" "$pa" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$ha" "$wa" "$fa" "$la" "$ia" "$pa" --mode direct-PR --yolo off)
   expect_code 0 "$?" "distinct-a spawn should succeed"
   sess_a=$(sed -n 's/^export CHROME_DEVTOOLS_AXI_SESSION=//p' "$la" | head -1)
-  out=$(run_spawn "$hb" "$wb" "$fb" "$lb" "$ib" "$pb" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$hb" "$wb" "$fb" "$lb" "$ib" "$pb" --mode direct-PR --yolo off)
   expect_code 0 "$?" "distinct-b spawn should succeed"
   sess_b=$(sed -n 's/^export CHROME_DEVTOOLS_AXI_SESSION=//p' "$lb" | head -1)
   [ -n "$sess_a" ] || fail "distinct-a produced no session export"
@@ -193,7 +193,7 @@ test_max_length_task_id_gets_valid_session_and_round_trips() {
 $rec
 EOF
   [ "${#id}" -eq 64 ] || fail "fixture task id should be 64 chars (got ${#id})"
-  out=$(run_spawn "$home" "$wt" "$fakebin" "$launchlog" "$id" "$proj" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$wt" "$fakebin" "$launchlog" "$id" "$proj" --mode direct-PR --yolo off)
   status=$?
   expect_code 0 "$status" "spawn with a 64-char task id should succeed"
   sess=$(sed -n 's/^export CHROME_DEVTOOLS_AXI_SESSION=//p' "$launchlog" | head -1)
@@ -293,7 +293,7 @@ worktree=$TMP_ROOT/nonexistent-worktree-$id
 project=$TMP_ROOT/nonexistent-project-$id
 harness=claude
 kind=ship
-mode=no-mistakes
+mode=direct-PR
 yolo=off
 META
   printf '%s' "$fake"

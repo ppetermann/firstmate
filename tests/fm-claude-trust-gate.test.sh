@@ -224,7 +224,7 @@ run_spawn() {
     FM_FAKE_TASK_ID="$id" \
     FM_CLAUDE_READY_POLLS="${FM_CLAUDE_READY_POLLS:-2}" FM_CLAUDE_POLL_INTERVAL=0 \
     PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$proj" --harness claude --mode no-mistakes --yolo off "$@" 2>&1
+    "$SPAWN" "$id" "$proj" --harness claude --mode direct-PR --yolo off "$@" 2>&1
 }
 
 read_spawn_record() {

@@ -26,7 +26,7 @@ such section is NOT on this flow yet - resolve it at registration
    `!github.event.pull_request.draft`; concurrency group per ref with
    cancel-in-progress only for pull_request; publish lanes main+tags; paths-ignore
    never on a lane whose jobs are required contexts).
-1. Local ladder green on the exact push head (fm-local-gate or pipeline).
+1. Local ladder green on the exact push head (fm-local-gate).
 2. Push once; PR opens DRAFT, always. Drafts run no CI and get no review rounds.
 3. Landing queue: one ready PR per repo. On merge: refresh clone -> next draft rebases
    onto new main -> ladder on rebased head -> `gh-axi pr ready <n>`. The flip is the

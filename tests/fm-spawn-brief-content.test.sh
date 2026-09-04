@@ -34,7 +34,7 @@ run_probe_spawn() {  # <home> <projects> <id> [extra spawn args...]
   shift 3
   FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
     FM_HOME="$home" FM_PROJECTS_OVERRIDE="$projects" FM_SPAWN_NO_GUARD=1 \
-    "$SPAWN" "$id" projects/alpha codex --mode no-mistakes --yolo off "$@" 2>&1
+    "$SPAWN" "$id" projects/alpha codex --mode direct-PR --yolo off "$@" 2>&1
 }
 
 test_unfilled_placeholder_brief_refuses() {

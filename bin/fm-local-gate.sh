@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Token-free local validation gate for ship worktrees: run the repo's own
 # check and test suite in a clean dependency context so the worker that wrote
-# the code cannot pass on stale installed state. For direct-PR tasks this is
-# the local replacement for the no-mistakes pipeline's test/typecheck
-# enforcement (AGENTS.md section 7 owns the delivery contract).
+# the code cannot pass on stale installed state. It is the committed CI run
+# early: a red gate blocks the push (AGENTS.md section 7 owns the delivery
+# contract).
 # Usage:
 #   fm-local-gate.sh <worktree-dir>
 #     Bare human form: run the gate, manage no state marker.

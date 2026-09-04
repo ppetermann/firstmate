@@ -93,8 +93,7 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
 fi
 
 # Advisory local-gate check for direct-PR tasks: warn, never block, because
-# firstmate judges the warning and scouts and no-mistakes tasks legitimately
-# lack markers.
+# firstmate judges the warning and scout tasks legitimately lack markers.
 if [ "$(sed -n 's/^mode=//p' "$META" | tail -1)" = direct-PR ]; then
   GATE_PASS="$STATE/$ID.gate-pass"
   if [ -f "$GATE_PASS" ] && [ ! -L "$GATE_PASS" ]; then

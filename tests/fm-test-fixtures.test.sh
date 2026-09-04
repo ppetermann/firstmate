@@ -37,22 +37,6 @@ test_no_mistakes_version_constant() {
   pass "fake no-mistakes --version is the shared constant and overridable"
 }
 
-test_no_mistakes_init_doctor_markers() {
-  local fakebin dir rc
-  dir="$TMP_ROOT/nm-init"
-  mkdir -p "$dir"
-  fakebin=$(fm_fakebin "$dir")
-  fm_test_fake_no_mistakes_init_doctor "$fakebin"
-  ( cd "$dir" && "$fakebin/no-mistakes" init )
-  assert_present "$dir/.no-mistakes-init" "init did not touch the marker"
-  ( cd "$dir" && "$fakebin/no-mistakes" doctor )
-  assert_present "$dir/.no-mistakes-doctor" "doctor did not touch the marker"
-  rc=0
-  ( cd "$dir" && "$fakebin/no-mistakes" axi ) || rc=$?
-  expect_code 2 "$rc" "unknown no-mistakes verb should exit 2"
-  pass "init/doctor no-mistakes stub touches markers and refuses other verbs"
-}
-
 test_fake_gh_and_gh_axi() {
   local fakebin out
   fakebin=$(fm_fakebin "$TMP_ROOT/gh")
@@ -125,7 +109,6 @@ test_spawn_home_layout() {
 }
 
 test_no_mistakes_version_constant
-test_no_mistakes_init_doctor_markers
 test_fake_gh_and_gh_axi
 test_spawn_tmux_and_fakebin
 test_send_stubs_and_ssh

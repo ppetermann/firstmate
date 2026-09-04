@@ -23,7 +23,7 @@ Surface that this contradicts the recorded opt-in-only constraint and ask the ca
 ## When it applies
 
 A per-task round runs after the implementation is committed and before the delivery mode's completion step.
-That is before `/no-mistakes` starts, before a `direct-PR` push, and before the `local-only` ready report.
+That is before a `direct-PR` push and before the `local-only` ready report.
 If the captain asks for the round after validation has started or the PR exists, report that the pre-PR window has passed instead of improvising a post-hoc variant.
 A whole-project review has no completion window: commission it as its own scout under the whole-project section below.
 
@@ -51,7 +51,7 @@ Paste this block verbatim, after replacing `{OCR_BASE}` and `{OCR_RULE}`:
 ```markdown
 ## OCR review round (captain-requested for this task)
 The captain requested an OpenCodeReview delegation-mode review of this change before it leaves your branch.
-Run it after your implementation is committed and BEFORE this task's completion step (before starting /no-mistakes, before pushing a direct-PR branch, or before reporting a local-only ready branch).
+Run it after your implementation is committed and BEFORE this task's completion step (before pushing a direct-PR branch, or before reporting a local-only ready branch).
 OCR only selects files and supplies rules; YOU perform the review with your own reasoning.
 
 1. Run `command -v ocr`. If it is missing, append

@@ -163,7 +163,7 @@ When a requested effort value is outside the harness-specific accepted set, `fm-
 This preserves launch success instead of passing a known-bad value.
 For Cursor, select the intended reasoning class through a model id the account's own `--list-models` actually returns, and leave the separate effort axis unset.
 
-## no-mistakes skill invocation
+## Skill invocation
 
 Send the validation skill using the target harness's skill invocation form.
 Natural language is acceptable if uncertain.

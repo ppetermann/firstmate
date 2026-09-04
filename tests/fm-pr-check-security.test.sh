@@ -183,14 +183,14 @@ SH
 }
 
 write_task_meta() {
-  local dir=$1 id=${2:-task-a}
+  local dir=$1 id=${2:-task-a} mode=${3:-local-only}
   fm_write_meta "$dir/home/state/$id.meta" \
     "window=firstmate:fm-$id" \
     "endpoint_task_id=$id" \
     "worktree=$dir/wt" \
     "project=$dir/project" \
     "kind=ship" \
-    "mode=no-mistakes"
+    "mode=$mode"
 }
 
 write_poll_meta() {
@@ -2160,14 +2160,14 @@ test_direct_pr_gate_pass_warning() {
   assert_grep "warning: direct-PR task gate-c gate pass head 9999999999999999999999999999999999999999 does not match PR head 0123456789abcdef0123456789abcdef01234567" "$dir/check.err" \
     "a gate marker not matching the PR head must warn"
 
-  # Control: a no-mistakes task without a marker never warns.
-  dir=$(make_case gate-warn-nomistakes)
+  # Control: a task in another delivery mode without a marker never warns.
+  dir=$(make_case gate-warn-other-mode)
   state="$dir/home/state"
   write_task_meta "$dir" gate-d
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
     PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" gate-d https://github.com/o/r/pull/34 \
     > "$dir/check.out" 2> "$dir/check.err" \
-    || fail "no-mistakes task without a marker must not block PR check: $(cat "$dir/check.err")"
+    || fail "a non-direct-PR task without a marker must not block PR check: $(cat "$dir/check.err")"
   assert_no_grep "warning:" "$dir/check.err" \
     "non-direct-PR tasks must never warn about a missing gate marker"
   pass "direct-PR gate pass warnings are advisory"

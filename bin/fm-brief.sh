@@ -6,12 +6,12 @@
 # fills before dispatch: `{TASK}` under `## Captain's intent` (the captain's
 # own ask plus only the context needed to read it) and `{FIRSTMATE_SPEC}`
 # under `## Firstmate spec` (build instructions, which are never the captain's
-# intent). bin/fm-dod-lib.sh owns the no-mistakes `--intent` contract those
-# subsections feed; bin/fm-spawn.sh refuses leftover placeholders. Secondmate
+# intent). bin/fm-dod-lib.sh owns the parsing contract those subsections feed;
+# bin/fm-spawn.sh refuses leftover placeholders. Secondmate
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
+# Usage: fm-brief.sh <task-id> <repo-name> --mode <direct-PR|local-only> [--herdr-lab]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
@@ -36,12 +36,9 @@
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never reads it:
-#   no-mistakes  implement -> /no-mistakes pipeline -> PR -> configured merge authority
-#   direct-PR    implement -> local gate (bin/fm-local-gate.sh) -> push + open PR via gh-axi (no pipeline) -> configured merge authority
+#   direct-PR    implement -> local gate (bin/fm-local-gate.sh) -> push once + open a DRAFT PR via gh-axi -> configured merge authority
 #   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
 #                the configured merge authority approves, firstmate merges to local main
-# no-mistakes-prod-only is a registry policy, not a task mode; resolve it to one of
-# the three concrete modes at intake before calling this script.
 # PR-bearing definitions of done state the required-review merge bar
 # reviewer-neutrally ("the repository's required review"; the task text names
 # the concrete reviewer when there is one): the CI-green/PR-open report is a
@@ -158,15 +155,12 @@ done
 # missing or invalid value stops the scaffold rather than silently defaulting.
 if [ "$KIND" = ship ]; then
   [ "$MODE_SET" -eq 1 ] || {
-    echo "error: ship briefs require --mode <no-mistakes|direct-PR|local-only>; resolve it at intake from the captain's instruction and the project's registered posture in data/projects.md" >&2
+    echo "error: ship briefs require --mode <direct-PR|local-only>; resolve it at intake from the captain's instruction and the project's registered posture in data/projects.md" >&2
     exit 1
   }
   case "$MODE" in
-    no-mistakes|direct-PR|local-only) ;;
-    no-mistakes-prod-only)
-      echo "error: no-mistakes-prod-only is a registry policy, not a task mode; classify this task's surface and resolve it to no-mistakes or direct-PR at intake" >&2
-      exit 1 ;;
-    *) echo "error: --mode must be one of no-mistakes, direct-PR, local-only (got '$MODE')" >&2; exit 1 ;;
+    direct-PR|local-only) ;;
+    *) echo "error: --mode must be one of direct-PR, local-only (got '$MODE')" >&2; exit 1 ;;
   esac
 elif [ "$MODE_SET" -eq 1 ]; then
   echo "error: --mode applies only to ship briefs; a scout delivers a report and a secondmate charter is not a delivery contract" >&2
@@ -407,7 +401,6 @@ fi
 # "Delivery contract: mode=<mode>" line that bin/fm-spawn.sh checks against its own
 # explicit --mode before launching. bin/fm-brief-lib.sh owns the per-mode text
 # (and shares it with bin/fm-promote.sh's brief append).
-SETUP2=$(fm_brief_ship_setup2 "$MODE")
 RULE1=$(fm_brief_ship_rule1 "$MODE" "$ID")
 DOD=$(fm_brief_ship_dod "$MODE" "$ID")
 
@@ -430,7 +423,7 @@ You are in a disposable git worktree of $REPO, at a detached HEAD on a clean def
 The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse --git-common-dir\` can help inspect the repo, but they do not prove you are outside the primary checkout.
 If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - append \`blocked: launched in primary checkout, not an isolated worktree\` to the status file and stop.
 
-1. First action: create your branch: \`git checkout -b fm/$ID\`$SETUP2
+1. First action: create your branch: \`git checkout -b fm/$ID\`
 
 # Rules
 $RULE1
@@ -452,6 +445,8 @@ $RULE1
 5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
 6. If a decision belongs above the implementation worker (product choices, destructive actions, ask-user findings),
    append \`needs-decision [key=<slug>]: {one-line summary}\` and stop - put the \`[key=<slug>]\` token between the verb and the colon, e.g. \`needs-decision [key=api-shape]: REST or RPC?\`, so firstmate can close it with \`bin/fm-send.sh <task> --resolve-key <slug>\`. The \`<slug>\` may use only letters, digits, \`.\`, \`_\`, or \`-\`.
+   ask-user findings are never yours to answer: escalate and stop, whatever raised the finding.
+   Firstmate applies \`ask-user-authority\` and obtains any required captain decision, then sends it back to you; never route the question to "the user" or decide it yourself.
    Firstmate will reply with the decision.
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [key=<slug>]: {how it cleared}\` yourself with the same slug you opened it with, or a bare \`resolved: {how it cleared}\` if you opened it without a key (a rule-5 \`blocked:\`), as you resume.

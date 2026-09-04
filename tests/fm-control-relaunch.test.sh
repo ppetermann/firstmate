@@ -157,7 +157,7 @@ EOF
     echo "project=$proj"
     echo "harness=$harness"
     echo "kind=ship"
-    echo "mode=no-mistakes"
+    echo "mode=direct-PR"
     echo "yolo=off"
     echo "tasktmp=/tmp/fm-$id"
     echo "model=default"

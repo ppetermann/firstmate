@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Single owner of the brief `# Task` parsing contract and the no-mistakes
-# `--intent` contract: only the brief's `## Captain's intent` subsection plus
-# later captain words, never `## Firstmate spec` and never the worker's own
-# tradeoffs. bin/fm-brief.sh scaffolds those two `# Task` subsections;
-# bin/fm-spawn.sh and bin/fm-promote.sh refuse leftover `{TASK}` /
-# `{FIRSTMATE_SPEC}` placeholders through the helpers below. Other mentions of
-# `--intent` point here rather than restating the rule.
+# Single owner of the brief `# Task` parsing contract: a brief carries the
+# captain's own ask under `## Captain's intent` and Firstmate's build
+# instructions under `## Firstmate spec`, never mixed. bin/fm-brief.sh
+# scaffolds those two subsections; bin/fm-spawn.sh and bin/fm-promote.sh refuse
+# leftover `{TASK}` / `{FIRSTMATE_SPEC}` placeholders through the helpers
+# below.
 #
 # This fork keeps bin/fm-brief-lib.sh as the single owner of the per-mode ship
 # contract text (Setup 2, Rule 1, and the Definition of done), so upstream's
@@ -122,22 +121,6 @@ fm_brief_marked_captain_words() {  # <task-body>
       if (words ~ /[^[:space:]]/) print words
     }
   '
-}
-
-fm_brief_intent_overlay() {  # <captain-intent>
-  cat <<'EOF'
-
-# Current no-mistakes intent contract
-This section supersedes every earlier brief instruction about constructing `--intent`, but not later clarifications actually supplied by the captain.
-Use the serialized captain intent below plus any later words the captain actually supplied as `--intent`; never include Firstmate specification or other mixed Task content.
-
-## Captain intent authorized for --intent
-EOF
-  printf '%s\n' "$1"
-  cat <<'EOF'
-
-Firstmate-authored constraints, acceptance criteria, implementation details, decisions, and tradeoffs are specification, not captain intent.
-EOF
 }
 
 # Accept the current two-subsection contract only when both bodies have content;
