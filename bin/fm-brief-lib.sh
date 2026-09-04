@@ -48,7 +48,8 @@ Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 Run the local gate before pushing: \`bash $FM_ROOT/bin/fm-local-gate.sh $id .\` - a red gate blocks the push; fix and re-gate.
-When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
+When it is implemented and committed, push your branch ONCE and open the PR as a DRAFT - \`gh pr create --draft\` - then append \`done: PR {url}\` to the status file and stop.
+Draft is not optional and has no exceptions: a draft runs no CI and draws no review round, which is the whole point. Never mark it ready yourself. Firstmate owns that flip and does it at this PR's landing turn, and the flip is what fires the one CI run and the one review round.
 The PR description is written for HUMAN reviewers, not as an agent prompt: what the change is and why, how it works, test coverage, and any limitations - never pipeline intents, instructions, or prompt-style text.
 Give the PR a title that names what the change does for the project in plain words - never the task id, the branch name, or a pipeline-generated prefix.
 When this task closes GitHub issues, end the PR body with one \`Closes #N\` line per issue so the merge closes them automatically.
@@ -91,6 +92,7 @@ Two firstmate-specific rules layer on top of that guidance:
 - NEVER pass \`--yes\` (or \`-y\`) to \`no-mistakes axi run\` or \`no-mistakes axi respond\`. It is banned fleet-wide.
   It auto-resolves every gate including ask-user findings with no escalation, and answering your own ask-user finding is a hard rule violation.
 
+The pipeline opens the PR ready, not draft, and has no flag to change that. So the moment it exists, convert it: \`gh pr ready --undo <n>\`. The pipeline's own CI run stands; drafting stops every FURTHER CI run and review round while the PR waits its turn, which is exactly what a moving head costs. Never mark it ready again yourself - firstmate owns that flip at the landing turn.
 Before reporting, write the PR description for HUMAN reviewers - what the change is and why, how it works, test coverage, limitations - never the pipeline intent or any prompt-style text; a pipeline may pre-fill the body, so replace it.
 Give the PR a title that names what the change does for the project in plain words - never the task id, the branch name, or a pipeline-generated prefix.
 When this task closes GitHub issues, end the PR body with one \`Closes #N\` line per issue so the merge closes them automatically.
