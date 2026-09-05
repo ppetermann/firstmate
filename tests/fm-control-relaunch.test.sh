@@ -173,9 +173,12 @@ run_control() {  # <case-dir> <args...>
   # A claude spawn pre-registers workspace trust in the launching user's own
   # store (bin/fm-claude-trust.sh), and a relaunch reaches it through fm-control.sh, so this runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
+  # A case whose subject reads HOME itself - the kimi hook lives under
+  # $HOME/.kimi-code - names the home it wants through FM_TEST_USER_HOME rather
+  # than exporting HOME, which this env line would otherwise override.
   mkdir -p "$dir/user-home"
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
-    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
+    HOME="${FM_TEST_USER_HOME:-$dir/user-home}" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_REAL_GIT="${FM_REAL_GIT:-}" FM_FAKE_GIT_FAILURE="${FM_FAKE_GIT_FAILURE:-}" \
@@ -193,9 +196,10 @@ run_spawn() {  # <case-dir> <args...>
   # A claude spawn pre-registers workspace trust in the launching user's own
   # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
+  # FM_TEST_USER_HOME is the opt-in for a case whose subject reads HOME itself.
   mkdir -p "$dir/user-home"
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
-    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
+    HOME="${FM_TEST_USER_HOME:-$dir/user-home}" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     "$SPAWN" "$@" 2>&1
 }
@@ -524,7 +528,7 @@ test_relaunch_away_retires_the_prior_harness_global_hooks() {
       printf 'token=fm.ghijklghijkl\n' > "$dir/wt/.fm-kimi-turnend"
     fi
 
-    out=$(HOME="$dir/home" run_control "$dir" "rl-retire-$harness" relaunch \
+    out=$(FM_TEST_USER_HOME="$dir/home" run_control "$dir" "rl-retire-$harness" relaunch \
       --harness codex --note "switching away"); rc=$?
     expect_code 0 "$rc" "relaunch away from $harness should succeed"$'\n'"$out"
 
