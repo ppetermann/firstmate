@@ -45,8 +45,12 @@ such section is NOT on this flow yet - resolve it at registration
    Converging cascade = stop and merge. Every thread resolved or rejected in-thread.
 5. Merge-ready contract, all six legs live in the reporting turn:
    (1) `gh-axi pr checks <n>` all required jobs run AND passed on the current head;
-   (2) the AGGREGATE decision is APPROVED - read `reviewDecision` from the GraphQL
-       pullRequest, NOT "an approving review exists". With two binding reviewers, one
+   (2) the AGGREGATE decision, read as `reviewDecision` from the GraphQL pullRequest,
+       NOT "an approving review exists". Three values, three meanings: APPROVED passes;
+       CHANGES_REQUESTED blocks; NULL means the branch requires no approving review at
+       all (maia is such a repo - `required_pull_request_reviews: null` with required
+       CONTEXTS instead), and there the leg is every binding reviewer having APPROVED
+       the CURRENT head. Never read NULL as a block or APPROVED as automatic. With two binding reviewers, one
        CHANGES_REQUESTED on an older commit still holds the merge after the other
        approves the current one, and resolving that reviewer's threads does NOT clear
        its verdict - only its own re-review does (`@coderabbitai review` asks for one).
