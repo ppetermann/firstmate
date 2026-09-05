@@ -45,7 +45,14 @@ such section is NOT on this flow yet - resolve it at registration
    Converging cascade = stop and merge. Every thread resolved or rejected in-thread.
 5. Merge-ready contract, all six legs live in the reporting turn:
    (1) `gh-axi pr checks <n>` all required jobs run AND passed on the current head;
-   (2) `gh-axi pr view <n> --reviews` binding review APPROVED. The OCR bot gates
+   (2) the AGGREGATE decision is APPROVED - read `reviewDecision` from the GraphQL
+       pullRequest, NOT "an approving review exists". With two binding reviewers, one
+       CHANGES_REQUESTED on an older commit still holds the merge after the other
+       approves the current one, and resolving that reviewer's threads does NOT clear
+       its verdict - only its own re-review does (`@coderabbitai review` asks for one).
+       Measured 2026-09-05 on eve-members#130: bot APPROVED on the head, CodeRabbit
+       CHANGES_REQUESTED on the parent, zero unresolved threads, decision still
+       CHANGES_REQUESTED - reported merge-ready in error. The OCR bot gates
        every repo in `config/ocr-bot/repos` - read that file, do not carry a list
        here: today maia, eve-members, crew-watch, ocr-review-service and
        maia-eve-secretary. CodeRabbit binds additionally on maia and eve-members.
