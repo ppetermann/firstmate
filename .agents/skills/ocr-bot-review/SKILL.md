@@ -50,6 +50,9 @@ Relay the diagnostic to the captain as a bot configuration or credential blocker
 
 Replace `{OCR_HOME}`, `{OCR_REPO}`, `{OCR_PR}`, `{OCR_HEAD}`, and `{OCR_BASE_REF}` with the firstmate home path, the `owner/repo`, the PR number, the recorded head SHA, and the PR's base ref.
 Replace `{OCR_CORE}` with steps 2-4 of the `ocr-delegate-review` worker block pasted verbatim, with its `{OCR_BASE}` resolved to `git merge-base {OCR_BASE_REF} {OCR_HEAD}` and its `{OCR_RULE}` resolved to `{OCR_HOME}/.agents/skills/ocr-delegate-review/docs-rule.json`, which the round must always carry so a documentation change is reviewed rather than excluded; the pasted steps keep their own numbering and the round's steps resume after them.
+Replace `{OCR_INTENT}` with this round's intent and nothing standing: the captain decision or ruling the head answers, the exact reproduction or record shape to construct, the prior round's findings and the other binding reviewer's findings on the parent, and any proportionality ruling such as filing new discoveries as issues rather than blocking.
+Never restate a standing question from the core's step 4 there.
+When nothing is round-specific, write `Nothing beyond the standing questions.` so the placeholder is never left unfilled.
 Then paste the whole block into the brief's `{TASK}` area.
 
 ```markdown
@@ -67,6 +70,8 @@ You review and report only: never fix, never commit, never push.
    Post that comment only when the PR has no prior start comment from the bot for this head: read the existing issue comments as the App and skip when one already names this head SHA, so re-runs and retries never spam.
 3. {OCR_CORE}
    Apply the reviewer shape to the pasted core: report findings with category, severity, path, and line range in the new file, and never fix or commit anything.
+   Round intent, beyond the rule groups and the standing questions:
+   {OCR_INTENT}
 4. Reconcile with the bot's existing threads on the PR before posting.
    Read them as the App: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api graphql -f query='query($owner: String!, $repo: String!, $n: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $n) { reviewThreads(first: 100) { nodes { id isResolved isOutdated comments(first: 20) { nodes { path body author { login } } } } } } } }' -f owner=<owner> -f repo=<repo> -F n={OCR_PR}`.
    Resolve a prior finding whose flagged code now passes: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api graphql -f query='mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }' -f id=<thread id>`.
@@ -84,7 +89,7 @@ You review and report only: never fix, never commit, never push.
 6. Complete the check run from step 2: `GH_TOKEN=$({OCR_HOME}/bin/fm-ocrbot-token.sh) gh api --method PATCH "repos/{OCR_REPO}/check-runs/<check-run id>" -f status=completed -f conclusion=<success|failure> -f "output[title]=ocr review" -f "output[summary]=<one-line verdict>"`.
    The conclusion is `failure` while a critical, high, or medium finding stands, `success` only when the round is clean or carries only low findings.
    Never conclude `neutral`, `skipped`, or `cancelled` as an outcome signal: neutral and skipped satisfy required checks, so a round that could not run must instead leave the check `in_progress` or absent, both of which block the merge.
-7. Write the round's findings, verdicts, and API evidence to your report file, then append `done: reviewed {OCR_REPO}#{OCR_PR} <approved|changes-requested|failed> [<reviewed SHA if it moved>]` to the status file.
+7. Write the round's findings, verdicts, the `## Standing questions` table from the core's step 4, and API evidence to your report file, then append `done: reviewed {OCR_REPO}#{OCR_PR} <approved|changes-requested|failed> [<reviewed SHA if it moved>]` to the status file.
 
 If `ocr` is missing, or after one retry its commands keep failing or printing unparseable JSON, this round must not silently skip the way a manual round would.
 Complete the check run as `failure` with an infrastructure summary naming the problem, post no review, and report `done: reviewed {OCR_REPO}#{OCR_PR} failed (ocr unavailable: <first-line reason>)` so the gate holds and firstmate wakes.
@@ -94,10 +99,18 @@ A token-mint failure instead means no check run exists: append `blocked: <the he
 ## After the round
 
 Read the scout report, mark the backlog round complete keyed by the PR and head SHA, relay the outcome to the captain per AGENTS.md section 9, and tear the scout down per its standard contract.
+A report without the `## Standing questions` table is an incomplete round: steer the reviewer to add it before relaying, and do not re-run the round.
 The verdict vocabulary for relaying: approved means the check is green and the PR can merge; changes-requested means critical, high, or medium findings stand and the threads carry the detail; failed means an infrastructure failure held the gate and is captain-relevant.
 A round is idempotent per head SHA: once a head carries the App's completed `ocr-review` check, never review it again; only a new head SHA, which is a push, schedules the next round.
 The bot's own etiquette: findings live only as inline threads in the one review, the verdict summary is the review body, re-review resolves the threads a new head addresses, a filed low resolves its own thread in the same round once its issue exists, and a human resolution is a per-finding override.
 Fleet workers keep their side exactly as today: reply in threads, batch fixes into one push per round, and verify approval through the reviews API; each push now costs one bot round.
+
+## Review memory
+
+A project remembers the defect classes its reviews keep finding in one section of its committed `AGENTS.md`.
+[`docs/project-memory-sections.md`](../../../docs/project-memory-sections.md) owns that section's heading, entry shape, cap, retirement rule, and one-copy rule; never restate them here.
+The review core's question b asks every entry of every diff, a fix-round worker adds or updates an entry through the project's delivery path, and firstmate never writes it.
+When a round's report carries a `Class:` line (question b) naming an earlier instance in the same repository, the fix-round brief carries this sentence verbatim: `This finding is instance <n> of a class: add or update its entry under ## Ask these of every change in AGENTS.md in the same push, in the shape docs/project-memory-sections.md in the firstmate home gives, and move any existing prose that already states this rule into the entry rather than keeping two copies.`
 
 ## Failure policy
 

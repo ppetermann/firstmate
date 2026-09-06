@@ -361,6 +361,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/project-memory-sections.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "docs/remote-secondmates.md",
       "audience": "operator-current"
     },

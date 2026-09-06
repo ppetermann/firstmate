@@ -65,6 +65,21 @@ OCR only selects files and supplies rules; YOU perform the review with your own 
    against that file's rule group AND this brief's task intent. Tag each finding with category (bug/security/performance/maintainability/test/style/documentation/other) and severity (critical/high/medium/low), plus path and line range in the new file.
    Track a checklist keyed by (path, status);
    every file must end reviewed, or skipped with a concrete reason. Do not stop at the first finding.
+   Then ask the six standing questions below of the change as a whole, and put a `## Standing questions` table in your report with one row per question: its letter, what you checked (the sites walked, the tests broken, the greps run), and the result, either `clean` or the finding it produced.
+   A row you cannot fill is a skipped file: give the concrete reason.
+   a. Conditions. For every condition this diff adds or changes - a gate, guard, early return, query filter, or type predicate - read the code after it and name what that code assumes exists.
+      Ask whether a state the condition now admits can lack it, and what another writer can change between the check and the act.
+   b. Class, not instance. When the diff fixes a defect, state the defect as a predicate (the shape and the condition), search the whole repository for every site matching it, and account for each; the diff's own hunks are never the search scope.
+      If `AGENTS.md` carries an `## Ask these of every change` section, ask each entry's test of this diff too, and cite the entry in any finding it yields.
+      A finding that is the second or later instance of one predicate carries a `Class:` line naming the predicate and the earlier instances.
+   c. Claims. Rebuild every enumeration the PR asserts - writers, callers, converted sites, "all N" - from the code before comparing it with the PR's table.
+      A claim is checked against the thing it describes, never against the description.
+   d. Tests. For every test the PR adds or says fails without the fix, break what it guards in a scratch copy and run it; the assertion that fails must be the new one.
+      A test you could not make fail is a finding, not coverage.
+      One mutation per claimed test, the tree restored after each.
+   e. New paths. For any new migration, repair, retry, startup step, or background write, name what happens on the first input it cannot handle, whether a second run is a no-op, and whether one failure stops the rest.
+   f. Classification. When the diff decides membership - is this a document, valid, complete, an admin - prefer a positive test for the class over an exclusion list.
+      The list is a finding when a member it omits is constructible.
 5. Triage findings:
    - Fix clear defects that are within this task's accepted scope now; commit the fixes as ordinary commits.
    - Reject false positives or out-of-scope findings, each with a one-line reason.
@@ -78,6 +93,14 @@ OCR only selects files and supplies rules; YOU perform the review with your own 
 8. If this task opens a PR, include a `## Pre-PR OCR review` section in the PR description:
    files reviewed/skipped, findings by severity, and one line per fixed, rejected, and residual finding.
 ```
+
+## Standing questions
+
+Step 4's six lettered questions are the standing reviewer instructions, stated once for the manual round, the bot round (which pastes steps 2-4 of the block), and the successor service's parity.
+They are capped at six.
+Add one only by retiring one, or by citing a round report in which a real miss would not have been found by any existing question, and say which in the commit message.
+Each question is one imperative with one named report row, so a skipped question is visible rather than silent.
+Anything true of one pull request - the decision it answers, the record shape to construct, what the other reviewer found on the parent, a proportionality ruling - is round intent and belongs in the brief's `{OCR_INTENT}` section owned by `ocr-bot-review`, never here.
 
 ## Whole-project review
 
