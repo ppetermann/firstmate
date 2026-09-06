@@ -90,6 +90,7 @@ for r in maia eve-members: sum completed-run wall time this month from
 ((.updated_at - .run_started_at) summed; approximate — parallel jobs undercount) and
 surface one line per repo in the digest. Billing API endpoints 404 for this token
 (verified 2026-08-29); the runs-list sum is the workable measure.
+In the same turn print `bin/fm-review-tally.sh summary --since <YYYY-MM>-01`: the CodeRabbit-only catch rate per PR is the number the retire-CodeRabbit decision reads, and the coverage line says whether recording lapsed.
 
 ## Checklists
 A intake: registry mode/yolo -> PR shape -> plan-first if sizeable -> trigger audit ->
@@ -100,6 +101,8 @@ B pre-push: ladder green (gate-pass head= matches) -> pushed once -> DRAFT opene
 C flip: landing turn -> rebased -> ladder green -> flip -> verify CI + ocr-review on
   this head (else seen-state recovery) -> CodeRabbit in flight where applicable.
 D merge-ready: the six legs, live.
-E post-merge: clone refreshed -> queue advanced -> worker torn down -> tail evaluated
+E post-merge: clone refreshed -> `bin/fm-review-tally.sh record <PR url>` (read the
+  candidates it prints; re-run with --judge for any CodeRabbit finding the bot read and
+  declined in its report) -> queue advanced -> worker torn down -> tail evaluated
   against the batching triggers -> backlog updated.
 F release: per-project tail from the Delivery section -> report with full URL(s).
