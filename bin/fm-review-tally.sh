@@ -8,7 +8,7 @@
 # one of the two reviewers can read both columns.
 #
 # Usage:
-#   fm-review-tally.sh record <PR url> [--regime per-push|once-after-bot] [--judge <n>=<verdict>]... [--note <text>] [--allow-open]
+#   fm-review-tally.sh record <PR url> [--regime per-push|once-after-bot] [--judge <n>=<verdict>]... [--acted-at <n>=<sha>]... [--note <text>] [--allow-open]
 #   fm-review-tally.sh candidates <PR url>
 #   fm-review-tally.sh summary [--repo <owner/repo>] [--since YYYY-MM-DD]
 # Environment:
@@ -50,7 +50,16 @@
 #                conservatively it surfaces as a candidate for judgement
 #                instead of vanishing.
 #   acted(t)     some PR commit with committedDate > t.createdAt lists t.path
-#                among its files.
+#                among its files. That proxy credits the FIRST such commit, so
+#                two findings on one file are both credited to whichever push
+#                fixed either. --acted-at <n>=<sha> overrides it for one
+#                candidate: that finding is acted with <sha> as its first acting
+#                commit, and on_bot_approved is recomputed against <sha> under
+#                the rule below. <n> is the `candidates` number and <sha> a full
+#                or at least 7-character oid of a commit of this PR. An <n> with
+#                no candidate, an unknown or ambiguous <sha>, a malformed pair,
+#                or the same <n> pinned twice is a usage error naming the
+#                offending argument (exit 2, nothing written).
 #   on_bot_approved(t)  CodeRabbit findings only: some PR commit has check
 #                conclusion "success", committedDate >= t.originalCommit's
 #                committedDate, and, when acted, committedDate < the first
@@ -80,8 +89,10 @@
 # is not merged is refused (exit 2, nothing written) unless --allow-open,
 # because the acted proxy needs the final commit list. Default --regime is
 # once-after-bot; pass per-push for anything before 2026-09-06.
-# `judged` is a comma-joined <n>=<verdict> list or "-"; `note` is free text with
-# tabs and newlines replaced by spaces, or "-".
+# `judged` is a comma-joined list, in the order the flags were given, of
+# <n>=<verdict> judgements and <n>=acted@<sha7> pins, or "-"; one candidate may
+# carry both, and a re-record from that list reproduces the row. `note` is free
+# text with tabs and newlines replaced by spaces, or "-".
 #
 # `summary` prints one line per repo and one total line with PRs recorded and
 # every count column, then the two rate lines cr_unique_per_pr and
@@ -278,21 +289,35 @@ def sev_cr:  (. // "") | [scan("\\p{So}[^A-Za-z]*(Critical|Major|Minor)")] | .[0
      then .
      else . + { ($p.b | tostring): true, ($p.c | tostring): true }
      end)) as $paired
-| [ $indexed[]
+| [ $indexed[] | . + { shared: ((($paired[(.idx | tostring)]) // false)) } ] as $prelim
+| ([ $prelim[] | select((.shared | not) and .acted) ]
+   | sort_by([.created, .path, (.line // -1), .reviewer])
+   | to_entries
+   | map({ key: ((.key + 1) | tostring), value: (.value.idx | tostring) })
+   | from_entries) as $ntoidx
+| (reduce ($pin | to_entries[]) as $p ({};
+     if ($ntoidx[$p.key] // null) == null then . else . + { ($ntoidx[$p.key]): $p.value } end
+   )) as $pinned
+| [ $prelim[]
     | . as $f
-    | (($paired[($f.idx | tostring)]) // false) as $shared
+    | (($pinned[($f.idx | tostring)]) // null) as $pinoid
+    | (if $pinoid == null then $f.acted else true end) as $acted
+    | (if $pinoid == null then $f.acting_date
+       else ([ $commits[] | select(.oid == $pinoid) | .committedDate ] | .[0] // null)
+       end) as $acting_date
     | (if $f.reviewer != "cr" then null
        elif $f.oc_date == null then false
        else ($commits
              | any(.conclusion == "success"
                    and .committedDate != null
                    and .committedDate >= $f.oc_date
-                   and ($f.acting_date == null or .committedDate < $f.acting_date)))
+                   and ($acting_date == null or .committedDate < $acting_date)))
        end) as $approved
     | ($f | del(.idx)) + {
-        shared: $shared,
+        acted: $acted,
+        acting_date: $acting_date,
         bot_approved: $approved,
-        rejected: (($f.acted | not) and $f.resolved and $f.resolved_by != null
+        rejected: (($acted | not) and $f.resolved and $f.resolved_by != null
                    and (($f.resolved_by | test("\\[bot\\]$")) | not))
       }
   ] as $findings
@@ -322,10 +347,10 @@ def sev_cr:  (. // "") | [scan("\\p{So}[^A-Za-z]*(Critical|Major|Minor)")] | .[0
   }
 '
 
-# analyse <judge-json>: write $WORK/analysis.json from $WORK/data.json.
+# analyse <judge-json> <pin-json>: write $WORK/analysis.json from $WORK/data.json.
 analyse() {
-  local judge=$1
-  jq --arg bot "$BOT_LOGIN" --arg cr "$CR_LOGIN" --argjson judge "$judge" \
+  local judge=$1 pin=$2
+  jq --arg bot "$BOT_LOGIN" --arg cr "$CR_LOGIN" --argjson judge "$judge" --argjson pin "$pin" \
     "$ANALYSIS_JQ" "$WORK/data.json" > "$WORK/analysis.json" \
     || die_read "error: cannot analyse the review threads"
 }
@@ -386,6 +411,27 @@ write_record() {
   printf 'recorded %s#%s -> %s\n' "$repo" "$pr" "$TALLY"
 }
 
+# resolve_pins <pin-json>: set PIN_RESOLVED, mapping each pinned candidate number
+# to the full oid of the one PR commit its <sha> names. Never call this inside a
+# command substitution: die_usage must exit the script.
+resolve_pins() {
+  local pins=$1 n sha matches count
+  PIN_RESOLVED='{}'
+  [ "$pins" != '{}' ] || return 0
+  while IFS='	' read -r n sha; do
+    [ -n "$n" ] || continue
+    matches=$(jq -r --arg s "$sha" '.commits[].oid | select(startswith($s))' "$WORK/data.json") \
+      || die_read "error: cannot read the commit list for --acted-at $n=$sha"
+    count=$(printf '%s' "$matches" | grep -c . || true)
+    [ "$count" -ne 0 ] || die_usage "--acted-at $n=$sha names no commit of this pull request"
+    [ "$count" -eq 1 ] \
+      || die_usage "--acted-at $n=$sha is ambiguous: it matches $count commits of this pull request"
+    PIN_RESOLVED=$(printf '%s' "$PIN_RESOLVED" \
+      | jq -c --arg n "$n" --arg oid "$(printf '%s\n' "$matches" | head -n 1)" '. + {($n): $oid}') \
+      || die_read "error: cannot record the --acted-at pin for candidate $n"
+  done < <(printf '%s' "$pins" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
+}
+
 parse_pr_url() {
   local url=$1
   fm_pr_url_parse "$url" || die_usage "not a pull request URL: $url"
@@ -395,7 +441,8 @@ parse_pr_url() {
 
 cmd_record_or_candidates() {
   local mode=$1 url='' regime=once-after-bot note=- allow_open=0
-  local judge_json='{}' judged_list='' n verdict spec
+  local judge_json='{}' pin_json='{}' judged_list='' n verdict sha spec
+  local -a judged_parts=()
   shift
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -424,7 +471,27 @@ cmd_record_or_candidates() {
         judge_json=$(printf '%s' "$judge_json" \
           | jq -c --arg n "$n" --arg v "$verdict" '. + {($n): $v}') \
           || die_usage "cannot record judgement: $spec"
-        judged_list="${judged_list:+$judged_list,}$n=$verdict"
+        judged_parts+=("v:$n=$verdict")
+        shift 2
+        ;;
+      --acted-at)
+        [ "$#" -gt 1 ] || die_usage "--acted-at requires <n>=<sha>"
+        spec=$2
+        case "$spec" in *=*) : ;; *) die_usage "--acted-at needs <n>=<sha>, got: $spec" ;; esac
+        n=${spec%%=*}
+        sha=${spec#*=}
+        sha=${sha,,}
+        case "$n" in ''|*[!0-9]*) die_usage "--acted-at candidate must be a number, got: $n" ;; esac
+        [ "$n" -ge 1 ] || die_usage "--acted-at candidate numbers start at 1"
+        case "$sha" in ''|*[!0-9a-f]*) die_usage "--acted-at needs a commit oid, got: $spec" ;; esac
+        [ "${#sha}" -ge 7 ] \
+          || die_usage "--acted-at needs at least 7 characters of the commit oid, got: $spec"
+        printf '%s' "$pin_json" | jq -e --arg n "$n" 'has($n)' >/dev/null 2>&1 \
+          && die_usage "--acted-at $n was already given"
+        pin_json=$(printf '%s' "$pin_json" \
+          | jq -c --arg n "$n" --arg s "$sha" '. + {($n): $s}') \
+          || die_usage "cannot record pin: $spec"
+        judged_parts+=("p:$n")
         shift 2
         ;;
       --note)
@@ -453,7 +520,8 @@ cmd_record_or_candidates() {
   done
   [ -n "$url" ] || die_usage "$mode requires a PR URL"
   if [ "$mode" = candidates ]; then
-    [ "$regime" = once-after-bot ] && [ "$judge_json" = '{}' ] && [ "$note" = - ] \
+    [ "$regime" = once-after-bot ] && [ "$judge_json" = '{}' ] && [ "$pin_json" = '{}' ] \
+      && [ "$note" = - ] \
       || die_usage "candidates takes only a PR URL"
   fi
 
@@ -462,7 +530,8 @@ cmd_record_or_candidates() {
   parse_pr_url "$url"
   WORK=$(mktemp -d "${TMPDIR:-/tmp}/fm-review-tally.XXXXXX") || die_read "error: cannot create a work directory"
   fetch_pr "$FM_PR_OWNER" "$FM_PR_REPO" "$FM_PR_NUMBER"
-  analyse "$judge_json"
+  resolve_pins "$pin_json"
+  analyse "$judge_json" "$PIN_RESOLVED"
 
   local total
   total=$(jq -r '.candidates | length' "$WORK/analysis.json") \
@@ -473,9 +542,32 @@ cmd_record_or_candidates() {
       'keys_unsorted[] | select((. | tonumber) > $total)' | head -n 1)
     [ -z "$bad" ] || die_usage "--judge $bad has no candidate (this PR has $total)"
   fi
+  if [ "$PIN_RESOLVED" != '{}' ]; then
+    local badpin
+    badpin=$(printf '%s' "$PIN_RESOLVED" | jq -r --argjson total "$total" \
+      'keys_unsorted[] | select((. | tonumber) > $total)' | head -n 1)
+    [ -z "$badpin" ] || die_usage "--acted-at $badpin has no candidate (this PR has $total)"
+  fi
   print_candidates
 
   [ "$mode" = record ] || return 0
+
+  local part tok oid
+  if [ "${#judged_parts[@]}" -gt 0 ]; then
+    for part in "${judged_parts[@]}"; do
+      case "$part" in
+        p:*)
+          n=${part#p:}
+          oid=$(printf '%s' "$PIN_RESOLVED" | jq -r --arg n "$n" '.[$n] // ""') \
+            || die_read "error: cannot format the --acted-at pin for candidate $n"
+          [ -n "$oid" ] || die_read "error: cannot format the --acted-at pin for candidate $n"
+          tok="$n=acted@${oid:0:7}"
+          ;;
+        *) tok=${part#v:} ;;
+      esac
+      judged_list="${judged_list:+$judged_list,}$tok"
+    done
+  fi
 
   local merged
   merged=$(jq -r '.merged_at // "null"' "$WORK/analysis.json")

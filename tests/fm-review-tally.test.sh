@@ -128,6 +128,33 @@ set_two_commit_world() {
 
 COMMITS_AB='{"commit":{"oid":"aaa111","committedDate":"2026-09-05T10:00:00Z"}},{"commit":{"oid":"bbb222","committedDate":"2026-09-05T12:00:00Z"}}'
 
+# The pin world, eve-members#137 in miniature: aaa1110... carries no ocr-review
+# run, bbb2220... lands two hours later carrying the only successful one, and
+# ccc3330... two hours after that. Both later commits touch x.ts, so the proxy
+# credits CodeRabbit's finding to bbb2220... - the push that fixed the bot's own
+# finding - and it never reads as having survived an approved head. Passing
+# "twin" adds a fourth commit sharing ccc3330...'s first eight characters, so a
+# seven-character abbreviation is ambiguous.
+set_pin_world() {
+  local home=$1 twin=${2:-} commits
+  commits="$(commit_node aaa11100000 2026-09-05T10:00:00Z),$(commit_node bbb22200000 2026-09-05T12:00:00Z),$(commit_node ccc33300000 2026-09-05T14:00:00Z)"
+  set_commit "$home" aaa11100000 y.ts
+  set_commit "$home" bbb22200000 x.ts
+  set_commit "$home" ccc33300000 x.ts
+  set_check "$home" aaa11100000 none
+  set_check "$home" bbb22200000 success
+  set_check "$home" ccc33300000 none
+  if [ -n "$twin" ]; then
+    commits="$commits,$(commit_node ccc33300001 2026-09-05T16:00:00Z)"
+    set_commit "$home" ccc33300001 x.ts
+    set_check "$home" ccc33300001 none
+  fi
+  set_graphql "$home" '"2026-09-06T09:00:00Z"' \
+    "$(thread coderabbitai x.ts 10 aaa11100000 2026-09-05T10:00:00Z 2026-09-05T11:00:00Z \
+       '🟠 **Major**: make the repair a compare-and-swap')" \
+    "$commits"
+}
+
 cr_x10() {
   thread coderabbitai x.ts 10 aaa111 2026-09-05T10:00:00Z 2026-09-05T11:00:00Z \
     '🟠 **Major**: this repair can run against a stale snapshot'
@@ -452,6 +479,89 @@ test_backfill_shape_from_the_plan() {
   pass "the plan's backfill shape reproduces its expected counts"
 }
 
+# eve-members#137's undercount in miniature: the bot's own fix commit is the
+# first push to touch the file, so the proxy credits CodeRabbit's distinct
+# finding to it too and that finding never reads as having survived a head the
+# bot had approved. The pin says which push actually fixed it.
+test_a_pin_moves_the_acting_commit_and_flips_approval() {
+  local home fakebin out
+  home="$TMP_ROOT/case13"; make_home "$home"
+  set_pin_world "$home"
+  fakebin=$(make_fake_gh "$home")
+  out=$(run_tally "$home" "$fakebin" record "$PR2_URL") || fail "record must succeed"
+  assert_contains "$out" "1 cr x.ts:10 @aaa1110 sev=medium acted=y bot_approved=n" \
+    "the proxy must credit the first push that touches the path"
+  assert_col "$home" 137 cr_unique_acted 1
+  assert_col "$home" 137 cr_unique_acted_on_bot_approved 0
+  out=$(run_tally "$home" "$fakebin" record "$PR2_URL" --acted-at 1=ccc3330) \
+    || fail "a pinned record must succeed"
+  assert_contains "$out" "1 cr x.ts:10 @aaa1110 sev=medium acted=y bot_approved=y" \
+    "on_bot_approved must be recomputed against the pinned commit"
+  assert_col "$home" 137 cr_unique_acted 1
+  assert_col "$home" 137 cr_unique_acted_on_bot_approved 1
+  pass "a pin moves a finding's acting commit later and flips it onto a bot-approved head"
+}
+
+test_a_pin_round_trips_through_the_judged_column() {
+  local home fakebin pinned lines
+  home="$TMP_ROOT/case14"; make_home "$home"
+  set_pin_world "$home"
+  fakebin=$(make_fake_gh "$home")
+  run_tally "$home" "$fakebin" record "$PR2_URL" --acted-at 1=ccc3330 >/dev/null \
+    || fail "a pinned record must succeed"
+  pinned=$(tally_col "$home" 137 judged)
+  [ "$pinned" = "1=acted@ccc3330" ] \
+    || fail "the judged column must carry the pin as 1=acted@<sha7> (got '$pinned')"
+  run_tally "$home" "$fakebin" record "$PR2_URL" --acted-at "1=${pinned#1=acted@}" >/dev/null \
+    || fail "re-recording from the judged column's own value must succeed"
+  lines=$(awk -F'\t' '$3 == "137"' "$home/data/review-tally.tsv" | wc -l | tr -d ' ')
+  [ "$lines" = 1 ] || fail "re-recording a pinned PR must replace its line (found $lines)"
+  assert_col "$home" 137 judged 1=acted@ccc3330
+  assert_col "$home" 137 cr_unique_acted_on_bot_approved 1
+  pass "a pin is recorded as 1=acted@<sha7> and re-recording from that value reproduces the row"
+}
+
+test_a_verdict_and_a_pin_coexist_on_one_candidate() {
+  local home fakebin
+  home="$TMP_ROOT/case15"; make_home "$home"
+  set_pin_world "$home"
+  fakebin=$(make_fake_gh "$home")
+  run_tally "$home" "$fakebin" record "$PR2_URL" --judge 1=declined --acted-at 1=ccc3330 \
+    >/dev/null || fail "a record carrying both a verdict and a pin must succeed"
+  assert_col "$home" 137 judged '1=declined,1=acted@ccc3330'
+  assert_col "$home" 137 cr_findings 1
+  assert_col "$home" 137 cr_unique_acted 0
+  pass "one candidate carries both its judgement and its pin"
+}
+
+test_a_bad_pin_is_refused_and_writes_nothing() {
+  local home fakebin out rc
+  home="$TMP_ROOT/case16"; make_home "$home"
+  set_pin_world "$home" twin
+  fakebin=$(make_fake_gh "$home")
+  out=$(run_tally "$home" "$fakebin" record "$PR2_URL" --acted-at 4=ccc33300000 2>&1); rc=$?
+  expect_code 2 "$rc" "out-of-range pin exit"
+  assert_contains "$out" "--acted-at 4 has no candidate" "a pin with no candidate must be refused"
+  out=$(run_tally "$home" "$fakebin" record "$PR2_URL" --acted-at 1=deadbee 2>&1); rc=$?
+  expect_code 2 "$rc" "unknown commit pin exit"
+  assert_contains "$out" "--acted-at 1=deadbee names no commit" \
+    "a pin naming no commit of the PR must be refused"
+  out=$(run_tally "$home" "$fakebin" record "$PR2_URL" --acted-at 1=ccc3330 2>&1); rc=$?
+  expect_code 2 "$rc" "ambiguous pin exit"
+  assert_contains "$out" "--acted-at 1=ccc3330 is ambiguous" \
+    "an abbreviation matching two of the PR's commits must be refused"
+  out=$(run_tally "$home" "$fakebin" record "$PR2_URL" \
+    --acted-at 1=ccc33300000 --acted-at 1=bbb22200000 2>&1); rc=$?
+  expect_code 2 "$rc" "duplicate pin exit"
+  assert_contains "$out" "--acted-at 1 was already given" \
+    "the same candidate pinned twice must be refused"
+  out=$(run_tally "$home" "$fakebin" record "$PR2_URL" --acted-at ccc33300000 2>&1); rc=$?
+  expect_code 2 "$rc" "malformed pin exit"
+  assert_contains "$out" "--acted-at needs <n>=<sha>" "a pin with no candidate number must be refused"
+  assert_absent "$home/data/review-tally.tsv" "a refused pin must write nothing"
+  pass "an unknown candidate, unknown commit, ambiguous abbreviation, duplicate, or malformed pin is refused and writes nothing"
+}
+
 # ---------------------------------------------------------------------------
 
 test_unique_coderabbit_finding_on_an_approved_head
@@ -467,3 +577,7 @@ test_bot_suffix_is_stripped_from_the_author
 test_one_counterpart_pairs_with_only_one_finding
 test_equidistant_counterparts_pair_deterministically
 test_backfill_shape_from_the_plan
+test_a_pin_moves_the_acting_commit_and_flips_approval
+test_a_pin_round_trips_through_the_judged_column
+test_a_verdict_and_a_pin_coexist_on_one_candidate
+test_a_bad_pin_is_refused_and_writes_nothing
