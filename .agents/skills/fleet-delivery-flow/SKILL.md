@@ -43,6 +43,12 @@ such section is NOT on this flow yet - resolve it at registration
    was still not polled at 18:40 while two sibling repos polled twice). Flip-CI failure: fix via
    ladder + one push; longer work: `gh-axi pr ready <n> --undo`, iterate, re-flip.
    Converging cascade = stop and merge. Every thread resolved or rejected in-thread.
+   REVIEWER ORDER, where two bind (maia, eve-members) - captain, 2026-09-06: the bot's
+   rounds run FIRST and iterate; CodeRabbit is asked ONCE, only after the bot has cleared
+   the PR. Never `@coderabbitai review` on a head the bot has not approved. Asking per fix
+   push is what exhausted its rate limit on 2026-09-05 ('Review rate limited / Action not
+   completed'), and it also strands its verdict on a commit the next push replaces, which
+   then blocks the merge for a reason nothing on the PR explains.
 5. Merge-ready contract, all six legs live in the reporting turn:
    (1) `gh-axi pr checks <n>` all required jobs run AND passed on the current head;
    (2) the AGGREGATE decision, read as `reviewDecision` from the GraphQL pullRequest,
