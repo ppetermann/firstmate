@@ -344,6 +344,66 @@ test_bot_suffix_is_stripped_from_the_author() {
   pass "a GitHub App author shown with a [bot] suffix is still the review bot"
 }
 
+# eve-members#137 in miniature: three findings on one line, one from the bot
+# and two distinct ones from CodeRabbit. Pairing is one-to-one, so the bot's
+# finding consumes exactly one of them and the other stays unique. Under the
+# many-to-one relation this replaced, both vanished.
+test_one_counterpart_pairs_with_only_one_finding() {
+  local home fakebin out threads crlines
+  home="$TMP_ROOT/case11"; make_home "$home"
+  set_two_commit_world "$home"
+  threads="$(thread firstmate-ocr-review x.ts 10 aaa111 2026-09-05T10:00:00Z \
+    2026-09-05T10:30:00Z '_bug_ | _high_ | the shape check throws instead of repairing')"
+  threads="$threads,$(thread coderabbitai x.ts 10 aaa111 2026-09-05T10:00:00Z \
+    2026-09-05T11:00:00Z '🟠 Major: replace the malformed value instead of throwing')"
+  threads="$threads,$(thread coderabbitai x.ts 10 aaa111 2026-09-05T10:00:00Z \
+    2026-09-05T11:05:00Z '🟠 Major: make the repair a compare-and-swap')"
+  set_graphql "$home" '"2026-09-06T09:00:00Z"' "$threads" "$COMMITS_AB"
+  fakebin=$(make_fake_gh "$home")
+  out=$(run_tally "$home" "$fakebin" record "$PR2_URL") || fail "record must succeed"
+  crlines=$(printf '%s\n' "$out" | grep -c ' cr x.ts:10 ')
+  [ "$crlines" = 1 ] \
+    || fail "exactly one CodeRabbit finding must survive as a candidate (found $crlines)"
+  assert_col "$home" 137 cr_findings 2
+  assert_col "$home" 137 bot_findings 1
+  assert_col "$home" 137 cr_unique_acted 1
+  assert_col "$home" 137 bot_unique_acted 0
+  pass "one finding pairs with only one of two counterparts on the same line"
+}
+
+# Two counterparts equidistant from the same finding: the tie breaks on the
+# pair's lower original line, so the same one is consumed whichever order the
+# API returns the threads in.
+test_equidistant_counterparts_pair_deterministically() {
+  local home fakebin out order threads near far
+  near="$(thread coderabbitai x.ts 10 aaa111 2026-09-05T10:00:00Z 2026-09-05T11:00:00Z \
+    '🟠 Major: the earlier line of the equidistant pair')"
+  far="$(thread coderabbitai x.ts 30 aaa111 2026-09-05T10:00:00Z 2026-09-05T11:05:00Z \
+    '🟠 Major: the later line of the equidistant pair')"
+  for order in low-first high-first; do
+    home="$TMP_ROOT/case12-$order"; make_home "$home"
+    set_two_commit_world "$home"
+    threads="$(thread firstmate-ocr-review x.ts 20 aaa111 2026-09-05T10:00:00Z \
+      2026-09-05T10:30:00Z '_bug_ | _high_ | ten lines from either of them')"
+    if [ "$order" = low-first ]; then
+      threads="$threads,$near,$far"
+    else
+      threads="$threads,$far,$near"
+    fi
+    set_graphql "$home" '"2026-09-06T09:00:00Z"' "$threads" "$COMMITS_AB"
+    fakebin=$(make_fake_gh "$home")
+    out=$(run_tally "$home" "$fakebin" candidates "$PR2_URL") \
+      || fail "candidates must succeed with the $order fixture"
+    assert_not_contains "$out" "cr x.ts:10" \
+      "the equidistant pair with the lower original line must be the one consumed ($order)"
+    assert_contains "$out" "cr x.ts:30" \
+      "the counterpart left unpaired must stay a candidate ($order)"
+    assert_not_contains "$out" "bot x.ts:20" \
+      "the paired finding must not also be a candidate ($order)"
+  done
+  pass "an equidistant tie breaks on the lower original line, not on API order"
+}
+
 # The shape the plan's backfill expects on eve-members#134, rebuilt as a
 # fixture: two CodeRabbit threads, one of which (the partial-configuration one
 # at +page.server.ts:192) is far enough from the bot's low on the same path to
@@ -404,4 +464,6 @@ test_open_pr_is_refused_without_allow_open
 test_a_failed_read_writes_nothing
 test_a_null_line_is_never_shared
 test_bot_suffix_is_stripped_from_the_author
+test_one_counterpart_pairs_with_only_one_finding
+test_equidistant_counterparts_pair_deterministically
 test_backfill_shape_from_the_plan

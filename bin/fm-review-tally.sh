@@ -38,10 +38,17 @@
 #                coloured-circle glyph, mapped to high/medium/low. Unparseable
 #                is "unknown". blocking = critical/high/medium for the bot,
 #                Critical/Major for CodeRabbit.
-#   shared(t)    a finding by the OTHER reviewer exists with the same path,
-#                both originalLines non-null, and |difference| <= 15. A null
-#                line is never shared: conservatively it surfaces as a
-#                candidate for judgement instead of vanishing.
+#   shared(t)    t is paired with a finding by the OTHER reviewer. Pairing is
+#                ONE-TO-ONE, so no single counterpart can mark two findings
+#                shared: within a path, every cross-reviewer pair whose
+#                originalLines are both non-null and at most 15 apart is a
+#                candidate pair, and candidate pairs are consumed nearest line
+#                distance first, ties broken by the pair's lower original line
+#                and then by thread order, so the result does not depend on the
+#                order the API happened to return the threads in. Whatever is
+#                left unpaired is unique. A null line is never paired:
+#                conservatively it surfaces as a candidate for judgement
+#                instead of vanishing.
 #   acted(t)     some PR commit with committedDate > t.createdAt lists t.path
 #                among its files.
 #   on_bot_approved(t)  CodeRabbit findings only: some PR commit has check
@@ -253,12 +260,27 @@ def sev_cr:  (. // "") | [scan("\\p{So}[^A-Za-z]*(Critical|Major|Minor)")] | .[0
        | sort_by(.committedDate)) as $acting
     | $f + { acted: (($acting | length) > 0), acting_date: ($acting[0].committedDate // null) }
   ] as $withacted
-| [ $withacted[]
+| ($withacted | to_entries | map(.value + {idx: .key})) as $indexed
+| ([ $indexed[] | select(.reviewer == "bot" and .line != null) ]) as $botlined
+| ([ $indexed[] | select(.reviewer == "cr" and .line != null) ]) as $crlined
+| ([ $botlined[] as $b
+     | $crlined[] as $c
+     | select($b.path == $c.path and ((($b.line) - ($c.line)) | absn) <= 15)
+     | { b: $b.idx,
+         c: $c.idx,
+         key: [ ((($b.line) - ($c.line)) | absn),
+                (if $b.line <= $c.line then $b.line else $c.line end),
+                $b.idx,
+                $c.idx ] } ]
+   | sort_by(.key)) as $pairs
+| (reduce $pairs[] as $p ({};
+     if (.[($p.b | tostring)] // false) or (.[($p.c | tostring)] // false)
+     then .
+     else . + { ($p.b | tostring): true, ($p.c | tostring): true }
+     end)) as $paired
+| [ $indexed[]
     | . as $f
-    | ($withacted
-       | any(.reviewer != $f.reviewer and .path == $f.path
-             and .line != null and $f.line != null
-             and (((.line) - ($f.line)) | absn) <= 15)) as $shared
+    | (($paired[($f.idx | tostring)]) // false) as $shared
     | (if $f.reviewer != "cr" then null
        elif $f.oc_date == null then false
        else ($commits
@@ -267,7 +289,7 @@ def sev_cr:  (. // "") | [scan("\\p{So}[^A-Za-z]*(Critical|Major|Minor)")] | .[0
                    and .committedDate >= $f.oc_date
                    and ($f.acting_date == null or .committedDate < $f.acting_date)))
        end) as $approved
-    | $f + {
+    | ($f | del(.idx)) + {
         shared: $shared,
         bot_approved: $approved,
         rejected: (($f.acted | not) and $f.resolved and $f.resolved_by != null
