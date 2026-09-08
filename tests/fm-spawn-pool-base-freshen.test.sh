@@ -247,7 +247,7 @@ test_originless_pool_launches_without_a_freshness_fetch() {
     || fail "fixture unexpectedly configured an origin remote"
   before=$(git -C "$POOL_DIR" rev-parse HEAD)
 
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
   expect_code 0 "$status" "spawn should launch a local-only pooled worktree with no origin"$'\n'"$out"
   assert_contains "$out" "spawned $id" "spawn did not report success for the origin-less pool"
@@ -270,7 +270,7 @@ test_originless_dirty_pool_refuses_without_discarding_work() {
   before=$(git -C "$POOL_DIR" rev-parse HEAD)
   printf 'keep this local work\n' > "$POOL_DIR/uncommitted.txt"
 
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn succeeded despite a dirty origin-less pooled worktree"
   assert_contains "$out" "is not clean" \
@@ -290,7 +290,7 @@ test_origin_config_without_url_refuses_pool() {
   git -C "$POOL_DIR" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
   before=$(git -C "$POOL_DIR" rev-parse HEAD)
 
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn succeeded despite an origin configuration with no URL"
   assert_contains "$out" "could not fetch origin" \
@@ -310,7 +310,7 @@ test_empty_origin_config_section_refuses_pool() {
   printf '\n[remote "origin"]\n' >> "$config"
   before=$(git -C "$POOL_DIR" rev-parse HEAD)
 
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn succeeded despite an empty origin configuration section"
   assert_contains "$out" "could not fetch origin" \
@@ -332,7 +332,7 @@ test_empty_only_included_origin_config_section_launches_pool() {
   git -C "$POOL_DIR" config include.path "$(basename "$included")"
   before=$(git -C "$POOL_DIR" rev-parse HEAD)
 
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
   expect_code 0 "$status" "spawn should proceed when an included empty origin section is not enumerable"$'\n'"$out"
   assert_contains "$out" "spawned $id" "spawn did not report success for the undetectable included section"
@@ -354,7 +354,7 @@ test_inactive_conditional_origin_include_launches_pool() {
   git -C "$POOL_DIR" config 'includeIf.gitdir:/never/matches/this/worktree/.path' "$included"
   before=$(git -C "$POOL_DIR" rev-parse HEAD)
 
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
   expect_code 0 "$status" "spawn should ignore an inactive conditional origin include"$'\n'"$out"
   assert_contains "$out" "spawned $id" "spawn did not report success with an inactive origin include"

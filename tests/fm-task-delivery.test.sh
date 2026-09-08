@@ -683,7 +683,7 @@ EOF
     fi
     printf '@AGENTS.md\n' > "$proj/CLAUDE.md"
     cp "$proj/AGENTS.md" "$proj/agents-before"
-    for kind in no-mistakes direct-PR local-only scout; do
+    for kind in direct-PR local-only scout; do
       id="roles-$project_kind-$kind"
       write_brief "$home" "$id"
       if [ "$kind" = scout ]; then

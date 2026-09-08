@@ -1931,7 +1931,7 @@ worktree=$childwt
 project=$childproj
 harness=echo
 kind=ship
-mode=no-mistakes
+mode=direct-PR
 yolo=off
 EOF
   done
