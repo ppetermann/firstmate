@@ -27,7 +27,7 @@ muse reads `META_API_KEY` (which always wins) or a stored credential at `${XDG_C
 `bin/fm-spawn.sh` accepts `META_API_KEY` only when it can prove the backend worker already has it, because a command-scoped caller variable does not cross a long-lived backend daemon and the secret must never enter launch argv.
 The supported fleet path is the stored credential, and `fm-spawn` resolves the non-secret `XDG_CONFIG_HOME` and `XDG_DATA_HOME` roots to absolute paths before preflight and forwarding to keep authentication and session-log binding aligned with the worker.
 `bin/fm-spawn.sh` refuses the launch when neither worker-reachable path is present, because an unauthenticated pane does NOT exit: it sits on `Sign in at this page: https://auth.meta.com/oauth/device/?code=XXXX-XXXX` / `Waiting for approval…` indefinitely, which supervision would read as a wedged worker rather than a missing credential.
-Escalate that refusal to the captain as a needed credential.
+Before escalating that refusal to the captain as a needed credential, check the [worker launch environment contract](../../../../docs/configuration.md#worker-launch-environment-configlaunch-env-allowlist) for a withheld environment grant.
 
 ### Foreign personal context is a real privacy boundary
 

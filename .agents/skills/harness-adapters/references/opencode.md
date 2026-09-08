@@ -26,3 +26,4 @@ The firstmate PRIMARY's own `.opencode/plugins/fm-primary-turnend-guard.js` list
 Throwing from `session.idle` does not block `opencode run`, so the primary adapter treats the event as passive and uses `client.session.promptAsync` to force one follow-up turn when `bin/fm-turnend-guard.sh` returns 2.
 The companion `.opencode/plugins/fm-primary-watch-arm.js` owns normal TUI watcher wake supervision and coordinates with the guard plugin before the guard tries a blind-turn follow-up.
 The follow-up was verified in the interactive TUI; `opencode run` can exit before displaying a queued follow-up, so the adapter is fail-open in headless mode.
+On native Windows, the operational-input adapter runs its Bash helper through `bash`; macOS and Linux invoke it directly.
