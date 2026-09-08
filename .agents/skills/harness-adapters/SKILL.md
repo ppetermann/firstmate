@@ -69,6 +69,7 @@ Grok selects native blocking or its pre-native bounded resume fallback from the 
 Kimi is outside the primary turn-end guard scope, while `docs/turnend-guard.md` owns its separate guarded global hook for crew wake signals.
 muse is CREWMATE/SCOUT ONLY and has no primary integration at all: its plugin engine (its only hook surface) is disabled in the default build, and its Claude-compatible hook dialect names `asyncRewake` and model reawakening as explicitly unsupported, which is exactly what a firstmate primary's turn-end supervision needs.
 `bin/fm-spawn.sh` refuses a `--secondmate` launch on muse for that reason.
+omp's primary integration is extension-owned like Pi's, with a blocking `session_stop` hook that compels a continuation; `references/omp.md` owns it, and rovo has no primary integration at all.
 cursor HAS a full hooks system: 20 lifecycle events configurable at project scope in `.cursor/hooks.json`, plus a Claude-Code compatibility name map that also loads `<project>/.claude/settings.json`.
 Its `stop` step cannot block - exit 2 there is a silent no-op - so `bin/fm-turnend-guard-cursor.sh` parks the turn boundary on the watcher and returns one bounded `followup_message` instead.
 Because Cursor loads the tracked Claude settings too, every Claude-shaped entrypoint whose event Cursor covers stands down on a Cursor-delivered payload.
@@ -109,6 +110,7 @@ Claude's Stop `asyncRewake` hook (`bin/fm-claude-stop-autoarm.sh`) owns tokenles
 Codex uses bounded foreground checkpoints through `bin/fm-watch-checkpoint.sh` because Codex cannot reason while a foreground tool call is running.
 OpenCode uses `.opencode/plugins/fm-primary-watch-arm.js`, which coordinates with the turn-end guard plugin and wakes the TUI with `client.session.promptAsync`.
 Pi and pi-signed use the tracked `.pi/extensions/fm-primary-turnend-guard.ts` plus the tracked `.pi/extensions/fm-primary-pi-watch.ts`, both project-local extensions the Pi engine auto-discovers once trusted.
+omp arms through the tracked `.omp/extensions/fm-primary-omp-watch.ts` under `docs/supervision-protocols/omp.md`; `references/omp.md` owns that protocol.
 When changing any primary watcher adapter, update `docs/supervision-protocols/`, `docs/turnend-guard.md` if a shared idle or turn-end hook changed, and the relevant harness's reference file.
 
 ## Launch profile axes
@@ -137,6 +139,8 @@ The supported launch-profile flags below are verified locally; each row records 
 | cursor | `--model <model>` | none | Verified 2026-08-11 on Cursor Agent CLI 2026.08.11-e8db854. No effort flag exists, so firstmate records the requested effort in task metadata and omits it from the launch. Validate ids against `cursor-agent --list-models` rather than assuming a low/medium/high family: the live catalog carries only `-high` Grok ids. |
 | gemini | `-m <model>` / `--model <model>` | none | Verified 2026-09-04 on gemini-cli 0.58.0. `--help` exposes no effort, reasoning, or thinking flag, so firstmate records the requested effort in task metadata and omits it from the launch. `thinkingLevel` and `thinkingBudget` exist only as `settings.json` generation settings and are not a verified interactive axis. |
 | muse | `--model <model>` | `--reasoning-effort <low\|medium\|high\|xhigh>`, and `ultra` only for an explicit `max` | Verified 2026-08-05 on Muse Code 0.1.0-R708.1. The flag accepts `none\|minimal\|low\|medium\|high\|xhigh\|ultra` and defaults to `high`. `ultra` is muse's max-class level, so it is reachable only through an explicit captain `max`, never from the generic fallback; `none` and `minimal` sit below the shared vocabulary and stay unreachable. |
+| omp | `--model <provider>/<id>` | `--thinking <off\|minimal\|low\|medium\|high\|xhigh\|max\|auto>` | Verified 2026-09-05 on omp 18.1.11. A superset of the shared vocabulary, so every level including `max` maps straight across; fuzzy model patterns are accepted by omp but bypass firstmate's pre-launch check. |
+| rovo | `--model <model>` | none on the CLI; `agent.efficiencyLevel` (`low\|medium\|high\|max`) rides the single `--config-override` JSON that also carries the mandatory `allowedExternalPaths` grant | Verified 2026-09-02 on Rovo CLI 202609.1.2 for crewmate/scout only. `xhigh` is recorded in task metadata and omitted. |
 
 The concrete `harness` field owns adapter identity independently of the model provider: `harness=pi` with `model=xai/grok-*` is Pi using xAI, not `harness=grok`, and does not require Grok CLI login; `harness=grok` remains the standalone Grok Build CLI adapter.
 Likewise, `harness=cursor` with `model=cursor-grok-4.5-*` is Cursor Agent CLI routing a Grok model, not the xAI Grok Build `grok` harness.
@@ -157,6 +161,8 @@ Use the discovery surface in the current authenticated environment because suppo
 | kimi | Run `kimi provider list --json`, which lists the current provider and model configuration. |
 | gemini | Open the current interactive session's `/model` dialog. There is no `gemini models` subcommand; the session's exit usage table also names the models actually used. |
 | cursor | Run `cursor-agent --list-models` (or the legacy `agent --list-models`), which lists the ids available to the current Cursor account. `cursor` is not the CLI name. |
+| omp | Run `omp models [--json]`; extension-registered providers such as `claude-bridge` never appear and pass through the spawn unvalidated with a stderr notice. |
+| rovo | The in-session `/models` command or ACP `session/new`; the list is per-account and must never be hardcoded. |
 
 For an unfamiliar harness or model namespace, establish support and provider identity from that harness's authoritative CLI help, model listing, or current documentation rather than guessing from a name or prefix.
 A listing that reaches the account and does not contain the model is concrete evidence the model is unsupported: block that candidate and quote the result.
@@ -179,6 +185,8 @@ Natural language is acceptable if uncertain.
 - kimi: `/<skill>`, for example `/no-mistakes`.
 - cursor: `/<skill>`, for example `/no-mistakes`. Cursor discovers firstmate's user-level skills. Its slash popup swallows the first Enter, so a genuine second Enter submits; the shared submit retry handles it.
 - gemini: `/<skill>`, for example `/no-mistakes`. ONE Enter submits with no popup swallow, and the turn opens with an `Activate Skill` tool call.
+- omp: no separate verified form beyond normal command behavior; use natural language when the exact command is uncertain.
+- rovo: `/<skill>` (the claude/grok form), but rovo's skill loader currently rejects every firstmate skill (`metadata.internal` is a boolean and its schema wants a string), so a rovo worker cannot invoke one until that gap closes; `references/rovo.md` owns it.
 
 ## Submission acknowledgement hazards
 
@@ -201,3 +209,5 @@ Before any spawn, recovery, trust dialog, interrupt, exit, resume, or adapter ve
 | kimi | [references/kimi.md](references/kimi.md) |
 | gemini | [references/gemini.md](references/gemini.md) |
 | muse | [references/muse.md](references/muse.md) |
+| omp | [references/omp.md](references/omp.md) |
+| rovo | [references/rovo.md](references/rovo.md) |

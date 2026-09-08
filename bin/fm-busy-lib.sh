@@ -60,7 +60,7 @@
 # Grok and Rovo are the ONLY rendered-text classifications that survive the
 # redesign, because neither's structured lifecycle was credited-live-verified
 # in the approved audit (Rovo's clean ACP stopReason lives outside the TUI
-# path firstmate drives, see references/harness/rovo.md); each is scoped to
+# path firstmate drives, see references/rovo.md); each is scoped to
 # its own harness= and can never classify another adapter. The delivery
 # guards in bin/fm-composer-lib.sh match rendered footers for submit
 # acknowledgement and away-mode supervisor injection only; neither is a
