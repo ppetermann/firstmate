@@ -58,10 +58,10 @@
 # applying, which neither of those can see.
 set -u
 
-if [ "${FM_COMPOSER_DRIFT:-0}" != 1 ]; then
-  echo "skip: set FM_COMPOSER_DRIFT=1 to run the installed-harness herdr composer drift guard"
-  exit 0
-fi
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+fm_live_gate opt-in FM_COMPOSER_DRIFT
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
