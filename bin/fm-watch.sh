@@ -2216,19 +2216,6 @@ EOF
               date +%s > "$ssf"
               clear_write_tracking "$key"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
-            elif [ -n "$last" ] && { status_span_has_actionable "$STATE/$task.status" "$(hb_surfaced_offset "$task")"; [ $? -eq 1 ]; }; then
-              # Echo: the marker (a byte offset, not content - #3268) already covers
-              # every captain-relevant event in this log; only the pane repainted
-              # (clock, token counter, idle prompt). Absorb it on the bounded
-              # re-surface cadence so a wedged post-done harness still surfaces.
-              # A span read that fails (rc 2, e.g. unreadable) falls through to the
-              # fresh-wake branch below instead, per #3268's surface-on-uncertainty rule.
-              printf '%s' "$h" > "$sf"
-              esf="$STATE/.stale-echo-since-$key"
-              [ -e "$esf" ] || date +%s > "$esf"
-              resurface_absorbed "$w" "$STATE/.stale-echo-resurfaced-$key" "$(age_of "$esf")" \
-                "stale: $w (terminal status already surfaced, re-surfaced on the long cadence; confirm the finished worker is not wedged)"
-              triage_log "absorbed stale echo (terminal status already surfaced): $w"
             elif captain_call_stale_bound "$key" "$task"; then
               # The line is captain-relevant and stays so, but the backlog says
               # the captain already holds this work: further NEW pane hashes with
@@ -2241,6 +2228,45 @@ EOF
               rm -f "$ssf"
               clear_write_tracking "$key"
               triage_log "absorbed stale (open captain call already surfaced for this status): $w"
+            elif [ -z "$CAPTAIN_CALL_IDENTITY" ] && [ -n "$last" ] && { status_span_has_actionable "$STATE/$task.status" "$(hb_surfaced_offset "$task")"; [ $? -eq 1 ]; }; then
+              # The `-z "$CAPTAIN_CALL_IDENTITY"` guard keeps this echo absorb
+              # scoped to tasks with NO open captain call. captain_call_stale_bound
+              # above always calls task_captain_call_open first, which freshly
+              # sets or clears CAPTAIN_CALL_IDENTITY every time it runs, so by
+              # this point it reflects whether the JUST-EVALUATED call above
+              # found an open call for this exact task, not a stale value from
+              # an earlier window this poll cycle. Without the guard, once a
+              # captain-held terminal status is first-surfaced this echo
+              # predicate stays permanently true for it (nothing new past the
+              # offset), which would shadow the open-captain-call bound above
+              # forever: its own re-surface-on-elapsed-window behavior (window
+              # elapsed -> captain_call_stale_bound returns false -> should
+              # alarm) would instead keep being silently re-absorbed here on
+              # this echo's own, unrelated cadence.
+              # This same echo predicate also decides an UNHELD terminal status's
+              # fate (CAPTAIN_CALL_IDENTITY empty): it alarms once, absorbs an
+              # immediate repeat, then re-surfaces once ITS OWN window elapses.
+              # Upstream commit d4eb228's own test asserts an unheld terminal
+              # status alarms on every new pane hash forever, because upstream's
+              # tree has no echo absorb at all; that assertion does not hold here
+              # by design (captain decision 2026-09-08, key=stale-echo-vs-unheld-alarm,
+              # option A: keep this behavior over matching upstream's test) -
+              # see tests/fm-watch-triage.test.sh's
+              # test_stale_churn_without_a_captain_call_still_alarms for the
+              # adapted case and full reasoning. A future take-in hitting this
+              # same conflict again should keep this behavior, not upstream's.
+              # Echo: the marker (a byte offset, not content - #3268) already covers
+              # every captain-relevant event in this log; only the pane repainted
+              # (clock, token counter, idle prompt). Absorb it on the bounded
+              # re-surface cadence so a wedged post-done harness still surfaces.
+              # A span read that fails (rc 2, e.g. unreadable) falls through to the
+              # fresh-wake branch below instead, per #3268's surface-on-uncertainty rule.
+              printf '%s' "$h" > "$sf"
+              esf="$STATE/.stale-echo-since-$key"
+              [ -e "$esf" ] || date +%s > "$esf"
+              resurface_absorbed "$w" "$STATE/.stale-echo-resurfaced-$key" "$(age_of "$esf")" \
+                "stale: $w (terminal status already surfaced, re-surfaced on the long cadence; confirm the finished worker is not wedged)"
+              triage_log "absorbed stale echo (terminal status already surfaced): $w"
             else
               fm_wake_append stale "$w" "stale: $w" || exit 1
               stale_wait_record "$key"

@@ -2838,34 +2838,118 @@ test_open_captain_call_bounds_stale_churn() {
 
 
 
-# The other half of the same bound, and the one that decides whether widening the
-# wait was safe: the identical fixtures with NO hold must keep alarming on every
-# new hash, on both branches.
+# The other half of the same bound: the identical fixtures with NO captain hold
+# must never be silently swallowed forever, on either branch.
+#
+# Deliberate divergence from upstream d4eb228 (captain decision 2026-09-08,
+# key=stale-echo-vs-unheld-alarm): upstream's own tree has no stale-echo absorb
+# mechanism at all, so its equivalent test asserts a repeated TERMINAL status
+# with no captain hold alarms on every new pane hash, forever. That is not true
+# on this fork and was never meant to be: this fork's stale-echo absorb
+# (bin/fm-watch.sh, plan section 4's must-survive list) deliberately alarms once,
+# absorbs a repeat once nothing is past the surfaced offset, and re-surfaces only
+# on the bounded PAUSE_RESURFACE_SECS cadence - the same shape already proven by
+# "a repeated pane over an already-surfaced terminal status is absorbed as a
+# stale echo" elsewhere in this suite. Rather than weaken that assertion to force
+# a pass, the two TERMINAL specs below (`unheld-delivery`, `unheld-blocker`;
+# `stale_is_terminal` via `status_is_captain_relevant` covers `done`, `blocked`,
+# `needs-decision`, and `failed`) are adapted to prove THIS fork's real shape:
+# first sight alarms, an immediate repeat absorbs, and the repeat still surfaces
+# once its own window elapses - upstream's actual concern (never swallowed
+# forever) survives intact, just bounded rather than unbounded.
+# `unheld-worker-line` (a `working:` line) is not terminal, never reaches
+# stale-echo absorb, and keeps upstream's original every-round-alarms shape
+# unmodified.
 test_stale_churn_without_a_captain_call_still_alarms() {
-  local spec name line dir state out capture round wakes
+  local spec name line dir state out capture round wakes key
   command -v tasks-axi >/dev/null 2>&1 \
     || { echo "skip: tasks-axi not found (unheld stale alarm)"; return 0; }
+  key=$(hold_key)
   for spec in \
     'unheld-delivery|done: PR https://example.invalid/pull/1 checks green' \
-    'unheld-blocker|blocked: cannot reach the release host' \
-    'unheld-worker-line|working: still tidying the branch'
+    'unheld-blocker|blocked: cannot reach the release host'
   do
     name=${spec%%|*}; line=${spec#*|}
     dir=$(make_hold_home "$name" "$line" nohold) \
       || fail "[$name] could not build an unheld backlog fixture"
     state="$dir/state"; out="$dir/watch.out"; capture="$dir/pane.txt"
-    round=1
-    while [ "$round" -le 2 ]; do
-      hold_watch_surface "$dir" "$out" "$capture" "idle, elapsed ${round}s" \
-        || fail "[$name] an unheld stale window stopped alarming on round $round"
-      wakes=$(hold_stale_wakes "$state")
-      [ "$wakes" -eq 1 ] \
-        || fail "[$name] round $round produced $wakes wakes instead of one"
-      ack_stopped_cycle "$state" || fail "[$name] could not acknowledge round $round"
-      round=$((round + 1))
-    done
+
+    # Each phase below pre-seeds .hash-$key/.count-$key to the phase's own new
+    # capture text before launching, exactly like the pre-existing (unmodified)
+    # "an absorbed stale echo re-surfaces on the long cadence" case elsewhere in
+    # this suite: the real stale classifier only enters the terminal-resolution
+    # path once the SAME hash has been polled at least twice in a row
+    # (bin/fm-watch.sh's n>=2 gate), and a genuinely fresh watcher process
+    # otherwise needs several real poll cycles to reach that point on its own -
+    # which would also transiently run the busy/not-yet-stable branch that
+    # clears .stale-echo-since-$key, resetting the very re-surface clock phase
+    # C depends on. Pre-seeding is what the existing echo test already does to
+    # avoid that timing dependency, not something specific to captain holds.
+
+    # Phase A: first sight still alarms.
+    printf 'unheld phase a\n' > "$capture"
+    printf '%s' "$(hash_text 'unheld phase a')" > "$state/.hash-$key"
+    printf '1\n' > "$state/.count-$key"
+    hold_watch_launch "$dir" "$out" "$capture"
+    wait_for_exit "$HOLD_WATCH_PID" 100 || { reap "$HOLD_WATCH_PID"; fail "[$name] first sight of an unheld terminal status did not surface"; }
+    wakes=$(hold_stale_wakes "$state")
+    [ "$wakes" -eq 1 ] || fail "[$name] first sight produced $wakes wakes instead of one"
+    ack_stopped_cycle "$state" || fail "[$name] could not acknowledge the first surface"
+
+    # Phase B: a new pane hash over the SAME status content is absorbed as a
+    # stale echo - the watcher keeps polling rather than exiting (nothing was
+    # queued).
+    : > "$out"
+    printf 'unheld phase b\n' > "$capture"
+    printf '%s' "$(hash_text 'unheld phase b')" > "$state/.hash-$key"
+    printf '1\n' > "$state/.count-$key"
+    FM_HOLD_PAUSE_RESURFACE_SECS=1 hold_watch_launch "$dir" "$out" "$capture"
+    if ! wait_poll_cycle "$state" "$HOLD_WATCH_PID" 300; then
+      reap "$HOLD_WATCH_PID"; fail "[$name] watcher exited absorbing a repeated unheld terminal status: $(cat "$out")"
+    fi
+    [ ! -s "$state/.wake-queue" ] \
+      || fail "[$name] a repeated unheld terminal status re-alarmed instead of absorbing as a stale echo"
+    reap "$HOLD_WATCH_PID"
+    ack_stopped_cycle "$state" || fail "[$name] could not acknowledge the absorbed repaint"
+
+    # Phase C: age the echo clock past the (1s) cadence, then repaint again with
+    # yet another new hash - the bounded re-surface fires. This is the one thing
+    # upstream's own test is actually protecting against (a forgotten unheld
+    # terminal status must never hide forever), and it still holds here.
+    [ -e "$state/.stale-echo-since-$key" ] \
+      || fail "[$name] the absorbed echo recorded no re-surface cadence to elapse"
+    set_mtime "$(( $(date +%s) - 5 ))" "$state/.stale-echo-since-$key"
+    : > "$out"
+    printf 'unheld phase c\n' > "$capture"
+    printf '%s' "$(hash_text 'unheld phase c')" > "$state/.hash-$key"
+    printf '1\n' > "$state/.count-$key"
+    FM_HOLD_PAUSE_RESURFACE_SECS=1 hold_watch_launch "$dir" "$out" "$capture"
+    wait_for_exit "$HOLD_WATCH_PID" 100 \
+      || { reap "$HOLD_WATCH_PID"; fail "[$name] an unheld terminal status did not re-surface once its stale-echo window elapsed"; }
+    grep -F "terminal status already surfaced" "$out" >/dev/null \
+      || fail "[$name] re-surface did not use the echo reason text: $(cat "$out")"
+    wakes=$(hold_stale_wakes "$state")
+    [ "$wakes" -eq 1 ] \
+      || fail "[$name] elapsed stale-echo window produced $wakes wakes instead of one - an unheld terminal status must never be silently swallowed forever"
+    ack_stopped_cycle "$state" || fail "[$name] could not acknowledge the elapsed-window re-surface"
   done
-  pass "a stale window with no open captain call keeps alarming on every new hash"
+
+  name=unheld-worker-line; line='working: still tidying the branch'
+  dir=$(make_hold_home "$name" "$line" nohold) \
+    || fail "[$name] could not build an unheld backlog fixture"
+  state="$dir/state"; out="$dir/watch.out"; capture="$dir/pane.txt"
+  round=1
+  while [ "$round" -le 2 ]; do
+    hold_watch_surface "$dir" "$out" "$capture" "idle, elapsed ${round}s" \
+      || fail "[$name] an unheld stale window stopped alarming on round $round"
+    wakes=$(hold_stale_wakes "$state")
+    [ "$wakes" -eq 1 ] \
+      || fail "[$name] round $round produced $wakes wakes instead of one"
+    ack_stopped_cycle "$state" || fail "[$name] could not acknowledge round $round"
+    round=$((round + 1))
+  done
+
+  pass "an unheld terminal status alarms once, absorbs a repeat as a stale echo, and re-surfaces once that window elapses; an unheld non-terminal status keeps alarming on every new hash"
 }
 
 

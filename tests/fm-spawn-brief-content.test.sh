@@ -20,11 +20,19 @@ SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-brief-content)
 
 # make_probe_home <id> <brief-content> -> echoes "<home>|<projects>"
+# The project directory is an origin-less git repo (fm_git_init_commit) rather
+# than a bare mkdir: fm-spawn.sh now resolves the shared Treehouse project
+# lock (fm_treehouse_project_lock_path) before the brief-content checks this
+# file exercises, and that resolution falls back to the project's git
+# top-level when there is no origin, so a non-git project directory refuses
+# before ever reaching the checks under test. git init alone creates no
+# window or worktree, so the header comment's no-side-effect claim still holds.
 make_probe_home() {
   local id=$1 content=$2 home projects
   home="$TMP_ROOT/$id home"
   projects="$TMP_ROOT/$id projects"
-  mkdir -p "$home/data/$id" "$projects/alpha"
+  mkdir -p "$home/data/$id"
+  fm_git_init_commit "$projects/alpha"
   printf '%s' "$content" > "$home/data/$id/brief.md"
   printf '%s|%s' "$home" "$projects"
 }
