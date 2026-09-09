@@ -2249,7 +2249,7 @@ EOF
               # Upstream commit d4eb228's own test asserts an unheld terminal
               # status alarms on every new pane hash forever, because upstream's
               # tree has no echo absorb at all; that assertion does not hold here
-              # by design (captain decision 2026-09-08, key=stale-echo-vs-unheld-alarm,
+              # by design (firstmate decision 2026-09-08, key=stale-echo-vs-unheld-alarm,
               # option A: keep this behavior over matching upstream's test) -
               # see tests/fm-watch-triage.test.sh's
               # test_stale_churn_without_a_captain_call_still_alarms for the

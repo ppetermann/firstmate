@@ -2841,7 +2841,7 @@ test_open_captain_call_bounds_stale_churn() {
 # The other half of the same bound: the identical fixtures with NO captain hold
 # must never be silently swallowed forever, on either branch.
 #
-# Deliberate divergence from upstream d4eb228 (captain decision 2026-09-08,
+# Deliberate divergence from upstream d4eb228 (firstmate decision 2026-09-08,
 # key=stale-echo-vs-unheld-alarm): upstream's own tree has no stale-echo absorb
 # mechanism at all, so its equivalent test asserts a repeated TERMINAL status
 # with no captain hold alarms on every new pane hash, forever. That is not true
