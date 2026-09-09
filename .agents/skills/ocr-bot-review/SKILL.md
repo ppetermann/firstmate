@@ -117,6 +117,19 @@ A project remembers the defect classes its reviews keep finding in one section o
 The review core's question b asks every entry of every diff, a fix-round worker adds or updates an entry through the project's delivery path, and firstmate never writes it.
 When a round's report carries a `Class:` line (question b) naming an earlier instance in the same repository, the fix-round brief carries this sentence verbatim: `This finding is instance <n> of a class: add or update its entry under ## Ask these of every change in AGENTS.md in the same push, in the shape docs/project-memory-sections.md in the firstmate home gives, and move any existing prose that already states this rule into the entry rather than keeping two copies.`
 
+## Fix-round scope: the class, not the site
+
+Every fix-round brief carries this, whether or not the finding has a `Class:` line.
+A finding names one site; the fix answers the predicate.
+So the brief says: state the defect as a predicate - the shape and the condition - search the whole repository for every site matching it, and account for each; the finding's own path is never the search scope.
+Where one fact has several carriers, make one of them the carrier and cross-reference or delete the rest rather than correcting each copy.
+This applies to wording, comments and documentation exactly as to code: a phrasing defect is ONE fix, not one per instance.
+
+The captain's ruling, 2026-09-09: "i feel the workers that fix low findings are sometimes a bit too focused on the exact problem - having a phrasing issue should be one fix, not one for each instance of it."
+Evidence: maia-eve-secretary#57 cost four review rounds on one defect - a fact stated in several places in the PR description, going stale in whichever copy nobody edited.
+Rounds 2, 3 and 4 each found a different carrier of the same fact, and each fix corrected only the sentence it was pointed at.
+The review core's question b already asks this of the diff; the gap was that the FIX brief did not.
+
 ## Failure policy
 
 Blocking, not passing, is the degraded mode: a missing, pending, or failed check blocks the merge, so every failure below holds the gate.

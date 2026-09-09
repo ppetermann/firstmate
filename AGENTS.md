@@ -309,6 +309,7 @@ Only a current, explicit captain instruction that completely invalidates the wor
 That worker replaces the obsolete work from the correct pre-invalidation base rather than building on top of the obsolete head, keeping the superseded work out of what gets validated and shipped, and validates exactly once against that final head.
 
 Review findings are the worker's to address in one push per round, and firstmate re-flips for the next round.
+A fix round answers the finding's PREDICATE, not only the site it names: state the defect as a predicate, account for every site in the repository matching it, and where one fact has several carriers make one the carrier rather than correcting each copy - the same rule for wording, comments and documentation as for code (captain, 2026-09-09; `ocr-bot-review` owns the fix-round brief wording).
 A finding that would expand the accepted contract, or is destructive, irreversible, or security-sensitive, returns as `needs-decision`; firstmate loads `ask-user-authority` and either decides or escalates per that skill.
 Send the same worker one exact decision naming the decision key, the affected findings, the action, and instructions where needed, passing `--resolve-key` so the worker's open decision record closes at answer time.
 Require the matching `resolved` event, and require the worker to process every synchronous return until completion or a genuinely new escalation.
