@@ -65,11 +65,12 @@
 #                   script paths, which use the bounded automatic scheduler.
 #   --per-script-timeout-secs N
 #                   terminate a script that runs longer than N seconds and
-#                   record it as exit 124 (0 disables, the default). The
-#                   --changed applies 900s automatically: no real script
-#                   approaches it, so it only converts a HUNG
-#                   script into a bounded failure. --max-wall-ms is checked
-#                   after the run and so cannot catch a hang on its own.
+#                   record it as exit 124. Defaults to 900s for every selection
+#                   mode: no real script approaches it, so it only converts a
+#                   HUNG script into a bounded failure. An explicit 0 disables
+#                   the bound and is the only way to get an unbounded run.
+#                   --max-wall-ms is checked after the run and so cannot catch a
+#                   hang on its own.
 #                   External interruption cleanup is outside this runner's
 #                   guarantee; configured per-script bounds remain authoritative.
 #   --max-wall-ms N fail the run when its measured invocation wall clock exceeds
@@ -83,6 +84,9 @@
 # Per-script machine-parseable markers (stdout):
 #   FM_TEST_BEGIN <iso8601> <script> family=<family> expected_gate_skip=<class>
 #   FM_TEST_END <iso8601> <script> exit=<code> duration_ms=<n> gate_skip=<true|false>
+#
+# Before the first script (stdout):
+#   FM_TEST_BOUND per_script_timeout_secs=<n>   (0 means no bound was armed)
 #
 # After all scripts (stdout):
 #   FM_TEST_SUMMARY total=<n> failed=<n> skipped_gate=<n> duration_ms=<n>
@@ -161,17 +165,18 @@ JOBS=1
 JOBS_EXPLICIT=0
 JOBS_MAX=8
 MAX_WALL_MS=
-PER_SCRIPT_TIMEOUT_SECS=0
-# Bound applied automatically on the automatic --changed path, derived from
-# measured healthy runtimes with margin rather than picked: the slowest measured
-# behavior test is the 341s Herdr presentation E2E, and the slowest script in a
-# runner-file changed selection is tests/fm-calm-pi-extension.test.sh at 77s
-# once its Chrome reap terminates. 900s leaves roughly 2.6x headroom over the
-# slowest real script, so this can only ever fire on a script that is genuinely
-# stuck. It is a guard, not a speed control: a HUNG script becomes a bounded
-# failure instead of an unbounded suite, which is the shape that silently
-# outruns a caller's invocation budget.
-CHANGED_DEFAULT_TIMEOUT_SECS=900
+# Bound applied to every selection mode unless the caller passes an explicit
+# --per-script-timeout-secs, derived from measured healthy runtimes with margin
+# rather than picked. The slowest legitimate script measured in the 184-script
+# full-suite run on this host is tests/fm-watch-triage.test.sh at 508s, so 900s
+# leaves roughly 1.8x headroom over the slowest real script and can only fire on
+# a script that is genuinely stuck. It is a guard, not a speed control: a HUNG
+# script becomes a bounded failure instead of an unbounded suite, which is the
+# shape that silently outruns a caller's invocation budget.
+# Defaulting rather than refusing keeps every existing invocation working; a
+# caller who genuinely wants no bound still says so with an explicit 0.
+DEFAULT_PER_SCRIPT_TIMEOUT_SECS=900
+PER_SCRIPT_TIMEOUT_SECS=$DEFAULT_PER_SCRIPT_TIMEOUT_SECS
 
 # How many separate-runner shards the portable serial remainder splits into.
 # One owner: CI lane names carry this count and are refused when they disagree.
@@ -1987,6 +1992,12 @@ if [ "$LIST_ONLY" -eq 1 ] || [ "$LIST_SCHEDULED" -eq 1 ]; then
   exit 0
 fi
 
+# State the per-script bound this run is armed with, so a caller reading a log
+# can see the hang guard is active without re-deriving the default. It also
+# makes the default itself observable through the runner's own output, which is
+# how the regression test proves an unbounded run only happens on request.
+printf 'FM_TEST_BOUND per_script_timeout_secs=%s\n' "$PER_SCRIPT_TIMEOUT_SECS"
+
 # An empty selection is a clean result, not a no-op that falls through. Exiting
 # here also keeps every array expansion below off the empty-array path: under
 # `set -u`, bash 3.2 (the stock macOS shell) treats "${arr[@]}" on an empty
@@ -2040,9 +2051,6 @@ done
 # and --all is a deliberate complete regression.
 AUTO_CONCURRENCY=0
 if { [ "$MODE" = changed ] || [ "$MODE" = scripts ]; } && [ "$JOBS_EXPLICIT" -eq 0 ]; then
-  if [ "$MODE" = changed ] && [ "${#SCRIPTS[@]}" -gt 0 ] && [ "$PER_SCRIPT_TIMEOUT_SECS" -eq 0 ]; then
-    PER_SCRIPT_TIMEOUT_SECS=$CHANGED_DEFAULT_TIMEOUT_SECS
-  fi
   auto_admissible=0
   for s in "${SCRIPTS[@]}"; do
     script_allows_concurrency "$s" && auto_admissible=$((auto_admissible + 1))

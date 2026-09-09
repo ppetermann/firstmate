@@ -126,7 +126,11 @@ init_changed_fixture_repo() {
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
   : >"$repo/bin/fm-supervisor-target-lib.sh"
   : >"$repo/bin/fm-control-lib.sh"
-  : >"$repo/bin/fm-timeout-lib.sh"
+  # The real helper, not an empty stub: the runner arms a per-script bound by
+  # default now, so every fake repo that actually executes a script needs
+  # fm_run_timed to exist. Its content is irrelevant to the changed-file
+  # selection fixtures, which only care that the path is there.
+  cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
   : >"$repo/bin/fm-procevent-quota.sh"
   : >"$repo/bin/fm-quota-axi-lib.sh"
   : >"$repo/bin/fm-quota-choose.sh"
@@ -174,6 +178,7 @@ init_primary_and_linked_worktree() {
   for tree in "$repo" "$linked"; do
     mkdir -p "$tree/bin" "$tree/tests"
     cp "$RUNNER" "$tree/bin/fm-test-run.sh"
+    cp "$ROOT/bin/fm-timeout-lib.sh" "$tree/bin/fm-timeout-lib.sh"
     chmod +x "$tree/bin/fm-test-run.sh"
     cat >"$tree/tests/probe.test.sh" <<PROBE
 #!/usr/bin/env bash
@@ -560,15 +565,15 @@ SH
 
 # A local verification round names the subjects it cares about. Exercise begin/end
 # markers from real fixture processes to prove that a plain list of script paths
-# gets bounded automatic scheduling without changing its per-script timeout
-# contract, so verifying several subjects is one bounded concurrent run rather
-# than a serial chain of separate `bash tests/X.test.sh` invocations.
+# gets bounded automatic scheduling, so verifying several subjects is one bounded
+# concurrent run rather than a serial chain of separate `bash tests/X.test.sh`
+# invocations. The per-script bound is armed here like everywhere else; that it
+# is armed by default is owned by test_per_script_timeout_is_armed_by_default.
 test_script_list_uses_bounded_automatic_concurrency() {
   local tmp repo script parallel_shape serial_shape mixed_shape expected_jobs
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-script-list.XXXXXX")
   repo="$tmp/repo"
   init_changed_fixture_repo "$repo"
-  rm -f "$repo/bin/fm-timeout-lib.sh"
   # fm-cd-pretool-check and fm-pr-merge are individually proven isolated;
   # fm-backend-orca is not, so it must still land in the serial tail.
   for script in fm-cd-pretool-check.test.sh fm-pr-merge.test.sh fm-backend-orca.test.sh; do
@@ -626,7 +631,7 @@ PYJSON
     || fail "a named script did not run without an automatic bound: $(cat "$tmp/named.out")"
 
   rm -rf "$tmp"
-  pass "a plain script list defaults to bounded automatic concurrency without an automatic timeout"
+  pass "a plain script list defaults to bounded automatic concurrency"
 }
 
 test_family_proofs_run_in_separate_concurrent_phases() {
@@ -1180,6 +1185,7 @@ test_unmapped_new_test_never_inherits_family_concurrency() {
   repo="$tmp/repo"
   mkdir -p "$repo/bin" "$repo/tests"
   cp "$RUNNER" "$repo/bin/fm-test-run.sh"
+  cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
   chmod +x "$repo/bin/fm-test-run.sh"
   # Two members of the proven residual family, plus a test basename the family
   # map has never seen - the shape of any test added tomorrow.
@@ -1308,6 +1314,64 @@ SH
   pass "--per-script-timeout-secs turns a hung script into a bounded failure"
 }
 
+# The 2026-09-08 hang: a worker ran one script without --per-script-timeout-secs,
+# the runner defaulted to unbounded, and a case that normally passes in 508s sat
+# for over 40 minutes with nothing able to end it. The worker was blocked on that
+# command, so it could not even read the message telling it the run was hung.
+# Forgetting the flag must no longer be the difference between a bounded failure
+# and a run that never returns: the bound is armed by default in every selection
+# mode, and only an explicit 0 gives back the unbounded behavior.
+test_per_script_timeout_is_armed_by_default() {
+  local tmp repo runner quick bound
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-default-bound.XXXXXX")
+  repo="$tmp/repo"
+  runner="$repo/bin/fm-test-run.sh"
+  quick=tests/fm-quick-fixture.test.sh
+  mkdir -p "$repo/bin" "$repo/tests"
+  cp "$RUNNER" "$runner"
+  cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
+  printf '#!/usr/bin/env bash\necho "ok - fixture"\n' >"$repo/$quick"
+  chmod +x "$runner" "$repo/$quick"
+
+  # No flag at all: the run must report a non-zero armed bound and still pass.
+  (cd "$repo" && "$runner" "$quick") >"$tmp/default.out" 2>"$tmp/default.err" \
+    || fail "a default run must still pass: $(cat "$tmp/default.out" "$tmp/default.err")"
+  bound=$(sed -n 's/^FM_TEST_BOUND per_script_timeout_secs=//p' "$tmp/default.out")
+  [ -n "$bound" ] \
+    || fail "a default run must state its per-script bound: $(cat "$tmp/default.out")"
+  [ "$bound" -gt 0 ] \
+    || fail "a default run must arm a per-script bound, got $bound"
+
+  # Every selection mode, not just --changed: --all was the unbounded one that
+  # let a single forgotten flag hang a whole suite.
+  (cd "$repo" && "$runner" --all) >"$tmp/all.out" 2>"$tmp/all.err" \
+    || fail "a default --all run must still pass: $(cat "$tmp/all.out" "$tmp/all.err")"
+  grep -Eq '^FM_TEST_BOUND per_script_timeout_secs=[1-9][0-9]*$' "$tmp/all.out" \
+    || fail "--all must arm a per-script bound by default: $(cat "$tmp/all.out")"
+
+  # An explicit 0 is still honoured, so a caller who genuinely wants no bound
+  # keeps it - the guard is against forgetting, not against asking.
+  (cd "$repo" && "$runner" --per-script-timeout-secs 0 "$quick") \
+    >"$tmp/zero.out" 2>"$tmp/zero.err" \
+    || fail "an explicit 0 must still run: $(cat "$tmp/zero.out" "$tmp/zero.err")"
+  grep -Fq 'FM_TEST_BOUND per_script_timeout_secs=0' "$tmp/zero.out" \
+    || fail "an explicit 0 must disable the bound: $(cat "$tmp/zero.out")"
+
+  # An explicit bound still wins over the default.
+  (cd "$repo" && "$runner" --per-script-timeout-secs 7 "$quick") \
+    >"$tmp/seven.out" 2>"$tmp/seven.err" \
+    || fail "an explicit bound must still run: $(cat "$tmp/seven.out" "$tmp/seven.err")"
+  grep -Fq 'FM_TEST_BOUND per_script_timeout_secs=7' "$tmp/seven.out" \
+    || fail "an explicit bound must override the default: $(cat "$tmp/seven.out")"
+
+  # That the armed value actually terminates a hang is proven on the same
+  # execution path by test_per_script_timeout_bounds_a_hang above; this case
+  # owns only the question that regressed, which is whether a caller who says
+  # nothing gets a bound at all.
+  rm -rf "$tmp"
+  pass "the per-script bound is armed by default and only an explicit 0 removes it"
+}
+
 # The duration regression this guard exists for: a suite whose scripts are all
 # green but whose wall clock outgrew its caller's invocation budget. The caller
 # gets killed mid-run and retries invisibly, so an over-budget run has to be a
@@ -1320,6 +1384,7 @@ test_max_wall_ms_is_a_result_not_advice() {
   fast=tests/fm-budget-fixture.test.sh
   mkdir -p "$repo/bin" "$repo/tests"
   cp "$RUNNER" "$runner"
+  cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
   cat >"$repo/$fast" <<'SH'
 #!/usr/bin/env bash
 sleep 1
@@ -1384,6 +1449,7 @@ test_jobs_parallel_scheduler_and_failure_propagation() {
   d=tests/fm-supervision-instructions.test.sh
   mkdir -p "$repo/bin" "$repo/tests" "$evidence" "$fake_bin"
   cp "$RUNNER" "$runner"
+  cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
   cat >"$fake_bin/stat" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = "-c" ] && [ "$2" = "%a" ]; then
@@ -1611,6 +1677,7 @@ test_jobs_admits_a_concurrent_safe_family
 test_unmapped_new_test_never_inherits_family_concurrency
 test_concurrent_runs_are_ordered_longest_first
 test_per_script_timeout_bounds_a_hang
+test_per_script_timeout_is_armed_by_default
 test_max_wall_ms_is_a_result_not_advice
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout
