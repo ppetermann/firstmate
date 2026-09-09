@@ -56,14 +56,31 @@ printf '%s\n' "$SNAPSHOT" | jq -r '
     if ($r.blocked_by // "") == "" then "-"
     elif ($r.blocked_reason // "") == "" then $r.blocked_by
     else "\($r.blocked_by) - \($r.blocked_reason)" end;
+  # A row whose checkbox contradicts its section is filed under one state and
+  # marked as another, so the table it appears in cannot be read at face value.
+  def conflict_mark($r):
+    if $r.state_conflict == true then "[checkbox conflict] " else "" end;
   def backlog_row($r):
-    "| \($r.id // "-") | \(dash($r.title // $r.raw)) | \(dash($r.repo)) | \(dash($r.kind)) | \(blocker($r)) | \(dash($r.pr_url // $r.report_path // $r.local_note)) |";
+    "| \($r.id // "-") | \(conflict_mark($r))\(dash($r.title // $r.raw)) | \(dash($r.repo)) | \(dash($r.kind)) | \(blocker($r)) | \(dash($r.pr_url // $r.report_path // $r.local_note)) |";
 
   "# Fleet View",
   "",
   "Schema: \(.schema)",
   "Home: \(.fm_home)",
   "",
+  ((.main_inventory.state_conflicts // []) as $conflicts
+   | if ($conflicts | length) == 0 then empty
+     else
+       "## Contradictory Backlog Rows",
+       "",
+       "These rows are marked done by their checkbox but filed under another",
+       "heading, or filed under Done while still unchecked. Every table below",
+       "reads the heading and tasks-axi reads the checkbox, so the two disagree",
+       "about \($conflicts | length) row(s) until data/backlog.md is corrected:",
+       "",
+       ($conflicts[] | "- \(.)"),
+       ""
+     end),
   "## Under Way",
   (if (.tasks | length) == 0 then
     "No live task metadata found."

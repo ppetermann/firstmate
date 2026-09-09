@@ -22,7 +22,14 @@
 #     hold_reason, and hold_until when tasks-axi emits it. They also carry
 #     normalized current_role, requires_child_metadata, blocked_by_ids,
 #     unresolved_blocker_ids, captain_actionable, hold_set, hold_age_days,
-#     and hold_bucket fields.
+#     hold_bucket, and state_conflict fields.
+#     A record's state comes from its section heading, while tasks-axi reads the
+#     `- [x]` / `- [ ]` checkbox, so the two can disagree about one row. That
+#     disagreement is never resolved by trusting one side: state_conflict is true
+#     exactly when a checkbox row's mark contradicts its heading (checked outside
+#     Done, or unchecked under Done), and it invalidates the enclosing inventory
+#     so the contradiction is reported rather than silently picked. The legacy
+#     `- **id**` form carries no checkbox and can never conflict.
 #     Repeated blocker tokens remain ordered; a blocker resolves only when its
 #     structured record is Done, and missing ids stay open.
 #     There is no separate decision type: any captain-held task is the same
@@ -66,12 +73,13 @@
 #     useful return-channel supervision data; remote secondmates use "unknown"
 #     without a probe, and other tasks use "not_checked".
 #   scout_reports[]: present data/<id>/report.md pointers.
-#   main_inventory: {valid,reason,orphan_in_flight[],unstructured_current_count} -
-#     main-home current-inventory checks shared with secondmate_home_summary_json
-#     (orphan structured in-flight ids with no state/<id>.meta, and unstructured
-#     current backlog rows). Does not invent live tasks; meta remains truth for
-#     workers. Bearings maps failures into omitted[] disclosure (and a Charted
-#     Next gate line) rather than silent empty Underway.
+#   main_inventory: {valid,reason,orphan_in_flight[],state_conflicts[],
+#     unstructured_current_count} - main-home current-inventory checks shared with
+#     secondmate_home_summary_json (orphan structured in-flight ids with no
+#     state/<id>.meta, structured rows whose checkbox contradicts their section
+#     heading, and unstructured current backlog rows). Does not invent live tasks;
+#     meta remains truth for workers. Bearings maps failures into omitted[]
+#     disclosure (and a Charted Next gate line) rather than silent empty Underway.
 #   secondmate_current: {records[],total,shown,truncated} - bounded current summaries
 #     for registered secondmates, selected from validated structured state inside
 #     each home with explicit provenance, freshness, endpoint evidence, and unknown
@@ -88,6 +96,8 @@
 #     Structured-home input must declare the current hold-classifier schema; an
 #     older live ledger or cached copy is invalid even when it contains no captain
 #     holds, and leaves the home explicitly unreadable until its producer refreshes it.
+#     A backlog_state_conflict invalidity means that home's own backlog contradicts
+#     itself, so it collapses the home to unknown rather than staying partial.
 #   secondmate_landed: {records[],truncated[],unreadable[],partial[]} - the
 #     compatibility landed-work roll-up derived from secondmate_current. Readable
 #     structured homes are partial, not unreadable, when an unavailable child state
@@ -426,9 +436,10 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
         elif $done != null then {verb:"done",date:$done}
         else {verb:null,date:null} end;
     def row_match($line):
-      (($line | capture("^[-*][[:space:]]+\\[(?<check>[ xX])\\][[:space:]]+(?<id>[^[:space:]]+)[[:space:]]+-[[:space:]]+(?<rest>.*)$")?) //
+      (($line | capture("^[-*][[:space:]]+\\[(?<check>[ xX])\\][[:space:]]+(?<id>[^[:space:]]+)[[:space:]]+-[[:space:]]+(?<rest>.*)$")?
+        | if . == null then null else . + {checkbox:true} end) //
        (($line | capture("^[-*][[:space:]]+\\*\\*(?<id>[^*]+)\\*\\*[[:space:]]+-[[:space:]]+(?<rest>.*)$")?)
-        | if . == null then null else . + {check:" "} end));
+        | if . == null then null else . + {check:" ",checkbox:false} end));
     def structured_row($line):
       ($line | test("^[-*][[:space:]]+\\[[ xX]\\][[:space:]]+[^[:space:]]+[[:space:]]+-[[:space:]]+"))
       or ($line | test("^[-*][[:space:]]+\\*\\*[^*]+\\*\\*[[:space:]]+-[[:space:]]+"));
@@ -443,6 +454,8 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
              structured:true,
              id:($m.id | trim),
              checked:($m.check | test("[xX]")),
+             state_conflict:(($m.checkbox == true)
+                             and (($m.check | test("[xX]")) != ($section == "done"))),
              title:title_of($rest),
              repo:metadata($rest; "repo"),
              kind:metadata($rest; "kind"),
@@ -889,19 +902,26 @@ main_inventory_json() {  # <backlog-json-file> <tasks-json-file>
     | ([ $backlog.records[]?
        | select((.state == "in_flight" or .state == "queued") and (.structured | not)) ]) as $unstructured_current
     | ([ $backlog.records[]?
+         | select(.structured and .state_conflict == true)
+         | .id ]) as $state_conflicts
+    | ([ $backlog.records[]?
          | select(.state == "in_flight" and .structured and .requires_child_metadata) ]) as $owned_in_flight
     | ([ $owned_in_flight[]
          | select(.id as $id | [$tasks[].id] | index($id) | not)
          | .id ]) as $orphan_in_flight
-    | (($unstructured_current | length) == 0
+    | (($state_conflicts | length) == 0
+       and ($unstructured_current | length) == 0
        and ($orphan_in_flight | length) == 0) as $valid
-    | (if ($unstructured_current | length) > 0 then "unstructured current backlog row"
+    | (if ($state_conflicts | length) > 0 then
+         "backlog row checkbox contradicts its section heading: " + ($state_conflicts | join(", "))
+       elif ($unstructured_current | length) > 0 then "unstructured current backlog row"
        elif ($orphan_in_flight | length) > 0 then "in-flight backlog item has no child metadata"
        else null end) as $reason
     | {
         valid:$valid,
         reason:$reason,
         orphan_in_flight:$orphan_in_flight,
+        state_conflicts:$state_conflicts,
         unstructured_current_count:($unstructured_current | length)
       }'
 }
@@ -928,6 +948,9 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
       | if length > $n then .[:$n] + "…" else . end;
     ([ $backlog.records[]?
        | select((.state == "in_flight" or .state == "queued") and (.structured | not)) ]) as $unstructured_current
+    | ([ $backlog.records[]?
+         | select(.structured and .state_conflict == true)
+         | .id ]) as $state_conflicts
     | ([ $backlog.records[]? | select(.state == "in_flight" and .structured) ]) as $owned_in_flight
     | ([ $backlog.records[]?
          | select(.structured and
@@ -963,6 +986,11 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
          | {id,state:.current_state.state} ]) as $terminal_in_flight
     | ([if $backlog.present != true then
           {kind:"missing_backlog",ids:[],reason:"missing structured backlog"}
+        else empty end,
+        if ($state_conflicts | length) > 0 then
+          {kind:"backlog_state_conflict",ids:$state_conflicts,
+           reason:("backlog row checkbox contradicts its section heading: " +
+                   ($state_conflicts | join(", ")))}
         else empty end,
         if ($unstructured_current | length) > 0 then
           {kind:"unstructured_current",ids:[],reason:"unstructured current backlog row"}
@@ -1007,6 +1035,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
               blocked_by_ids:[],unresolved_blocker_ids:[],
               reason:((.current_state.detail // .current_state.state) | trunc(120)),source:"child-state"} ]) as $holds_all
     | ($backlog.present == true
+       and ($state_conflicts | length) == 0
        and ($unstructured_current | length) == 0
        and ($unknown_children | length) == 0
        and ($orphan_in_flight | length) == 0
