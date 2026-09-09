@@ -138,11 +138,18 @@ fm_control_interrupt_repeat() {  # <harness>
 }
 
 # The key that must follow the interrupt key to leave the composer empty, or
-# nothing when the adapter needs none. muse is the one verified adapter that
-# RESTORES the cancelled prompt into its composer as real bright text, so an
-# interrupt is not complete until Ctrl+U has cleared it; leaving it there would
-# make the next submitted line - a steer, or this plane's own exit command -
-# concatenate onto it. cursor was checked for exactly that behaviour and does
+# nothing when the adapter needs none. muse and claude are the verified
+# adapters that RESTORE the cancelled prompt into their composer as real text,
+# so an interrupt is not complete until Ctrl+U has cleared it; leaving it there
+# would make the next submitted line - a steer, or this plane's own exit
+# command - concatenate onto it, and would leave a doorbell sitting unsubmitted
+# in the composer until someone typed a bare Enter by hand. claude was read as
+# needing no clear key until 2026-09-09, when a single Escape into a busy
+# claude 2.1.266 pane was measured restoring the cancelled prompt 3 times out
+# of 3 (fm_tmux_composer_state read `pending` after every one); refresh that
+# per-harness verdict from the live guard named in
+# docs/verification/runtime-backends.md ("Post-interrupt composer") rather than
+# from this comment. cursor was checked for exactly that behaviour and does
 # NOT repollute: after a single Escape its composer shows only the `Add a
 # follow-up` placeholder, so it needs no clear key. gemini was checked the
 # same way and also does not repollute: after a single Escape it prints
@@ -152,8 +159,8 @@ fm_control_interrupt_repeat() {  # <harness>
 # above.
 fm_control_interrupt_clear_key() {  # <harness>
   case "${1-}" in
-    muse) printf 'C-u' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo) ;;
+    claude|muse) printf 'C-u' ;;
+    codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo) ;;
     *) return 1 ;;
   esac
 }

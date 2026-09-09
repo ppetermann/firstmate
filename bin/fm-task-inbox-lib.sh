@@ -270,20 +270,32 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 
 # Ring the doorbell, best-effort: one endpoint-liveness pre-check, one advisory
 # composer pre-check, then the backend's submit machinery with a minimal retry
-# budget, verdict discarded.
+# budget, then one post-submit read that the doorbell actually LEFT the input
+# buffer.
 # Returns 0 rang, 1 skipped because the composer PROVENLY holds pending text
 # (the watcher re-rings later), 2 the backend send failed, 3 skipped because
 # the endpoint is positively dead or missing (nothing typed; recovery owns the
-# record). No return value is delivery proof; the acknowledgement move is the
-# only delivery signal.
+# record), 4 typed but PROVENLY not submitted - the composer still holds text
+# after our Enter, so this ring delivered nothing and the caller must say so.
+# No return value is delivery proof; the acknowledgement move is the only
+# delivery signal.
 # The skip is deliberately narrow: only an exact `pending` verdict defers,
 # because there our Enter could submit someone's real half-typed content.
 # `pending-unproven` and `unknown` still ring - the worst outcome is a garbled
 # CONSTANT line the worker recovers semantically, while skipping on ambiguous
 # verdicts would starve a harness whose idle screen the classifier cannot
 # positively identify (that classifier is advisory here by design).
+# The post-submit read applies that same narrowness in reverse, and is read
+# from the pane rather than from the submit verdict on purpose: the verdict is
+# a per-adapter POLICY value that legitimately converts a proven-pending
+# composer into `empty` when the adapter's harness queues a busy Enter
+# (fm_composer_queued_enter_verdict), so it cannot answer "is our line still
+# sitting in the buffer". A `pending` composer after we typed and submitted is
+# a swallowed Enter, which is exactly the failure a discarded verdict used to
+# hide. A false positive here costs one warning while the durable record stays
+# in place for the watcher's ladder, so the read fails toward reporting.
 fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
-  local backend=$1 target=$2 rec=$3 label=${4:-} line cstate verdict
+  local backend=$1 target=$2 rec=$3 label=${4:-} line cstate verdict after
   case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
     dead|missing) return 3 ;;
   esac
@@ -302,8 +314,12 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
     return 2
   fi
   # The verdict is read only to report a failed keystroke; every other value
-  # (empty, pending, unknown, ...) is deliberately ignored, never proof.
+  # (empty, pending, unknown, ...) is not proof on its own.
   [ "$verdict" != send-failed ] || return 2
+  after=$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null) || after=unknown
+  case "$after" in
+    pending) return 4 ;;
+  esac
   return 0
 }
 

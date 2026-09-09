@@ -43,7 +43,7 @@ VERIFIED_HARNESSES="claude codex opencode pi pi-signed grok kimi cursor muse omp
 # its composer empty on cancel.
 verified_adapter_contract() {  # <harness> -> exit command, interrupt key, repeat, clear key
   case "$1" in
-    claude) printf '/exit\tEscape\t1\t\n' ;;
+    claude) printf '/exit\tEscape\t1\tC-u\n' ;;
     codex) printf '/quit\tEscape\t1\t\n' ;;
     opencode) printf '/exit\tEscape\t2\t\n' ;;
     pi) printf '/quit\tEscape\t1\t\n' ;;
@@ -66,6 +66,8 @@ verified_adapter_contract() {  # <harness> -> exit command, interrupt key, repea
 #   literal  every `send-keys -l` payload, one per line - exactly what was
 #            typed into the composer.
 #   keys     every named key send, one per line.
+#   keyflow  those same key sends interleaved with the stubbed sleeps between
+#            them, so the ORDER of keys and waits is observable.
 #   pane     optional capture-pane override, for an adapter whose busy verdict
 #            is read from the rendered tail.
 # Two transitions make it a lifecycle model rather than a recorder: a literal
@@ -103,6 +105,12 @@ case "${1:-}" in
       esac
     else
       printf '%s\n' "$payload" >> "$D/keys"
+      # The ORDERED delivery flow, keys interleaved with the waits between
+      # them (the sleep stub appends to the same file), so a test can assert
+      # the settle that keeps an Escape from being parsed together with the
+      # key behind it. Wall clock cannot answer that here: sleep is stubbed
+      # out so the suite stays fast.
+      printf 'key %s\n' "$payload" >> "$D/keyflow"
       if [ -n "${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" ] \
          && { [ "$payload" = Escape ] || [ "$payload" = C-c ]; }; then
         printf 'zsh' > "$D/command"
@@ -137,6 +145,7 @@ SH
   chmod +x "$fb/tmux"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
+[ -z "${FM_FAKE_DIR:-}" ] || printf 'sleep %s\n' "${1:-}" >> "$FM_FAKE_DIR/keyflow"
 if [ -n "${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" ] \
    && [ -e "$FM_FAKE_DIR/muse-ack-pending" ]; then
   rm -f "$FM_FAKE_DIR/muse-ack-pending"
@@ -155,6 +164,7 @@ new_case() {
   mkdir -p "$dir/home/state" "$dir/home/data" "$dir/fake"
   : > "$dir/fake/literal"
   : > "$dir/fake/keys"
+  : > "$dir/fake/keyflow"
   printf 'zsh' > "$dir/fake/command"
   printf 'claude' > "$dir/fake/becomes"
   make_tmux_stub "$dir" >/dev/null
@@ -316,21 +326,72 @@ test_prefixed_recorded_harness_reaches_each_control_verb() {
 
 test_opencode_interrupts_twice_and_others_once() {
   # The one adapter that differs, asserted through the delivered keys rather
-  # than the table, so a regression in either shows up here.
+  # than the table, so a regression in either shows up here. Counted per key
+  # rather than over the whole log, because an adapter that repollutes its
+  # composer also sends a trailing clear.
   local dir
   dir=$(new_case int-double)
   add_task "$dir" t1 opencode
   alive_as "$dir" opencode
   run_control "$dir" t1 interrupt >/dev/null
-  [ "$(keys_sent "$dir" | wc -l | tr -d ' ')" = 2 ] \
+  [ "$(keys_sent "$dir" | grep -cx Escape | tr -d ' ')" = 2 ] \
     || fail "opencode should receive a double Escape"
   dir=$(new_case int-single)
   add_task "$dir" t1 claude
   alive_as "$dir" claude
   run_control "$dir" t1 interrupt >/dev/null
-  [ "$(keys_sent "$dir" | wc -l | tr -d ' ')" = 1 ] \
+  [ "$(keys_sent "$dir" | grep -cx Escape | tr -d ' ')" = 1 ] \
     || fail "claude should receive a single Escape"
   pass "fm-control interrupt: opencode needs a double Escape, claude a single one"
+}
+
+# An Escape is the single byte ESC, so a terminal reading it immediately
+# followed by another byte parses the pair as one meta-prefixed sequence and
+# the interrupt is consumed rather than delivered. Measured live on claude
+# 2.1.266: Escape+C-u with no gap left the turn running 2 of 2, the same pair
+# 0.2s apart cancelled it 2 of 2. Asserted here as the delivery interval
+# between the two keys, which is the observable that decides it.
+test_interrupt_key_and_clear_are_separated() {
+  local dir flow waited
+  dir=$(new_case int-settle)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  run_control "$dir" t1 interrupt >/dev/null
+  [ -s "$dir/fake/keyflow" ] || fail "the fake endpoint recorded no delivery flow"
+  # Only the interrupt sequence's own keys and the waits between them.
+  flow=$(grep -v '^key Enter$' "$dir/fake/keyflow")
+  waited=$(printf '%s\n' "$flow" | awk '
+    /^key Escape$/ { seen = 1; next }
+    seen && /^sleep / { if ($2 + 0 > 0) waited = 1; next }
+    seen && /^key C-u$/ { print (waited ? "yes" : "no"); found = 1; exit }
+    END { if (!found) print "missing" }
+  ')
+  case "$waited" in
+    yes) ;;
+    no) fail "claude's composer clear followed its Escape with no wait; an ESC parsed together with the next byte consumes the interrupt" ;;
+    *) fail "the interrupt did not deliver Escape then C-u, flow was: $(printf '%s' "$flow" | tr '\n' '/')" ;;
+  esac
+  pass "fm-control interrupt: the composer clear is separated from the interrupt key"
+}
+
+# claude 2.1.266 RESTORES the cancelled prompt into its composer after its
+# single Escape (verified live, 3/3, 2026-09-09), so an interrupt that stopped
+# at the Escape left firstmate's own last submitted line sitting unsubmitted in
+# the composer: the next steer concatenated onto it, and a doorbell rung into
+# that pane went nowhere until someone typed a bare Enter by hand. Pinned as
+# ORDER, not just presence - a clear delivered before the interrupt key would
+# wipe the composer while the turn still owned it and then let the restore put
+# the prompt straight back.
+test_claude_interrupt_clears_its_repolluted_composer() {
+  local dir got
+  dir=$(new_case int-claude-clear)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  run_control "$dir" t1 interrupt >/dev/null
+  got=$(keys_sent "$dir")
+  [ "$got" = "$(printf 'Escape\nC-u')" ] \
+    || fail "claude's interrupt should send Escape then C-u to clear its restored prompt, got: $got"
+  pass "fm-control interrupt: claude's restored prompt is cleared after its Escape"
 }
 
 test_unverified_harness_is_refused() {
@@ -680,8 +741,10 @@ test_busy_agent_is_interrupted_before_the_exit_command() {
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   out=$(run_control "$dir" t1 exit); rc=$?
   expect_code 0 "$rc" "exiting a busy agent should succeed"$'\n'"$out"
-  [ "$(keys_sent "$dir")" = "Escape" ] \
-    || fail "a busy agent should be interrupted once before its exit command, got: $(keys_sent "$dir")"
+  # Escape then claude's composer clear: the exit command is submitted into a
+  # composer the interrupt must not have left holding the restored prompt.
+  [ "$(keys_sent "$dir")" = "$(printf 'Escape\nC-u')" ] \
+    || fail "a busy agent should be interrupted once, and its restored prompt cleared, before its exit command, got: $(keys_sent "$dir")"
   [ "$(literals "$dir")" = "/exit" ] || fail "the exit command should follow the interrupt"
   pass "fm-control exit: a busy agent receives interrupt delivery before the exit command"
 }
@@ -774,7 +837,7 @@ test_exit_accepts_agent_stopped_by_busy_interrupt() {
   expect_code 0 "$rc" "exit should accept a busy agent stopped by interrupt"$'\n'"$out"
   assert_contains "$out" "stopped t1 harness=claude" \
     "the authoritative gone-state should complete exit successfully"
-  [ "$(keys_sent "$dir")" = Escape ] \
+  [ "$(keys_sent "$dir")" = "$(printf 'Escape\nC-u')" ] \
     || fail "exit should deliver the busy agent's interrupt sequence"
   [ -z "$(literals "$dir")" ] \
     || fail "exit should not type a command after interrupt already stopped the agent"
@@ -799,7 +862,7 @@ test_agent_that_does_not_stop_fails_closed() {
     "the failure should distinguish delivered lifecycle input from the unconfirmed exit"
   assert_not_contains "$out" "nothing was changed" \
     "the failure must not deny the lifecycle input that was delivered"
-  [ "$(keys_sent "$dir")" = Escape ] \
+  [ "$(keys_sent "$dir")" = "$(printf 'Escape\nC-u')" ] \
     || fail "a stubborn busy agent should receive its interrupt sequence"
   [ "$(literals "$dir")" = /exit ] \
     || fail "a stubborn busy agent should receive its exit command"
@@ -882,6 +945,8 @@ test_fm_send_still_marks_the_same_secondmate_task() {
 test_exit_types_each_harness_verified_command
 test_interrupt_sends_each_harness_verified_key
 test_opencode_interrupts_twice_and_others_once
+test_claude_interrupt_clears_its_repolluted_composer
+test_interrupt_key_and_clear_are_separated
 test_unverified_harness_is_refused
 test_harness_family_resolution
 test_prefixed_recorded_harness_reaches_each_control_verb

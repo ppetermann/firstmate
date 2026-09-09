@@ -375,6 +375,33 @@ Two findings from the run shaped the shipped behavior: an OpenCode vendor update
 Kimi was not installed on the verification machine; its receive path is the same one-line-plus-shell contract, and the portable ladder and enqueue regressions in `tests/fm-task-inbox.test.sh` and `tests/fm-send-inbox.test.sh` cover every harness-independent half.
 This guard is the refresh command after any harness upgrade; it spends a small number of real tokens per installed harness, reports an absent harness explicitly, and refuses a run that verified nothing.
 
+## Post-interrupt composer
+
+`bin/fm-control-lib.sh`'s interrupt tables claim, per harness, which key cancels a turn, how many presses it takes, and whether the harness restores the cancelled prompt into its composer - the last of which decides whether the interrupt must be followed by a composer clear.
+That last claim was wrong for claude, and the cost was a steering channel that failed silently: with the composer left holding firstmate's own restored prompt, the next submitted line concatenated onto it and a steering doorbell rung into that pane reached no one until a bare Enter was typed by hand.
+
+Verified on 2026-09-09 against claude 2.1.266 on Linux, tmux 3.6, in an isolated private tmux server, driving the REAL `bin/fm-control.sh <id> interrupt` against a live turn.
+
+```sh
+FM_INTERRUPT_COMPOSER_LIVE=1 tests/fm-interrupt-composer-live-e2e.test.sh
+```
+
+```text
+ok - claude (2.1.266 (Claude Code)): the composer is empty after its recorded interrupt sequence
+# post-interrupt composer verified for 1 harness(es)
+```
+
+Two measured facts changed the shipped mechanics:
+
+- claude 2.1.266 RESTORES the cancelled prompt into its composer after its single Escape: `fm_tmux_composer_state` read `pending` in 3 of 3 runs, and in a 90-second poll it never cleared on its own.
+  claude therefore needs `C-u` after its interrupt key, like muse.
+- The clear must not follow the interrupt key immediately.
+  An Escape is the single byte ESC, so a terminal reading it followed straight away by another byte parses the pair as one meta-prefixed sequence and the interrupt is consumed rather than delivered: Escape+`C-u` back to back left the turn running in 2 of 2 runs, while the same pair 0.2s apart cancelled it in 2 of 2.
+
+The guard fails loudly with the harness name and version on either defect, and it requires the turn to actually stop before it judges the composer, so a run whose interrupt never landed fails instead of passing on a composer that was empty for the wrong reason.
+Only claude was installed on the verification machine; the other harnesses' recorded verdicts are unchanged and this guard is the command that refreshes them.
+It spends a small number of real tokens per installed harness, reports an absent harness explicitly, and refuses a run that verified nothing.
+
 ## Gemini
 
 The Gemini crewmate adapter was verified on 2026-09-04 with gemini-cli 0.58.0 on Linux, Node v24.20.0, tmux 3.4.

@@ -39,7 +39,9 @@ TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 
 # Stub tmux: logs literal typed text to FM_SEND_LOG and lets the submit and
 # composer paths reach clean verdicts. FM_FAKE_TMUX_COMPOSER=pending renders a
-# composer visibly holding text; FM_FAKE_TMUX_SEND_FAIL=1 fails send-keys.
+# composer visibly holding text; FM_FAKE_TMUX_SEND_FAIL=1 fails send-keys;
+# FM_FAKE_TMUX_SWALLOW_ENTER=1 accepts the typed line and then leaves it in the
+# composer, the shape of a harness that never processed our Enter.
 make_stubs() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
@@ -66,6 +68,10 @@ case "${1:-}" in
     for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane)
+    # A swallowed Enter: once a line has been typed, it stays in the composer.
+    if [ "${FM_FAKE_TMUX_SWALLOW_ENTER:-0}" = 1 ] && [ -s "$FM_SEND_LOG" ]; then
+      FM_FAKE_TMUX_COMPOSER=pending
+    fi
     if [ "${FM_FAKE_TMUX_COMPOSER:-}" = pending ]; then
       printf '╭──────────────╮\n│ leftover txt │\n╰──────────────╯\n'
     else
@@ -185,6 +191,26 @@ test_failed_ring_is_still_sent() {
   assert_contains "$(cat "$err")" "watcher will re-ring" \
     "the failed-ring notice should point at the re-ring"
   pass "fm-send inbox: a failed doorbell is still a durably sent steer"
+}
+
+# The failure this plane used to hide entirely: the doorbell IS typed, the
+# backend reports no error, and the line simply never leaves the composer. The
+# steer stays durably sent (exit 0, record intact), but the operator must be
+# told that this ring delivered nothing, because a steer that silently fails to
+# arrive is worse than one that errors.
+test_unsubmitted_doorbell_is_reported() {
+  local dir err rc
+  dir=$(setup_case unsubmitted); err="$dir/send.err"
+  run_send "$dir" "$err" FM_FAKE_TMUX_SWALLOW_ENTER=1 -- t1 "steer past a swallowed Enter"; rc=$?
+  expect_code 0 "$rc" "an unsubmitted doorbell must not fail the durably recorded send"
+  [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the steer was not recorded"
+  grep -qF 'Firstmate instruction waiting' "$dir/send.log" \
+    || fail "the doorbell should have been typed:"$'\n'"$(cat "$dir/send.log")"
+  assert_contains "$(cat "$err")" "NOT submitted" \
+    "an unsubmitted doorbell should be reported as undelivered"
+  assert_contains "$(cat "$err")" "watcher will re-ring" \
+    "the notice should point at the re-ring"
+  pass "fm-send inbox: a doorbell that never leaves the composer is reported, not silent"
 }
 
 test_harness_invocations_stay_typed() {
@@ -343,6 +369,7 @@ test_multiline_steer_is_legal
 test_resend_enqueues_new_sequence
 test_pending_composer_skips_ring_advisorily
 test_failed_ring_is_still_sent
+test_unsubmitted_doorbell_is_reported
 test_harness_invocations_stay_typed
 test_explicit_target_stays_typed
 test_key_path_never_touches_inbox

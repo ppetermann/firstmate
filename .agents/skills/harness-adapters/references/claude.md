@@ -6,7 +6,7 @@ Part of the harness-adapters skill; load per its "Per-harness facts" table. Veri
 |---|---|
 | Busy state | Owned lifecycle hooks: `UserPromptSubmit` opens a turn, while `Stop`, `StopFailure`, and `SessionEnd` close it; because Claude fires no hook for a manual interrupt, `bin/fm-control.sh interrupt` reports only delivered keys and the verified endpoint or live agent, publishes no idle event, makes no cancellation claim, and leaves adapter-observed state unchanged, so a mid-turn worker typically remains busy via `claude-hook`. |
 | Exit command | `/exit` |
-| Interrupt | single Escape |
+| Interrupt | single Escape, then `C-u`: claude RESTORES the cancelled prompt into its composer, and the two keys need a gap or the ESC is parsed together with the byte behind it and the interrupt is consumed (verified 2026-09-09 on 2.1.266; mechanics owned by `bin/fm-control-lib.sh` and `bin/fm-control.sh`, evidence in `docs/verification/runtime-backends.md` "Post-interrupt composer") |
 | Skill invocation | `/<skill>` (e.g. `/no-mistakes`) |
 
 ## Workspace trust

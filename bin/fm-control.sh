@@ -356,6 +356,18 @@ require_state_verified_backend() {  # <verb>
 # before sending anything when the backend cannot deliver either key, because
 # an interrupt that cancels the turn but leaves the restored prompt in the
 # composer would make the next submitted line concatenate onto it.
+#
+# Every key is separated by INTERRUPT_KEY_SETTLE, including the last interrupt
+# key and the clear that follows it. That gap is not cosmetic: an Escape is the
+# single byte ESC, and a terminal reading ESC immediately followed by another
+# byte parses the pair as one meta-prefixed sequence rather than as two keys,
+# so a clear sent with no gap CONSUMES the interrupt instead of following it.
+# Measured on claude 2.1.266: Escape+C-u back to back left the turn running
+# every time (2 of 2), while the same pair 0.2s apart cancelled it every time
+# (2 of 2). tests/fm-interrupt-composer-live-e2e.test.sh re-proves that against
+# the real harnesses; it requires the turn to actually stop before it judges
+# the composer, so a swallowed interrupt fails there instead of passing.
+INTERRUPT_KEY_SETTLE=0.2
 send_interrupt_keys() {
   local key repeat clear i=0
   key=$(fm_control_interrupt_key "$HARNESS")
@@ -369,10 +381,13 @@ send_interrupt_keys() {
     fm_backend_send_key "$BACKEND" "$T" "$key" "$LABEL" \
       || die "interrupt key $key was not delivered to task $ID on $BACKEND"
     i=$((i + 1))
-    [ "$i" -ge "$repeat" ] || sleep 0.2
+    [ "$i" -ge "$repeat" ] || sleep "$INTERRUPT_KEY_SETTLE"
   done
-  [ -z "$clear" ] || fm_backend_send_key "$BACKEND" "$T" "$clear" "$LABEL" \
-    || die "interrupt key $key reached task $ID, but $clear did not, so its composer still holds the cancelled prompt; clear it before the next lifecycle action"
+  if [ -n "$clear" ]; then
+    sleep "$INTERRUPT_KEY_SETTLE"
+    fm_backend_send_key "$BACKEND" "$T" "$clear" "$LABEL" \
+      || die "interrupt key $key reached task $ID, but $clear did not, so its composer still holds the cancelled prompt; clear it before the next lifecycle action"
+  fi
 }
 
 prepare_interrupt_ack() {
