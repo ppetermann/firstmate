@@ -110,10 +110,25 @@ thread() {
     "${8:-false}" "${9:-null}" "$1" "$2" "$3" "$4" "$5" "$6" "$7"
 }
 
-# set_graphql <home> <mergedAt-json> <threads-json> <commits-json>
+# set_graphql <home> <mergedAt-json> <threads-json> <commits-json> [reviews-json]
 set_graphql() {
-  printf '{"data":{"repository":{"pullRequest":{"mergedAt":%s,"headRefOid":"bbb222","reviewThreads":{"nodes":[%s]},"commits":{"nodes":[%s]}}}}}\n' \
-    "$2" "$3" "$4" > "$1/fix/graphql.json"
+  printf '{"data":{"repository":{"pullRequest":{"mergedAt":%s,"headRefOid":"bbb222","reviewThreads":{"nodes":[%s]},"reviews":{"nodes":[%s]},"commits":{"nodes":[%s]}}}}}\n' \
+    "$2" "$3" "${5:-}" "$4" > "$1/fix/graphql.json"
+}
+
+# review <login> <submittedAt> <commit-oid> <commit-date> <body>
+review() {
+  printf '{"author":{"login":"%s"},"submittedAt":"%s","commit":{"oid":"%s","committedDate":"%s"},"body":"%s"}' \
+    "$1" "$2" "$3" "$4" "$5"
+}
+
+# cr_body <section-summary> <path> <line-ref> <severity-line> <title>: one
+# CodeRabbit review body carrying a single body finding, in the nested
+# <summary>/<blockquote> shape the reviewer actually posts, JSON-escaped.
+# shellcheck disable=SC2016 # The backticks are literal CodeRabbit markdown.
+cr_body() {
+  printf '**Actionable comments posted: 0**\\n\\n<details>\\n<summary>%s</summary><blockquote>\\n\\n<details>\\n<summary>%s (1)</summary><blockquote>\\n\\n`%s`: %s\\n\\n**%s**\\n\\nThe prose that explains it.\\n\\n</blockquote></details>\\n\\n</blockquote></details>\\n\\n<details>\\n<summary>ℹ️ Review info</summary><blockquote>\\n\\nRun ID: test\\n\\n</blockquote></details>' \
+    "$1" "$2" "$3" "$4" "$5"
 }
 
 # The shared two-commit world: aaa111 touches y.ts and carries a successful
@@ -562,6 +577,102 @@ test_a_bad_pin_is_refused_and_writes_nothing() {
   pass "an unknown candidate, unknown commit, ambiguous abbreviation, duplicate, or malformed pin is refused and writes nothing"
 }
 
+
+# maia#392 in miniature. CodeRabbit's blocking catch arrived in the review BODY
+# because the line sits outside the diff, so no thread ever carried it and the
+# tally could not see it at all. It must count, keep its own review's commit for
+# on_bot_approved, and NOT be absorbed by an unrelated bot thread four lines
+# away - the pairing proxy is not evidence of the same defect across a boundary
+# the other reviewer could not comment on.
+test_a_body_finding_counts_and_is_never_paired() {
+  local home fakebin out reviews threads
+  home="$TMP_ROOT/case17"; make_home "$home"
+  set_two_commit_world "$home"
+  threads="$(thread firstmate-ocr-review x.ts 2825 aaa111 2026-09-05T10:00:00Z \
+    2026-09-05T10:30:00Z '_other_ | _low_ | a different defect four lines away')"
+  reviews="$(review coderabbitai 2026-09-05T11:00:00Z aaa111 2026-09-05T10:00:00Z \
+    "$(cr_body '⚠️ Outside diff range comments (1)' x.ts 2821-2821 \
+       '_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_' \
+       'Restore focus after URL-driven tab changes.')")"
+  set_graphql "$home" '"2026-09-06T09:00:00Z"' "$threads" "$COMMITS_AB" "$reviews"
+  fakebin=$(make_fake_gh "$home")
+  out=$(run_tally "$home" "$fakebin" record "$PR_URL") || fail "record must succeed"
+  assert_contains "$out" "cr x.ts:2821 @aaa111 sev=medium acted=y bot_approved=y via=body" \
+    "a body finding must surface as a candidate marked via=body"
+  assert_contains "$out" "Restore focus after URL-driven tab changes." \
+    "the candidate line must carry the body finding's own title"
+  assert_contains "$out" "bot x.ts:2825" \
+    "the nearby thread must stay a candidate rather than pairing with a body finding"
+  assert_col "$home" 134 cr_findings 1
+  assert_col "$home" 134 cr_blocking 1
+  assert_col "$home" 134 cr_unique_acted 1
+  assert_col "$home" 134 cr_unique_acted_on_bot_approved 1
+  assert_col "$home" 134 cr_rejected 0
+  assert_col "$home" 134 bot_unique_acted 1
+  pass "a finding delivered in a review body counts, keys to its review's commit, and never pairs"
+}
+
+# The body recaps the same reviewer's own inline comments. That recap must not
+# be counted a second time against the thread that already carries it.
+test_a_body_entry_repeating_its_own_thread_is_dropped() {
+  local home fakebin reviews
+  home="$TMP_ROOT/case18"; make_home "$home"
+  set_two_commit_world "$home"
+  reviews="$(review coderabbitai 2026-09-05T11:00:00Z aaa111 2026-09-05T10:00:00Z \
+    "$(cr_body '⚠️ Outside diff range comments (1)' x.ts 10-10 \
+       '_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_' \
+       'this repair can run against a stale snapshot')")"
+  set_graphql "$home" '"2026-09-06T09:00:00Z"' "$(cr_x10)" "$COMMITS_AB" "$reviews"
+  fakebin=$(make_fake_gh "$home")
+  run_tally "$home" "$fakebin" record "$PR_URL" >/dev/null || fail "record must succeed"
+  assert_col "$home" 134 cr_findings 1
+  assert_col "$home" 134 cr_unique_acted 1
+  pass "a body entry restating the same reviewer's own thread at that path and line is not counted twice"
+}
+
+# A nitpick section is the other shape a body finding arrives in, and it is
+# where the Trivial tier appears; unparsed it would read "unknown" instead of
+# the low it is.
+test_a_nitpick_body_finding_maps_trivial_to_low() {
+  local home fakebin reviews
+  home="$TMP_ROOT/case19"; make_home "$home"
+  set_two_commit_world "$home"
+  reviews="$(review coderabbitai 2026-09-05T11:00:00Z aaa111 2026-09-05T10:00:00Z \
+    "$(cr_body '🧹 Nitpick comments (1)' x.ts 1763-1774 \
+       '_📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_' \
+       'Complete the ARIA tab pattern on the panels.')")"
+  set_graphql "$home" '"2026-09-06T09:00:00Z"' '' "$COMMITS_AB" "$reviews"
+  fakebin=$(make_fake_gh "$home")
+  run_tally "$home" "$fakebin" record "$PR_URL" >/dev/null || fail "record must succeed"
+  assert_col "$home" 134 cr_findings 1
+  assert_col "$home" 134 cr_blocking 0
+  assert_col "$home" 134 cr_unique_acted 1
+  pass "a nitpick body finding counts at the low its Trivial tier means, not as blocking"
+}
+
+# The section states its own count. If the parse cannot match it, the vendor
+# format moved: refuse loudly instead of recording the undercount, which is the
+# failure this whole definition exists to stop.
+test_an_unparsable_body_section_refuses_the_record() {
+  local home fakebin out rc body reviews
+  home="$TMP_ROOT/case20"; make_home "$home"
+  set_two_commit_world "$home"
+  body=$(cr_body '⚠️ Outside diff range comments (2)' x.ts 2821-2821 \
+    '_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_' \
+    'only one of the two the section declares')
+  reviews="$(review coderabbitai 2026-09-05T11:00:00Z aaa111 2026-09-05T10:00:00Z "$body")"
+  set_graphql "$home" '"2026-09-06T09:00:00Z"' '' "$COMMITS_AB" "$reviews"
+  fakebin=$(make_fake_gh "$home")
+  out=$(run_tally "$home" "$fakebin" record "$PR_URL" 2>&1); rc=$?
+  expect_code 1 "$rc" "unparsable body section exit"
+  assert_contains "$out" "the review-body finding format changed" \
+    "a declared count the parse cannot match must be reported"
+  assert_contains "$out" "declares 2 body finding(s), parsed 1" \
+    "the refusal must name the declared and parsed counts"
+  assert_absent "$home/data/review-tally.tsv" "a refused parse must write nothing"
+  pass "a body finding section whose declared count the parse cannot match refuses the record"
+}
+
 # ---------------------------------------------------------------------------
 
 test_unique_coderabbit_finding_on_an_approved_head
@@ -581,3 +692,7 @@ test_a_pin_moves_the_acting_commit_and_flips_approval
 test_a_pin_round_trips_through_the_judged_column
 test_a_verdict_and_a_pin_coexist_on_one_candidate
 test_a_bad_pin_is_refused_and_writes_nothing
+test_a_body_finding_counts_and_is_never_paired
+test_a_body_entry_repeating_its_own_thread_is_dropped
+test_a_nitpick_body_finding_maps_trivial_to_low
+test_an_unparsable_body_section_refuses_the_record

@@ -23,21 +23,45 @@
 # Reads, in order:
 #   1. One GraphQL query for the PR's mergedAt, headRefOid, first 100 review
 #      threads (resolution state, resolver, and each thread's first comment:
-#      author, path, originalLine, originalCommit, createdAt, body) and first
-#      100 commits (oid, committedDate).
+#      author, path, originalLine, originalCommit, createdAt, body), first 100
+#      reviews (author, submittedAt, commit, body) and first 100 commits (oid,
+#      committedDate).
 #   2. Per PR commit: repos/<o>/<r>/commits/<oid> for files[].filename, and
 #      repos/<o>/<r>/commits/<oid>/check-runs?check_name=ocr-review for the
 #      newest completed run's conclusion.
 #
 # Definitions (the header's contract; the counting implements exactly these):
-#   finding      a review thread whose first comment's author.login, after
+#   finding      either a review THREAD whose first comment's author.login, or
+#                a body finding (below) on a REVIEW whose author.login, after
 #                stripping a trailing "[bot]", equals the bot login or the
-#                CodeRabbit login. Threads by anyone else are ignored.
+#                CodeRabbit login. Anyone else's are ignored. A finding's `via`
+#                is thread or body; `candidates` prints it, because a body
+#                finding has no thread and so can never read as rejected.
+#   body finding a finding a reviewer delivered in its review BODY because
+#                GitHub would not take it inline. CodeRabbit nests these under
+#                a <summary> declaring a count - "Outside diff range comments
+#                (n)" for a line outside the diff, "Nitpick comments (n)" under
+#                the CHILL profile - then one <details> per path, then one
+#                "`<a>-<b>`:" heading per finding carrying its severity line and
+#                a bold title. Each entry becomes one finding at that path and
+#                the END of that line range, created at the review's
+#                submittedAt and keyed to the review's commit, which is what
+#                on_bot_approved reads. It then takes the SAME acted,
+#                on_bot_approved and rejected rules as a thread finding, and the
+#                one exception is pairing, which shared() states. The rest of a
+#                review body is boilerplate or a recap of that review's own
+#                inline comments and carries no finding; a body entry repeating
+#                one of the SAME reviewer's threads at the same path and line is
+#                that thread restated and is dropped. Because a section declares
+#                its own count, a parse that finds a different number refuses the
+#                whole record (exit 1, nothing written) rather than recording
+#                the undercount silence would: that refusal is the guard that a
+#                vendor format change cannot quietly bias the tally.
 #   severity     for the bot, the first _critical_|_high_|_medium_|_low_ token
-#                in the body; for CodeRabbit, Critical|Major|Minor after a
-#                coloured-circle glyph, mapped to high/medium/low. Unparseable
-#                is "unknown". blocking = critical/high/medium for the bot,
-#                Critical/Major for CodeRabbit.
+#                in the body; for CodeRabbit, Critical|Major|Minor|Trivial after
+#                a coloured-circle glyph, mapped to high/medium/low/low.
+#                Unparseable is "unknown". blocking = critical/high/medium for
+#                the bot, Critical/Major for CodeRabbit.
 #   shared(t)    t is paired with a finding by the OTHER reviewer. Pairing is
 #                ONE-TO-ONE, so no single counterpart can mark two findings
 #                shared: within a path, every cross-reviewer pair whose
@@ -48,9 +72,18 @@
 #                order the API happened to return the threads in. Whatever is
 #                left unpaired is unique. A null line is never paired:
 #                conservatively it surfaces as a candidate for judgement
-#                instead of vanishing.
-#   acted(t)     some PR commit with committedDate > t.createdAt lists t.path
-#                among its files. That proxy credits the FIRST such commit, so
+#                instead of vanishing. A BODY finding is never paired either,
+#                for the same reason and a stronger one: it names a line the
+#                other reviewer could not comment on inline at all, so their
+#                diff-anchored line is not comparable to it and proximity stops
+#                being evidence of the same defect. Pairing it anyway would
+#                silently delete the credit - the direction every measurement
+#                gap found so far has erred in - whereas leaving it a candidate
+#                puts the same-substance call in front of a judge, who has
+#                --judge <n>=dup for exactly that.
+#   acted(t)     some PR commit with committedDate > t.createdAt - the review's
+#                submittedAt for a body finding - lists t.path among its files.
+#                That proxy credits the FIRST such commit, so
 #                two findings on one file are both credited to whichever push
 #                fixed either. --acted-at <n>=<sha> overrides it for one
 #                candidate: that finding is acted with <sha> as its first acting
@@ -65,7 +98,8 @@
 #                committedDate, and, when acted, committedDate < the first
 #                acting commit's date.
 #   rejected(t)  not acted, isResolved, and resolvedBy.login does not end in
-#                "[bot]".
+#                "[bot]". A body finding has no thread to resolve, so it never
+#                reads as rejected.
 #   unique_acted !shared && acted, after judgements.
 #   judgement    --judge <n>=<verdict>, n from the `candidates` numbering:
 #                missed (default, counts), declined (the bot read it and chose
@@ -76,7 +110,7 @@
 #   bot_rounds   distinct PR commits carrying a completed ocr-review check run.
 #
 # `candidates` prints, numbered from 1, every finding with !shared && acted:
-#   <n> <reviewer> <path>:<originalLine> @<commit7> sev=<severity> acted=y bot_approved=<y|n|-> | <body first line, 100 chars>
+#   <n> <reviewer> <path>:<originalLine> @<commit7> sev=<severity> acted=y bot_approved=<y|n|-> via=<thread|body> | <body first line, 100 chars>
 # `record` prints the same list first, so firstmate sees what it is about to
 # count, then writes.
 #
@@ -181,6 +215,12 @@ GRAPHQL_QUERY='query($owner:String!,$repo:String!,$number:Int!){
           body
         }}
       }}
+      reviews(first:100){nodes{
+        author{login}
+        submittedAt
+        commit{oid committedDate}
+        body
+      }}
       commits(first:100){nodes{commit{oid committedDate}}}
     }
   }
@@ -230,11 +270,52 @@ ANALYSIS_JQ='
 def absn: if . < 0 then - . else . end;
 def firstline: (. // "") | split("\n")[0] // "";
 def sev_bot: (. // "") | [scan("_(critical|high|medium|low)_")] | (.[0][0] // "unknown");
-def sev_cr:  (. // "") | [scan("\\p{So}[^A-Za-z]*(Critical|Major|Minor)")] | .[0][0]
+def sev_cr:  (. // "") | [scan("\\p{So}[^A-Za-z]*(Critical|Major|Minor|Trivial)")] | .[0][0]
              | if . == "Critical" then "high"
                elif . == "Major" then "medium"
                elif . == "Minor" then "low"
+               elif . == "Trivial" then "low"
                else "unknown" end;
+
+# One review body, parsed into the findings it carries that no thread carries.
+# CodeRabbit nests them as <summary>-headed <details> blocks: a finding section
+# declaring its own count, then one block per path, then one "`<a>-<b>`:"
+# heading per finding followed by its severity line and a bold title. `want` is
+# what the section declared and `got` what this parse found, so a format change
+# is a refusal rather than a silent undercount.
+def body_findings:
+  (. // "") | split("\n") | map(gsub("^(> ?)+"; ""))
+  | reduce .[] as $l ({sec: null, path: null, want: 0, out: []};
+      ($l | [scan("<summary>([^<]*)</summary>")] | (.[0][0] // null)) as $sum
+      | if $sum != null then
+          if ($sum | test("(Outside diff range|Nitpick) comments \\([0-9]+\\)")) then
+            .sec = ($sum | [scan("(Outside diff range|Nitpick)")] | .[0][0])
+            | .want += ($sum | [scan("\\(([0-9]+)\\)")] | .[0][0] | tonumber)
+            | .path = null
+          elif ($sum | test("Autofix|Review info|Run configuration|Commits|Files selected for processing|Files skipped from review|Prompt for all review comments")) then
+            .sec = null | .path = null
+          elif (.sec != null and ($sum | test("^[^ ]+ \\([0-9]+\\)$"))) then
+            .path = ($sum | sub(" \\([0-9]+\\)$"; ""))
+          else . end
+        elif (.sec != null and ($l | test("^`[0-9]+(-[0-9]+)?`:"))) then
+          .out += [{ path: .path,
+                     line: (($l | [scan("^`[0-9]+(?:-([0-9]+))?`:")] | .[0][0])
+                            // ($l | [scan("^`([0-9]+)`:")] | .[0][0])),
+                     sevline: $l,
+                     title: null }]
+        elif (.sec != null and (.out | length) > 0 and (.out[-1].title == null)
+              and ($l | test("^\\*\\*.+\\*\\*$"))) then
+          .out = (.out[0:-1] + [.out[-1] + {title: ($l | gsub("^\\*\\*|\\*\\*$"; ""))}])
+        else . end)
+  # got counts only entries that become findings, so an entry whose path did
+  # not parse trips the count guard instead of being dropped in silence.
+  | [ .out[] | select(.path != null) ] as $usable
+  | { want: .want,
+      got: ($usable | length),
+      findings: [ $usable[] | { path: .path,
+                                line: (if .line == null then null else (.line | tonumber) end),
+                                body: (.title // .sevline),
+                                sevline: .sevline } ] };
 
 . as $root
 | $root.pr as $pr
@@ -260,9 +341,50 @@ def sev_cr:  (. // "") | [scan("\\p{So}[^A-Za-z]*(Critical|Major|Minor)")] | .[0
                    then ($sev == "critical" or $sev == "high" or $sev == "medium")
                    else ($sev == "high" or $sev == "medium") end),
         resolved: ($t.isResolved // false),
-        resolved_by: ($t.resolvedBy.login // null)
+        resolved_by: ($t.resolvedBy.login // null),
+        via: "thread"
       }
-  ] as $raw
+  ] as $threads
+| [ ($pr.reviews.nodes // [])[]
+    | . as $r
+    | ((($r.author.login) // "") | sub("\\[bot\\]$"; "")) as $login
+    | (if $login == $bot then "bot" elif $login == $cr then "cr" else null end) as $reviewer
+    | select($reviewer != null)
+    | ($r.body | body_findings) as $parsed
+    | { reviewer: $reviewer, at: ($r.submittedAt // ""),
+        oc_oid: ($r.commit.oid // null), oc_date: ($r.commit.committedDate // null),
+        want: $parsed.want, got: $parsed.got, findings: $parsed.findings }
+  ] as $bodyparse
+| [ $bodyparse[]
+    | . as $b
+    | $b.findings[]
+    | (.sevline | if $b.reviewer == "bot" then sev_bot else sev_cr end) as $sev
+    | {
+        reviewer: $b.reviewer,
+        path: .path,
+        line: .line,
+        created: $b.at,
+        oc_oid: $b.oc_oid,
+        oc_date: $b.oc_date,
+        body: (.body | firstline),
+        severity: $sev,
+        blocking: (if $b.reviewer == "bot"
+                   then ($sev == "critical" or $sev == "high" or $sev == "medium")
+                   else ($sev == "high" or $sev == "medium") end),
+        resolved: false,
+        resolved_by: null,
+        via: "body"
+      }
+  ] as $bodyraw
+# A body entry repeating a thread of the same reviewer, at the same path and
+# line, is that thread restated rather than a second finding.
+| [ $bodyraw[]
+    | . as $f
+    | select([ $threads[]
+               | select(.reviewer == $f.reviewer and .path == $f.path
+                        and .line != null and .line == $f.line) ] | length == 0)
+  ] as $bodyuniq
+| ($threads + $bodyuniq) as $raw
 | [ $raw[]
     | . as $f
     | ([ $commits[]
@@ -272,8 +394,8 @@ def sev_cr:  (. // "") | [scan("\\p{So}[^A-Za-z]*(Critical|Major|Minor)")] | .[0
     | $f + { acted: (($acting | length) > 0), acting_date: ($acting[0].committedDate // null) }
   ] as $withacted
 | ($withacted | to_entries | map(.value + {idx: .key})) as $indexed
-| ([ $indexed[] | select(.reviewer == "bot" and .line != null) ]) as $botlined
-| ([ $indexed[] | select(.reviewer == "cr" and .line != null) ]) as $crlined
+| ([ $indexed[] | select(.reviewer == "bot" and .line != null and .via == "thread") ]) as $botlined
+| ([ $indexed[] | select(.reviewer == "cr" and .line != null and .via == "thread") ]) as $crlined
 | ([ $botlined[] as $b
      | $crlined[] as $c
      | select($b.path == $c.path and ((($b.line) - ($c.line)) | absn) <= 15)
@@ -331,6 +453,8 @@ def sev_cr:  (. // "") | [scan("\\p{So}[^A-Za-z]*(Critical|Major|Minor)")] | .[0
     merged_at: ($pr.mergedAt // null),
     head: ($pr.headRefOid // null),
     bot_rounds: ($commits | map(select(.conclusion != null)) | length),
+    body_unparsed: [ $bodyparse[] | select(.want != .got)
+                     | { reviewer: .reviewer, at: .at, want: .want, got: .got } ],
     candidates: $cands,
     counts: {
       bot_findings: ($findings | map(select(.reviewer == "bot")) | length),
@@ -353,6 +477,14 @@ analyse() {
   jq --arg bot "$BOT_LOGIN" --arg cr "$CR_LOGIN" --argjson judge "$judge" --argjson pin "$pin" \
     "$ANALYSIS_JQ" "$WORK/data.json" > "$WORK/analysis.json" \
     || die_read "error: cannot analyse the review threads"
+  # A finding section states its own count. If the parse disagrees, the body
+  # format moved: refuse rather than record the undercount that silence would.
+  local unparsed
+  unparsed=$(jq -r '.body_unparsed[] | "\(.reviewer) review of \(.at) declares \(.want) body finding(s), parsed \(.got)"' \
+    "$WORK/analysis.json" | head -n 1) \
+    || die_read "error: cannot check the review-body parse"
+  [ -z "$unparsed" ] \
+    || die_read "error: the review-body finding format changed: $unparsed"
 }
 
 print_candidates() {
@@ -365,6 +497,7 @@ print_candidates() {
              "acted=y",
              ("bot_approved=" + (if .bot_approved == null then "-"
                                  elif .bot_approved then "y" else "n" end)),
+             ("via=" + .via),
              "|",
              (.body[0:100])
            ] | join(" ")' "$WORK/analysis.json"
