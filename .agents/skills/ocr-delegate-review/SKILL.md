@@ -30,9 +30,11 @@ A whole-project review has no completion window: commission it as its own scout 
 ## Reviewer binding
 
 A review round is judgement work: it takes the JUDGEMENT AND CORRECTION class of `config/crew-dispatch.json` under the active setup - opus on the Claude setup, glm-5.3 on the GLM setup (captain, 2026-09-04). Read that config at dispatch rather than binding a harness or model here.
-Both paths below deliver the filled worker block: `{OCR_BASE}` becomes the project's default-branch ref, normally `origin/main`, the same base the ship branch was created from; `{OCR_RULE}` becomes the absolute path to `docs-rule.json` beside this skill in the active firstmate home; and any captain-requested `--exclude` patterns are appended to the preview and rule commands.
-`docs-rule.json` is what makes documentation reviewable at all: `ocr` classifies no Markdown, so without it every `.md` file comes back `unsupported_ext` and a doc-only diff previews as zero reviewable files.
-It adds a documentation group and displaces nothing - a mixed diff keeps its `**/*.rs` system group and gains the `**/*.md` custom one (verified 2026-09-04 against maia-eve-secretary's 20845d0..15e7e7a: 3 excluded became 3 reviewable, and `src/tick.rs` kept its system group).
+Both paths below deliver the filled worker block: `{OCR_BASE}` becomes the project's default-branch ref, normally `origin/main`, the same base the ship branch was created from; `{OCR_RULE}` becomes the absolute path to `review-rule.json` beside this skill in the active firstmate home; and any captain-requested `--exclude` patterns are appended to the preview and rule commands.
+`review-rule.json` is what makes documentation and container build files reviewable at all: `ocr` classifies neither Markdown nor `Dockerfile*`, so without it those files come back `unsupported_ext` and a doc-only or Dockerfile-only diff previews as zero reviewable files.
+Its `include` list and its `rules` list do different jobs, and the difference is the trap: `include` is additive to file selection, while `rules` is first-match-wins and a matching custom pattern REPLACES the system group for those files rather than adding to it.
+So a custom pattern must be checked for what it displaces before it is added: a `**/*.rs` entry silently swaps the whole system Rust group for whatever short rule it carries, and nothing reports the loss.
+The current entries were chosen to displace nothing that was not carried forward (verified 2026-09-09 against `ocr` v1.11.6): `**/*.md` and the `Dockerfile*` patterns replace only the generic `default` group, `.rs` and non-compose `.yaml` files keep their system groups untouched, and the compose pattern displaces the one-line system yaml-key spellcheck, which is folded into the compose rule's own `#### Spelling` section so no coverage is lost.
 
 Path one: the task's own worker already runs pi on GLM-5.3.
 Steer the block to that worker before its completion step.
@@ -129,7 +131,8 @@ The round never blocks a delivery path: the selected delivery path, its automate
 If `ocr` is not on PATH, the worker appends the skip status line and the delivery path continues unchanged.
 If `ocr delegate preview` or `ocr delegate rule` exits nonzero or prints unparseable JSON, the worker retries once, then skips with the error's first line as the reason.
 An empty preview (`reviewable_count: 0`) is not an error: note "no reviewable files (N excluded)" in the done clause and continue.
-With `docs-rule.json` passed, a doc-only diff is no longer empty, so an empty preview now means the diff genuinely holds nothing this reviewer selects - a `.md` file coming back `unsupported_ext` means the rule file was not passed, and the round must be re-run with it.
+With `review-rule.json` passed, a doc-only or Dockerfile-only diff is no longer empty, so an empty preview now means the diff genuinely holds nothing this reviewer selects - a `.md` or `Dockerfile*` file coming back `unsupported_ext` means the rule file was not passed, and the round must be re-run with it.
+An empty preview is still worth reporting rather than swallowing: name the excluded paths and their reasons, because a file type the project cares about landing in `unsupported_ext` is a gap in this rule file, not a clean change.
 The worker runs at most two preview-to-review rounds; residual findings are reported, never looped.
 A finding the worker cannot resolve is either rejected with a one-line reason or escalated through the existing `needs-decision` contract; it is never silently dropped.
 
