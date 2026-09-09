@@ -373,6 +373,40 @@ The guard fails loudly with the harness name and version on either defect, and i
 Only claude was installed on the verification machine; the other harnesses' recorded verdicts are unchanged and this guard is the command that refreshes them.
 It spends a small number of real tokens per installed harness, reports an absent harness explicitly, and refuses a run that verified nothing.
 
+### One press is not a clear
+
+Re-measured on 2026-09-09 against claude 2.1.266 on Linux, tmux 3.6, after steers kept stalling with the clear key in place.
+`C-u` kills back to the start of the current WRAPPED DISPLAY ROW, not the start of the buffer, so a single press clears a short restored prompt and leaves the leading rows of a long one behind.
+Firstmate's own steering doorbell embeds the absolute inbox path twice and always wraps, so the interrupt reported success while the doorbell stayed in the composer, unsubmitted, until a bare Enter was typed by hand.
+
+Typed into an idle composer and cleared with `C-u`, no model turn involved:
+
+| typed length | pane width | presses to reach a proven-empty composer |
+| --- | --- | --- |
+| 11 | 200 | 1 |
+| 180 | 200 | 1 |
+| 219 (the real doorbell) | 200 | 2 |
+| 400 | 200 | 3 |
+| 227 (the real doorbell) | 80 | 4 |
+
+The restore is also intermittent and can land after the clear: driving the REAL `bin/fm-control.sh <id> interrupt` one second after a submitted doorbell, `fm_tmux_composer_state` read `pending` in 2 of 3 and 2 of 4 runs, and a separate measurement timed the restore arriving 0.19s and 0.22s after the Escape, against the 0.2s settle before the clear.
+
+`bin/fm-control.sh` therefore delivers the clear until the composer stops proving it holds text, bounded by `FM_CONTROL_CLEAR_PRESSES` (default 8), and refuses loudly rather than reporting a clean interrupt over a composer that still holds text.
+With that loop the same four-round reproduction left the composer clean 4 times out of 4; forcing the budget back to a single press with `FM_CONTROL_CLEAR_PRESSES=1` reproduced the stall 2 times out of 4.
+
+```sh
+FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh
+```
+
+```text
+# claude 2.1.266 (Claude Code): a 227-character wrapped composer cleared in 4 x C-u
+ok - composer drift: claude 2.1.266 (Claude Code) separates an empty composer from unsubmitted text
+```
+
+That guard spends no model tokens: it types firstmate's real doorbell into an idle composer and clears it through the shipped `fm_backend_clear_composer`, so the press count is measured rather than assumed, and it refuses a probe whose typed line is not longer than the pane is wide.
+The token-spending guard above now cancels a prompt longer than its own pane, because the 123-character prompt it used before occupied one display row and passed while this defect was live.
+Its intermittency is why both guards exist: with `FM_CONTROL_CLEAR_PRESSES=1` the live interrupt guard failed on the first attempt and passed on the second, while the token-free press-count probe is deterministic.
+
 ## Gemini
 
 The Gemini crewmate adapter was verified on 2026-09-04 with gemini-cli 0.58.0 on Linux, Node v24.20.0, tmux 3.4.

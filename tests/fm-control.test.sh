@@ -105,6 +105,20 @@ case "${1:-}" in
       esac
     else
       printf '%s\n' "$payload" >> "$D/keys"
+      # A composer that needs one clear press per WRAPPED DISPLAY ROW, which is
+      # what a real kill-to-row-start key does to a line that wraps. Only armed
+      # when the case wrote composer-rows, so every other case is unaffected.
+      if [ -f "$D/composer-rows" ] && [ "$payload" = C-u ]; then
+        rows=$(cat "$D/composer-rows")
+        rows=$((rows - 1))
+        [ "$rows" -lt 0 ] && rows=0
+        printf '%s' "$rows" > "$D/composer-rows"
+        if [ "$rows" -gt 0 ]; then
+          printf '%s\n' '╭──────────────╮' '│ leftover text│' '╰──────────────╯' > "$D/pane"
+        else
+          printf '%s\n' '╭──────────────╮' '│              │' '╰──────────────╯' > "$D/pane"
+        fi
+      fi
       # The ORDERED delivery flow, keys interleaved with the waits between
       # them (the sleep stub appends to the same file), so a test can assert
       # the settle that keeps an Escape from being parsed together with the
@@ -392,6 +406,74 @@ test_claude_interrupt_clears_its_repolluted_composer() {
   [ "$got" = "$(printf 'Escape\nC-u')" ] \
     || fail "claude's interrupt should send Escape then C-u to clear its restored prompt, got: $got"
   pass "fm-control interrupt: claude's restored prompt is cleared after its Escape"
+}
+
+# A restored prompt is not one keypress wide. The composer is a text editor and
+# C-u kills back to the start of the CURRENT WRAPPED DISPLAY ROW, so a line
+# that wraps survives a single press - and firstmate's own steering doorbell
+# always wraps, because it embeds the absolute inbox path twice. Measured on
+# claude 2.1.266 in a 200-column pane: an 11-character line and a
+# 180-character line cleared in one press, a 400-character line took three, and
+# the real 219-character doorbell took two. A single blind press therefore left
+# the doorbell sitting unsubmitted in the composer, which is exactly the steer
+# firstmate kept losing.
+#
+# The two arms below are the divergence: the SAME stub, the same key, and the
+# only difference is how many display rows the restored prompt occupies. If the
+# clear ever goes back to one blind press the two-row arm fails while the
+# one-row arm still passes, so neither can go quietly vacuous.
+arm_composer_rows() {  # <case-dir> <rows>
+  printf '%s' "$2" > "$1/fake/composer-rows"
+  printf '%s\n' '╭──────────────╮' '│ leftover text│' '╰──────────────╯' > "$1/fake/pane"
+}
+
+test_interrupt_clears_one_row_with_one_press() {
+  local dir got rc
+  dir=$(new_case int-clear-1row)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  arm_composer_rows "$dir" 1
+  run_control "$dir" t1 interrupt >/dev/null; rc=$?
+  expect_code 0 "$rc" "a composer that clears on the first press interrupts cleanly"
+  got=$(keys_sent "$dir")
+  [ "$got" = "$(printf 'Escape\nC-u')" ] \
+    || fail "a one-row restored prompt should take exactly one clear press, got: $(printf '%s' "$got" | tr '\n' '/')"
+  pass "fm-control interrupt: a one-row restored prompt takes exactly one clear press"
+}
+
+test_interrupt_clears_a_wrapped_composer() {
+  local dir got rc
+  dir=$(new_case int-clear-wrapped)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  arm_composer_rows "$dir" 2
+  run_control "$dir" t1 interrupt >/dev/null; rc=$?
+  expect_code 0 "$rc" "a wrapped restored prompt must still interrupt cleanly"
+  got=$(keys_sent "$dir")
+  [ "$got" = "$(printf 'Escape\nC-u\nC-u')" ] \
+    || fail "a two-row restored prompt should be cleared until the composer proves empty, got: $(printf '%s' "$got" | tr '\n' '/')"
+  pass "fm-control interrupt: a wrapped restored prompt is cleared until the composer proves empty"
+}
+
+# The budget has to end somewhere, and it must end LOUDLY: a composer that
+# still provably holds text is the state where the next submitted line
+# concatenates onto firstmate's own leftovers.
+test_interrupt_refuses_a_composer_it_cannot_clear() {
+  local dir out rc presses
+  dir=$(new_case int-clear-stuck)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  arm_composer_rows "$dir" 99
+  out=$(run_control "$dir" t1 interrupt); rc=$?
+  expect_code 1 "$rc" "an uncleanable composer must fail rather than report a clean interrupt"
+  case "$out" in
+    *"still holds text"*) ;;
+    *) fail "the refusal should name the composer that still holds text, got: $out" ;;
+  esac
+  presses=$(grep -c '^C-u$' "$dir/fake/keys" || true)
+  [ "$presses" -eq 8 ] \
+    || fail "the clear should stop at its 8-press budget rather than keying forever, got $presses presses"
+  pass "fm-control interrupt: a composer that never clears refuses at its press budget"
 }
 
 test_unverified_harness_is_refused() {
@@ -946,6 +1028,9 @@ test_exit_types_each_harness_verified_command
 test_interrupt_sends_each_harness_verified_key
 test_opencode_interrupts_twice_and_others_once
 test_claude_interrupt_clears_its_repolluted_composer
+test_interrupt_clears_one_row_with_one_press
+test_interrupt_clears_a_wrapped_composer
+test_interrupt_refuses_a_composer_it_cannot_clear
 test_interrupt_key_and_clear_are_separated
 test_unverified_harness_is_refused
 test_harness_family_resolution

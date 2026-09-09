@@ -143,8 +143,13 @@ fm_control_interrupt_repeat() {  # <harness>
 # so an interrupt is not complete until Ctrl+U has cleared it; leaving it there
 # would make the next submitted line - a steer, or this plane's own exit
 # command - concatenate onto it, and would leave a doorbell sitting unsubmitted
-# in the composer until someone typed a bare Enter by hand. claude was read as
-# needing no clear key until 2026-09-09, when a single Escape into a busy
+# in the composer until someone typed a bare Enter by hand.
+# This names the KEY, never how many presses it takes: Ctrl+U kills back to the
+# start of the current WRAPPED DISPLAY ROW rather than the start of the buffer,
+# so a restored line that wraps survives a single press and the caller must
+# deliver the key until the composer proves empty (fm_backend_clear_composer in
+# bin/fm-backend.sh).
+# claude was read as needing no clear key until 2026-09-09, when a single Escape into a busy
 # claude 2.1.266 pane was measured restoring the cancelled prompt 3 times out
 # of 3 (fm_tmux_composer_state read `pending` after every one); refresh that
 # per-harness verdict from the live guard named in
@@ -163,6 +168,31 @@ fm_control_interrupt_clear_key() {  # <harness>
     codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo) ;;
     *) return 1 ;;
   esac
+}
+
+# How long every key in an interrupt sequence must be separated from the next,
+# including the clear that follows the last interrupt key. An Escape is the
+# single byte ESC, and a terminal reading it immediately followed by another
+# byte parses the pair as one meta-prefixed sequence, so a clear sent with no
+# gap CONSUMES the interrupt instead of following it (measured on claude
+# 2.1.266: back to back left the turn running 2 of 2, 0.2s apart cancelled it
+# 2 of 2). Owned here because both control-plane callers - bin/fm-control.sh's
+# interrupt verb and bin/fm-send.sh's --key Escape path - need the same gap.
+fm_control_interrupt_key_settle() {
+  printf '0.2'
+}
+
+# How many times the clear key may be delivered before a caller refuses rather
+# than leaving a composer that provably still holds text. The clear is never
+# ONE press: the key kills back to the start of the current wrapped display row,
+# so a restored prompt costs one press per row and firstmate's own steering
+# doorbell always wraps (docs/verification/runtime-backends.md "Post-interrupt
+# composer"). Generous rather than tight, because the cost of one extra press
+# into an already-empty composer is nothing.
+fm_control_interrupt_clear_presses() {
+  local n=${FM_CONTROL_CLEAR_PRESSES:-8}
+  case "$n" in ''|*[!0-9]*|0) n=8 ;; esac
+  printf '%s' "$n"
 }
 
 fm_control_interrupt_ack_source() {  # <harness>

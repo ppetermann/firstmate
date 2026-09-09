@@ -18,6 +18,13 @@
 # healthy-looking signal, so the next steer concatenated onto it and a doorbell
 # rung into that pane went nowhere until a bare Enter was typed by hand.
 #
+# The prompt this guard cancels must WRAP the pane, and it asserts that it
+# does. The first version of this guard cancelled a 123-character prompt in a
+# 200-column pane - a single display row, which any kill-to-row-start key
+# clears in one press - so it passed while the same interrupt kept stranding
+# firstmate's own 200-plus-character doorbell in the composer. A prompt that
+# does not wrap cannot exercise the shape that actually failed.
+#
 # For every INSTALLED verified harness this guard launches an idle pane in an
 # isolated tmux server, starts a real turn, cancels it by running the REAL
 # bin/fm-control.sh interrupt against it - never a copy of its key sequence -
@@ -55,6 +62,7 @@ SESSION="intcomplive"
 LAB=$(mktemp -d "${TMPDIR:-/tmp}/fm-intcomp-live.XXXXXX")
 LAB=$(cd "$LAB" && pwd)
 TIMEOUT=${FM_INTERRUPT_COMPOSER_LIVE_TIMEOUT:-90}
+PANE_COLS=200
 CHECKED=0
 FAILED=0
 
@@ -80,7 +88,7 @@ PATH="$SHIM_DIR:$PATH"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-tmux-lib.sh"
 
-tmux -L "$SOCKET" new-session -d -s "$SESSION" -x 200 -y 50 -c "$ROOT"
+tmux -L "$SOCKET" new-session -d -s "$SESSION" -x "$PANE_COLS" -y 50 -c "$ROOT"
 
 harness_version() {  # <binary>
   "$1" --version 2>/dev/null | head -1 || printf 'version-unknown'
@@ -102,8 +110,14 @@ launch_cmd() {  # <name>
 }
 
 # A prompt long enough that the turn is still running when the interrupt lands,
-# and answerable with no tool the harness might stop to ask about.
-LONG_PROMPT='Write a 4000 word essay about the history of terminal multiplexers directly in your reply. Use no tools and write no files.'
+# answerable with no tool the harness might stop to ask about, and longer than
+# the pane is wide so the restored copy occupies more than one display row.
+LONG_PROMPT='Write a 4000 word essay about the history of terminal multiplexers, from teletype line disciplines through screen and tmux to the session managers in use today, directly in your reply. Use no tools, write no files, and ask nothing before you begin.'
+[ "${#LONG_PROMPT}" -gt "$PANE_COLS" ] || {
+  printf 'not ok - the cancelled prompt is %s characters in a %s-column pane, so it never wraps and this guard would pass without exercising a multi-row composer clear\n' \
+    "${#LONG_PROMPT}" "$PANE_COLS" >&2
+  exit 1
+}
 
 wait_composer_empty() {  # <window> <budget>
   local win=$1 budget=$2 i=0

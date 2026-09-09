@@ -824,6 +824,64 @@ fm_backend_composer_state() {  # <backend> <target> [expected-label] -> empty|pe
   esac
 }
 
+# fm_backend_clear_composer: press <clear-key> into <target> until the composer
+# stops PROVING that it holds text, bounded by <max-presses>. Composed from the
+# two dispatchers above so no caller has to pair "send the clear" with "did it
+# actually clear" by hand.
+#
+# One press is not a clear. A harness composer is a text editor, and the kill
+# key every verified adapter uses (`C-u`) kills back to the start of the
+# CURRENT WRAPPED DISPLAY ROW, not the start of the buffer: measured on claude
+# 2.1.266 in a 200-column tmux 3.6 pane, an 11-character line and a
+# 180-character line each cleared in one press, while a 400-character line took
+# three and firstmate's own 219-character steering doorbell took two
+# (docs/verification/runtime-backends.md "Post-interrupt composer"). A clear
+# sent once therefore leaves the leading rows of any wrapped line behind, and a
+# doorbell that embeds an absolute inbox path twice always wraps.
+#
+# Restored text can also arrive AFTER the first press (claude's post-Escape
+# restore was measured landing 0.19-0.22s after the key, against a 0.2s
+# settle), so a single non-pending read is not proof either. The composer must
+# read non-pending <confirm> times in a row, each read a <settle> apart, before
+# this returns.
+#
+# Only an exact `pending` verdict asks for another press: `unknown` and
+# `pending-unproven` are not proof that our text is in the buffer, and a
+# harness whose idle screen the classifier cannot positively identify must keep
+# behaving exactly as it did when the clear was sent blind - one press, no
+# refusal. Prints the number of presses. Returns 0 when the composer is not
+# proven pending, 1 when the budget is spent with it still proven pending, and
+# 2 when the backend could not deliver the key.
+fm_backend_clear_composer() {  # <backend> <target> <label> <clear-key> <settle> <max-presses> [confirm-reads]
+  local backend=$1 target=$2 label=$3 key=$4 settle=$5 max=$6 confirm=${7:-2}
+  local presses=0 quiet state
+  while :; do
+    if ! fm_backend_send_key "$backend" "$target" "$key" "$label"; then
+      printf '%s' "$presses"
+      return 2
+    fi
+    presses=$((presses + 1))
+    quiet=0
+    state=empty
+    while [ "$quiet" -lt "$confirm" ]; do
+      sleep "$settle"
+      state=$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null) || state=unknown
+      if [ "$state" = pending ]; then
+        break
+      fi
+      quiet=$((quiet + 1))
+    done
+    if [ "$state" != pending ]; then
+      printf '%s' "$presses"
+      return 0
+    fi
+    if [ "$presses" -ge "$max" ]; then
+      printf '%s' "$presses"
+      return 1
+    fi
+  done
+}
+
 # fm_backend_target_exists: cheap, READ-ONLY existence check - does the
 # recorded TARGET endpoint still exist on BACKEND? Never starts a server or
 # session: for herdr this deliberately queries the pane directly instead of

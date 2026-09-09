@@ -39,6 +39,15 @@ case "${1:-}" in
       && [ "${1:-}" = "$FM_FAKE_TMUX_SEND_KEY_FAIL" ]; then
       exit 1
     fi
+    # A composer that needs one clear press per WRAPPED DISPLAY ROW, which is
+    # what a kill-to-row-start key does to a restored line that wraps. Armed
+    # only when a case points FM_FAKE_COMPOSER_ROWS at a counter file.
+    if [ "$literal" = 0 ] && [ "${1:-}" = C-u ] && [ -n "${FM_FAKE_COMPOSER_ROWS:-}" ]; then
+      rows=$(cat "$FM_FAKE_COMPOSER_ROWS")
+      rows=$((rows - 1))
+      [ "$rows" -lt 0 ] && rows=0
+      printf '%s' "$rows" > "$FM_FAKE_COMPOSER_ROWS"
+    fi
     exit 0 ;;
   display-message)
     target=
@@ -57,7 +66,11 @@ case "${1:-}" in
     printf '%%1\n'
     exit 0 ;;
   capture-pane)
-    printf '╭────╮\n│    │\n╰────╯\n'
+    if [ -n "${FM_FAKE_COMPOSER_ROWS:-}" ] && [ "$(cat "$FM_FAKE_COMPOSER_ROWS")" != 0 ]; then
+      printf '%s\n' '╭──────────────╮' '│ leftover text│' '╰──────────────╯'
+    else
+      printf '╭────╮\n│    │\n╰────╯\n'
+    fi
     exit 0 ;;
   list-windows)
     printf 'foreign:%s\nfm-mpf-lane-m8\nfm-lane-ok\n' "${FM_FAKE_TMUX_WINDOW:-fm-lost}"
@@ -231,8 +244,60 @@ test_key_send_exit_status_follows_delivery() {
   pass "fm-send --key: exit status follows delivery, and an undelivered key never reports success"
 }
 
+# fm-send's --key Escape path carries the SAME post-interrupt composer contract
+# as bin/fm-control.sh's interrupt verb, so it has to clear the same way. The
+# clear key kills back to the start of the current wrapped display row, so a
+# restored steer - which wraps, because firstmate's lines carry absolute paths -
+# survives a single blind press and the next steer concatenates onto it.
+test_key_escape_clears_the_composer_until_it_proves_empty() {
+  local dir fb home err log rc presses
+  dir="$TMP_ROOT/key-clear"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home keyclear); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+  fm_write_meta "$home/state/lane-clr.meta" "window=sess:fm-lane-clr" "kind=ship" "harness=claude"
+  printf '2' > "$dir/rows"
+
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_COMPOSER_ROWS="$dir/rows" \
+    "$SEND" lane-clr --key Escape >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "a delivered interrupt whose composer clears should report success"
+  presses=$(grep -c 'literal=0 arg=C-u$' "$log" || true)
+  [ "$presses" -eq 2 ] \
+    || fail "a two-row restored prompt should be cleared until the composer proves empty, got $presses press(es)"
+
+  : > "$log"
+  printf '1' > "$dir/rows"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_COMPOSER_ROWS="$dir/rows" \
+    "$SEND" lane-clr --key Escape >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "a one-row restored prompt should still report success"
+  presses=$(grep -c 'literal=0 arg=C-u$' "$log" || true)
+  [ "$presses" -eq 1 ] \
+    || fail "a one-row restored prompt should take exactly one clear press, got $presses"
+  pass "fm-send --key Escape: the composer clear is pressed until the composer proves empty"
+}
+
+test_key_escape_refuses_a_composer_it_cannot_clear() {
+  local dir fb home err log rc presses
+  dir="$TMP_ROOT/key-stuck"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home keystuck); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+  fm_write_meta "$home/state/lane-stk.meta" "window=sess:fm-lane-stk" "kind=ship" "harness=claude"
+  printf '99' > "$dir/rows"
+
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_FAKE_COMPOSER_ROWS="$dir/rows" FM_CONTROL_CLEAR_PRESSES=3 \
+    "$SEND" lane-stk --key Escape >/dev/null 2>"$err"; rc=$?
+  [ "$rc" -ne 0 ] || fail "a composer that never clears must not report a delivered interrupt"
+  assert_contains "$(cat "$err")" "still holds text" "the refusal should name the composer that still holds text"
+  presses=$(grep -c 'literal=0 arg=C-u$' "$log" || true)
+  [ "$presses" -eq 3 ] \
+    || fail "the clear should stop at its press budget rather than keying forever, got $presses"
+  pass "fm-send --key Escape: a composer that never clears refuses at its press budget"
+}
+
 test_exact_lane_id_send_still_works
 test_key_send_exit_status_follows_delivery
+test_key_escape_clears_the_composer_until_it_proves_empty
+test_key_escape_refuses_a_composer_it_cannot_clear
 test_unset_fm_home_fails
 test_unresolvable_target_does_not_tmux_fallback
 test_prefixless_herdr_pane_id_fails

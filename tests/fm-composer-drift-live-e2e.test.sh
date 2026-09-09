@@ -13,6 +13,16 @@
 # regression is visible to a stubbed agent or to a table of shapes transcribed
 # from a previous release - only a real harness drawing a real composer shows it.
 #
+# It also proves the other half of that contract for every adapter that
+# declares a composer clear key (bin/fm-control-lib.sh): the key must actually
+# be able to EMPTY a composer, including one holding a line long enough to wrap
+# the pane. That is not the same question as "does the key work" - a kill key
+# that clears back to the start of the current wrapped display row clears a
+# short line in one press and leaves the leading rows of a long one behind, and
+# firstmate's own steering doorbell always wraps because it embeds the absolute
+# inbox path twice. When that went unmeasured, an interrupt reported success
+# while leaving the doorbell sitting unsubmitted in the composer.
+#
 # Each harness is launched bare, with no prompt, and driven only with
 # keystrokes, so this consumes no model tokens. The launch uses whatever
 # credentials the harness already has.
@@ -41,6 +51,11 @@ SOCKET="fm-composer-drift-$$"
 LAB=$(mktemp -d "${TMPDIR:-/tmp}/fm-composer-drift.XXXXXX")
 SESSION=drift
 PROBE=fmdrift          # typed marker; every character is removed again below
+PANE_COLS=80           # the private session's width, below
+# The exact bytes firstmate rings into every pane, built by its own owner
+# (bin/fm-task-inbox-lib.sh) rather than transcribed here, so a change to the
+# doorbell reaches this guard automatically.
+CLEAR_PRESS_BUDGET=${FM_COMPOSER_DRIFT_CLEAR_PRESSES:-8}
 SETTLE=${FM_COMPOSER_DRIFT_SETTLE:-60}   # deciseconds to wait for each verdict
 
 cleanup_all() {
@@ -49,7 +64,7 @@ cleanup_all() {
 }
 trap cleanup_all EXIT
 
-mkdir -p "$LAB/shim" "$LAB/wt"
+mkdir -p "$LAB/shim" "$LAB/wt" "$LAB/state/drift.inbox"
 cat > "$LAB/shim/tmux" <<SH
 #!/usr/bin/env bash
 exec "$REAL_TMUX" -L "$SOCKET" "\$@"
@@ -60,6 +75,19 @@ export PATH
 
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-tmux-lib.sh"
+# The composer clear is exercised through the REAL dispatch and the REAL
+# adapter table, never a copy of either: a guard that re-implemented the press
+# loop could only prove its own copy right.
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-backend.sh"
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-control-lib.sh"
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-task-inbox-lib.sh"
+
+printf 'schema=fm-task-inbox.v1\nat=drift\n--\nprobe\n' > "$LAB/state/drift.inbox/001.msg"
+DOORBELL=$(fm_task_inbox_doorbell_line "$LAB/state/drift.inbox/001.msg") \
+  || fail "could not build the real doorbell line for the composer-clear probe"
 
 "$REAL_TMUX" -L "$SOCKET" new-session -d -s "$SESSION" -n control -x 80 -y 24 -c "$LAB/wt" \
   || fail "could not start the private tmux server"
@@ -137,6 +165,30 @@ for harness in "${FM_DRIFT_HARNESSES[@]}"; do
   done
   wait_for_state "$target" empty || fail \
     "COMPOSER DRIFT: $harness $version still reports '$(fm_tmux_composer_state "$target")' after its composer was emptied again, so the empty verdict does not track composer contents. Cursor row: [$(composer_row "$target")]."
+
+  # 4. For an adapter that declares a composer clear key, that key must be able
+  #    to EMPTY the composer, including one holding a line that WRAPS. This is
+  #    the shape that broke: a kill key clearing back to the start of the
+  #    current wrapped display row leaves the leading rows of a long line
+  #    behind, and firstmate's doorbell is always long. The clear runs through
+  #    the shipped fm_backend_clear_composer, so the guard proves the code
+  #    firstmate actually runs rather than a transcription of it.
+  clear_key=$(fm_control_interrupt_clear_key "$harness" 2>/dev/null) || clear_key=
+  if [ -n "$clear_key" ]; then
+    [ "${#DOORBELL}" -gt "$PANE_COLS" ] || fail \
+      "the composer-clear probe types ${#DOORBELL} characters into a ${PANE_COLS}-column pane, so it never wraps and would prove nothing; widen the probe or narrow the pane"
+    "$REAL_TMUX" -L "$SOCKET" send-keys -t "$target" -l "$DOORBELL"
+    wait_for_state "$target" pending || fail \
+      "COMPOSER DRIFT: $harness $version reports '$(fm_tmux_composer_state "$target")' for a composer holding firstmate's own ${#DOORBELL}-character doorbell, so the clear probe below cannot mean anything. Cursor row: [$(composer_row "$target")]."
+    presses=$(fm_backend_clear_composer tmux "$target" '' "$clear_key" 0.2 "$CLEAR_PRESS_BUDGET") \
+      || fail \
+      "COMPOSER CLEAR DRIFT: $harness $version still holds text after $presses x $clear_key, so an interrupt cannot leave its composer clean and the next submitted line would concatenate onto the leftovers. Cursor row: [$(composer_row "$target")]. Fix the adapter's clear key in bin/fm-control-lib.sh or raise the press budget in bin/fm-control.sh."
+    wait_for_state "$target" empty || fail \
+      "COMPOSER CLEAR DRIFT: $harness $version reports '$(fm_tmux_composer_state "$target")' after $presses x $clear_key emptied its composer. Cursor row: [$(composer_row "$target")]."
+    note "$harness $version: a ${#DOORBELL}-character wrapped composer cleared in $presses x $clear_key"
+  else
+    note "$harness $version: no composer clear key is declared for this adapter, so none is exercised"
+  fi
 
   note "$harness $version: empty/pending/empty all observed"
   pass "composer drift: $harness $version separates an empty composer from unsubmitted text"

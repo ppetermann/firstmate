@@ -22,10 +22,18 @@
 #
 #   interrupt  Deliver the harness's verified interrupt sequence. The agent
 #              keeps running. Postcondition: delivery succeeded, the endpoint
-#              still exists, and the agent is still alive where the backend can
-#              classify that. Cancellation is confirmed only from an adapter-
-#              owned acknowledgement and otherwise reported unconfirmed. Busy
-#              state is never rewritten as proof of the action.
+#              still exists, the agent is still alive where the backend can
+#              classify that, and the composer no longer proves it holds text.
+#              Cancellation is confirmed only from an adapter-owned
+#              acknowledgement and otherwise reported unconfirmed. Busy state
+#              is never rewritten as proof of the action.
+#              ORDERING: an interrupt EMPTIES the composer, and on claude and
+#              muse it empties a composer the cancel itself just refilled with
+#              the last submitted line. So interrupt FIRST and steer after it
+#              returns. A steer sent immediately before an interrupt is
+#              cancelled along with the turn it started; the durable record
+#              survives and the watcher's ladder re-rings it, but the worker
+#              does not read it until then.
 #   exit       Stop the agent, preserving its terminal endpoint, worktree, and
 #              every uncommitted change. Interrupts first when the task reads
 #              busy, then submits the harness's exit command. Postcondition:
@@ -357,19 +365,21 @@ require_state_verified_backend() {  # <verb>
 # an interrupt that cancels the turn but leaves the restored prompt in the
 # composer would make the next submitted line concatenate onto it.
 #
-# Every key is separated by INTERRUPT_KEY_SETTLE, including the last interrupt
-# key and the clear that follows it. That gap is not cosmetic: an Escape is the
-# single byte ESC, and a terminal reading ESC immediately followed by another
-# byte parses the pair as one meta-prefixed sequence rather than as two keys,
-# so a clear sent with no gap CONSUMES the interrupt instead of following it.
-# Measured on claude 2.1.266: Escape+C-u back to back left the turn running
-# every time (2 of 2), while the same pair 0.2s apart cancelled it every time
-# (2 of 2). tests/fm-interrupt-composer-live-e2e.test.sh re-proves that against
-# the real harnesses; it requires the turn to actually stop before it judges
-# the composer, so a swallowed interrupt fails there instead of passing.
-INTERRUPT_KEY_SETTLE=0.2
+# Every key is separated by the settle owned by fm_control_interrupt_key_settle
+# (bin/fm-control-lib.sh), including the last interrupt key and the clear that
+# follows it; that file carries why the gap is not cosmetic.
+# tests/fm-interrupt-composer-live-e2e.test.sh re-proves it against the real
+# harnesses; it requires the turn to actually stop before it judges the
+# composer, so a swallowed interrupt fails there instead of passing.
+#
+# The clear is delivered until the composer stops proving it holds text, never
+# once. fm_backend_clear_composer (bin/fm-backend.sh) owns that loop, the
+# restore-latency confirmation, and the rule that only a proven-pending
+# composer asks for another press.
+INTERRUPT_KEY_SETTLE=$(fm_control_interrupt_key_settle)
+INTERRUPT_CLEAR_MAX=$(fm_control_interrupt_clear_presses)
 send_interrupt_keys() {
-  local key repeat clear i=0
+  local key repeat clear i=0 presses clear_status
   key=$(fm_control_interrupt_key "$HARNESS")
   repeat=$(fm_control_interrupt_repeat "$HARNESS")
   clear=$(fm_control_interrupt_clear_key "$HARNESS")
@@ -385,8 +395,13 @@ send_interrupt_keys() {
   done
   if [ -n "$clear" ]; then
     sleep "$INTERRUPT_KEY_SETTLE"
-    fm_backend_send_key "$BACKEND" "$T" "$clear" "$LABEL" \
-      || die "interrupt key $key reached task $ID, but $clear did not, so its composer still holds the cancelled prompt; clear it before the next lifecycle action"
+    presses=$(fm_backend_clear_composer "$BACKEND" "$T" "$LABEL" "$clear" \
+      "$INTERRUPT_KEY_SETTLE" "$INTERRUPT_CLEAR_MAX") && clear_status=0 || clear_status=$?
+    case "$clear_status" in
+      0) ;;
+      2) die "interrupt key $key reached task $ID, but $clear did not, so its composer still holds the cancelled prompt; clear it before the next lifecycle action" ;;
+      *) die "interrupt key $key reached task $ID, but its composer still holds text after $presses x $clear; the next submitted line would concatenate onto it, so clear the pane before the next lifecycle action" ;;
+    esac
   fi
 }
 
