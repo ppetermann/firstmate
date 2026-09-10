@@ -66,6 +66,13 @@ After remote creation succeeds, clone it locally and add the registry entry.
 For a purely `local-only` project, create a local Git repository under its unused `projects/<name>` path, add the registry entry, and make no GitHub call.
 The captain's request to create that local project authorizes this local initialization, but it does not authorize an unmentioned remote repository.
 
+Creation is not finished until the repository holds at least one commit, so lay an empty root commit on whichever path created it.
+A repository with no commit has an unborn `HEAD` and nothing `git worktree add` can check out, so no isolation backend can cut a task worktree from it and no worker can be dispatched into the project at all.
+That also blocks creation's own last step below, because the committed `## Delivery` section is written by a crewmate working in a task worktree of that very project.
+An empty commit is enough and leaves a worker nothing to reconcile.
+An `origin`-backed creation needs it too: a newly created remote repository is empty and clones to the same unborn `HEAD`.
+`bin/fm-spawn.sh` refuses a spawn into a project with no commits and names that cause, so a project still missing one for any other reason is reported as such instead of as a worktree that never appeared.
+
 ## Put the project on the delivery flow
 
 Registration is not finished until the project's `AGENTS.md` carries a committed `## Delivery` section (captain, 2026-09-04: "you registered this project, so you didn't add it, please make sure this doesn't happen again").
@@ -77,7 +84,7 @@ Point that section at the shared contract rather than copying it, so one flow do
 
 A project with no such section is not yet on the flow: say so plainly rather than assuming a worker there will infer a contract that is written nowhere it reads.
 Every project registered between the flow's adoption and 2026-09-04 was missing one, which is how two pull requests on one repo ran outside the flow the day it mattered.
-Do not create a commit merely because initialization ran.
+Do not commit the local configuration a tool generated merely because you ran that tool; the root commit above is a required step of creation, not an initialization side effect.
 If doctor reports an environment, authentication, or daemon problem, resolve that blocker before dispatching work and never restart the shared daemon from a project operation.
 
 ## Remove

@@ -167,6 +167,12 @@
 #   Before a secondmate launch, the home is fast-forwarded to the primary's
 #   default-branch commit when safe: directly for a local home, or through the
 #   configured host for a remote home. Skipped syncs warn and launch unchanged.
+#   After those brief checks and before any endpoint exists, every fresh
+#   crewmate or scout spawn refuses a project with no commits, by that cause and
+#   with the remedy: an unborn HEAD gives `git worktree add` nothing to check
+#   out, so no isolation backend can cut a task worktree from such a project.
+#   Relaunch skips the check because it reuses a worktree already cut, and a
+#   secondmate gets a home rather than a worktree.
 #   Ship/scout spawns refuse to launch unless the resolved task path is a real
 #   git worktree root distinct from both the spawning project and its repository's
 #   primary checkout, including when the spawning project is a linked worktree.
@@ -2264,6 +2270,33 @@ if [ "$KIND" = ship ]; then
      && [ "$(delivery_rigor_rank "$MODE")" -lt "$(delivery_rigor_rank "$STANDING_MODE")" ]; then
     echo "notice: $ID ships mode=$MODE while the standing posture for $PROJ_NAME is $STANDING_MODE - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
   fi
+fi
+
+# Every worker kind except a secondmate starts in an isolated worktree CUT FROM
+# the project, and a relaunch is the only path that reuses one already cut. So
+# before an endpoint exists, prove the project can hand one out at all.
+#
+# The precondition is git's, not any one backend's: `git worktree add` needs a
+# commit to check out, so a repository whose HEAD is unborn can give no worktree
+# to Treehouse, to Orca, or to anything else.
+#
+# Nothing downstream can tell the difference. `treehouse get` is sent as pane
+# text and its failure is printed in the pane, which fm-spawn never reads; the
+# pane simply stays in the project, the settle poll below therefore never sees an
+# isolated path, and 60 seconds later the refusal names the worktree symptom
+# ("last seen '<project>': it is the spawning project itself") with nothing about
+# the cause. That is how the first worker into every freshly created local
+# project got a minute of waiting and a diagnostic pointing at the wrong thing.
+#
+# Placement: after the brief and delivery-contract checks, which name firstmate's
+# own task-record mistakes first, and before any endpoint or worktree exists.
+# Only the unborn HEAD is screened, because a project that is no git working tree
+# at all already refuses further up, where the shared Treehouse project lock
+# cannot be resolved for it.
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] \
+   && ! git -C "$PROJ_ABS" rev-parse --verify --quiet 'HEAD^{commit}' >/dev/null 2>&1; then
+  echo "error: project '$PROJ_ABS' has no commits, so its HEAD resolves to nothing a worktree could check out and task $ID can get no isolated copy; refusing to launch. Give the project a commit (an empty root commit is enough) and spawn again" >&2
+  exit 1
 fi
 
 BRIEF_DIR_REAL=$(cd "$(dirname "$BRIEF")" && pwd -P)
