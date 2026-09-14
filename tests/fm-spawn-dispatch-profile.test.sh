@@ -592,7 +592,7 @@ test_native_effort_validator_keeps_axes_separate() {
 test_native_pi_ultra_is_explicit_and_model_scoped() {
   local rec id out launch harness mode native_profile model
   for harness in pi pi-signed; do
-    for mode in no-mistakes direct-PR; do
+    for mode in direct-PR local-only; do
       id="ultra-$harness-$mode"
       rec=$(make_spawn_case "$id" "$harness" "$id")
       read_case_record "$rec"
