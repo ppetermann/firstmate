@@ -1,7 +1,7 @@
 # Verification: the rovo (Atlassian Rovo CLI) crewmate/scout adapter
 
 Active empirical evidence for firstmate's rovo adapter.
-The skill tree rooted at [`.agents/skills/harness-adapters/SKILL.md`](../../.agents/skills/harness-adapters/references/rovo.md) owns the operating facts; this record owns how they were established and what is still unproven.
+The skill tree rooted at [`.agents/skills/harness-adapters/SKILL.md`](../../.agents/skills/harness-adapters/SKILL.md) owns the operating facts; this record owns how they were established and what is still unproven.
 
 ## Subject
 
@@ -117,7 +117,7 @@ Treat the ~1h access-token lifetime as an ordinary operational fact rather than 
 
 `agent.efficiencyLevel` accepts `low|medium|high|max` live via `--config-override`; a requested `xhigh` (unsupported) is recorded in task metadata but omitted from that JSON object, both verified against the fake-binary suite.
 `--config-override` is single-value - a second occurrence silently discards the first rather than merging, confirmed live by reversing the order of two `--config-override` flags and observing the earlier one's effect disappear - so `fm-spawn.sh`'s `rovo_config_override_flag` folds `agent.efficiencyLevel` into the SAME JSON object as the mandatory `allowedExternalPaths` grant below rather than emitting two flags; the fake-binary suite pins that exactly one `--config-override` occurrence carries both.
-Model discovery is per-account (`/models` or ACP `session/new`); the observed live list is recorded in `references/rovo.md` and must never be hardcoded.
+Model discovery is per-account (`/models` or ACP `session/new`); the observed live list is recorded in `references/harness/rovo.md` and must never be hardcoded.
 
 ## Worktree confinement and the allowedExternalPaths fix
 

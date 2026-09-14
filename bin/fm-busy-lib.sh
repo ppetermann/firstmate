@@ -60,8 +60,8 @@
 # Grok, Rovo, and AGY are the ONLY rendered-text classifications that survive the
 # redesign, because none of their structured lifecycles was credited-live-verified
 # in the approved audit (Rovo's clean ACP stopReason lives outside the TUI
-# path firstmate drives, see references/rovo.md; agy 1.2.0 exposes no
-# hook surface at all, see references/agy.md); each is scoped to
+# path firstmate drives, see references/harness/rovo.md; agy 1.2.0 exposes no
+# hook surface at all, see references/harness/agy.md); each is scoped to
 # its own harness= and can never classify another adapter. The delivery
 # guards in bin/fm-composer-lib.sh match rendered footers for submit
 # acknowledgement and away-mode supervisor injection only; neither is a
