@@ -29,7 +29,7 @@ A whole-project review has no completion window: commission it as its own scout 
 
 ## Reviewer binding
 
-A review round is judgement work: it takes the JUDGEMENT AND CORRECTION class of `config/crew-dispatch.json` under the active setup - opus on the Claude setup, glm-5.3 on the GLM setup (captain, 2026-09-04). Read that config at dispatch rather than binding a harness or model here.
+A review round resolves its reviewer from `config/crew-dispatch.json` at dispatch rather than binding a harness or model here. Take that config's OCR review-round rule when one is present - the captain pins OCR rounds separately from the rest of the fleet, and on 2026-09-15 that pin is glm-5.3 while the active setup stays claude. With no OCR-specific rule, fall back to the JUDGEMENT AND CORRECTION class under the active setup.
 Both paths below deliver the filled worker block: `{OCR_BASE}` becomes the project's default-branch ref, normally `origin/main`, the same base the ship branch was created from; `{OCR_RULE}` becomes the absolute path to `review-rule.json` beside this skill in the active firstmate home; and any captain-requested `--exclude` patterns are appended to the preview and rule commands.
 `review-rule.json` is what makes documentation and container build files reviewable at all: `ocr` classifies neither Markdown nor `Dockerfile*`, so without it those files come back `unsupported_ext` and a doc-only or Dockerfile-only diff previews as zero reviewable files.
 Its `include` list and its `rules` list do different jobs, and the difference is the trap: `include` is additive to file selection, while `rules` is first-match-wins and a matching custom pattern REPLACES the system group for those files rather than adding to it.
