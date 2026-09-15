@@ -692,13 +692,42 @@ test_watcher_waits_on_busy_pane() {
   age_path "$rec"
   watch_bg "$state" "$dir/fakebin" "$out" \
     FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$dir/busy.capture" \
-    FM_BUSY_REGEX=BUSYTOKEN FM_TASK_INBOX_RING_MAX=99
+    FM_BUSY_REGEX=BUSYTOKEN FM_TASK_INBOX_RING_MAX=99 FM_TASK_INBOX_BUSY_MAX_SECS=2
   pid=$!
-  sleep 4
-  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
-  [ ! -s "$log" ] || fail "a busy pane should wait, not ring:"$'\n'"$(cat "$log")"
-  [ ! -s "$state/.wake-queue" ] || fail "a busy wait queued a wake:"$'\n'"$(cat "$state/.wake-queue")"
-  pass "watcher: a busy pane just waits - the record is durable and no doorbell is typed"
+  sleep 1
+  [ ! -s "$log" ] || { kill "$pid" 2>/dev/null; fail "a busy pane should wait inside its bound, not ring:"$'\n'"$(cat "$log")"; }
+  [ ! -s "$state/.wake-queue" ] \
+    || { kill "$pid" 2>/dev/null; fail "a busy wait inside its bound queued a wake:"$'\n'"$(cat "$state/.wake-queue")"; }
+  pass "watcher: a busy pane waits within its bound - the record is durable and no doorbell is typed"
+}
+
+# Finding C, data/fm-steer-stall-diagnosis/report.md: inbox_steer_check's busy
+# early return had no ring, no ladder advance, no escalation, and NO BOUND at
+# all, so a pane that reads busy forever was invisible to steering delivery
+# permanently and silently. This is the disconfirming half of the test above:
+# past FM_TASK_INBOX_BUSY_MAX_SECS of CONTINUOUS busy suppression with a steer
+# still due, the watcher must escalate exactly like a dead endpoint - queued
+# once, never rung - rather than waiting forever.
+test_watcher_escalates_past_the_busy_bound() {
+  local dir state out log pid rec
+  dir=$(setup_watch_case busybound)
+  state="$dir/state"; out="$dir/watch.out"; log="$dir/send.log"; : > "$log"
+  printf 'some output\nBUSYTOKEN active\n' > "$dir/busy.capture"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  age_path "$rec"
+  watch_bg "$state" "$dir/fakebin" "$out" \
+    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$dir/busy.capture" \
+    FM_BUSY_REGEX=BUSYTOKEN FM_TASK_INBOX_RING_MAX=99 FM_TASK_INBOX_BUSY_MAX_SECS=2
+  pid=$!
+  wait_watcher_gone "$pid" \
+    || { kill "$pid" 2>/dev/null; fail "the watcher never escalated a pane busy past its bound"; }
+  [ ! -s "$log" ] || fail "a busy pane must never be typed into, even after its bound expires:"$'\n'"$(cat "$log")"
+  grep -qF 'unread firstmate instruction' "$state/.wake-queue" \
+    || fail "the busy-bound escalation should queue a stale wake naming the unread instruction:"$'\n'"$(cat "$state/.wake-queue" 2>/dev/null)"
+  grep -qF 'read busy for at least' "$state/.wake-queue" \
+    || fail "the busy-bound escalation should name why - the pane never went idle:"$'\n'"$(cat "$state/.wake-queue")"
+  grep -qF "$rec" "$state/.wake-queue" || fail "the stale wake should name the record path:"$'\n'"$(cat "$state/.wake-queue")"
+  pass "watcher: a pane busy past its own bound escalates rather than waiting forever"
 }
 
 test_watcher_quiet_on_healthy_inbox() {
@@ -866,6 +895,7 @@ test_ring_ladder_survives_a_parked_escalation
 test_dead_endpoint_escalation_parks_only_its_own_record
 test_watcher_rerings_idle_pane_quietly
 test_watcher_waits_on_busy_pane
+test_watcher_escalates_past_the_busy_bound
 test_watcher_quiet_on_healthy_inbox
 test_watcher_ack_silences_unwritable_ladder
 test_watcher_surfaces_unwritable_ladder
