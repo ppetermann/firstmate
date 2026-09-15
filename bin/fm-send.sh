@@ -1024,7 +1024,7 @@ else
     ring_rc=0
     fm_task_inbox_ring "$TARGET_BACKEND" "$T" "$INBOX_RECORD" "$EXPECTED_LABEL" || ring_rc=$?
     case "$ring_rc" in
-      1) echo "fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at $INBOX_RECORD and the watcher will re-ring" >&2 ;;
+      1) echo "fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at $INBOX_RECORD and the watcher will keep trying on its bounded schedule - but it reads the composer through the SAME classifier, so if this verdict is a persistent misread rather than real unsubmitted text, every re-ring will skip identically and the ladder will escalate the record as a stale wake instead of ever delivering it" >&2 ;;
       2) echo "fm-send: doorbell did not reach $T; the steer is durably recorded at $INBOX_RECORD and the watcher will re-ring" >&2 ;;
       3) echo "fm-send: doorbell not typed because the agent in $T has exited; the steer is durably recorded at $INBOX_RECORD for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane" >&2 ;;
       4) echo "fm-send: doorbell typed into $T but NOT submitted - its composer still holds unsubmitted text, so nothing was delivered to the worker; the steer is durably recorded at $INBOX_RECORD and the watcher will re-ring, and 'fm-control.sh $INBOX_TASK_ID interrupt' clears a composer that stays stuck" >&2 ;;

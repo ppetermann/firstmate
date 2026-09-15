@@ -177,8 +177,13 @@ test_pending_composer_skips_ring_advisorily() {
   expect_code 0 "$rc" "a skipped ring is still a sent steer"
   [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the steer was not recorded"
   [ ! -s "$dir/send.log" ] || fail "a visibly pending composer should skip the ring:"$'\n'"$(cat "$dir/send.log")"
-  assert_contains "$(cat "$err")" "watcher will re-ring" \
-    "the skip notice should point at the re-ring"
+  # The notice must not promise an unconditional re-ring: the watcher reads the
+  # composer through the SAME classifier, so a persistent misread would skip
+  # identically forever (data/fm-steer-stall-diagnosis/report.md Finding A).
+  assert_contains "$(cat "$err")" "SAME classifier" \
+    "the skip notice should warn that a persistent misread skips identically, not promise an unconditional re-ring"
+  assert_contains "$(cat "$err")" "escalate" \
+    "the skip notice should say a persistent misread escalates rather than silently retrying forever"
   pass "fm-send inbox: a visibly pending composer skips the ring, and the steer stays durably sent"
 }
 
