@@ -459,6 +459,7 @@ FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh
 
 It drives every installed harness through empty, unsubmitted-text, and empty-again verdicts on tmux, so a vendor change that erases the difference between a cleared composer and one still holding an unsent steer fails there instead of in delivery.
 Its Herdr counterpart, which adds the dead-shell control and the known-gap list, runs under [Away-mode transport](#away-mode-transport) below.
+`docs/verification/composer-drift-versions.tsv` is the machine-readable record of which version this guard last passed against per harness; `bin/fm-bootstrap.sh` compares it to each installed adapter's current version every session and reports `COMPOSER_DRIFT_UNVERIFIED` on drift, so an upgrade this guard has not rerun against is flagged instead of forgotten (`bootstrap-diagnostics` skill).
 
 `zellij action dump-screen --pane-id <id> --ansi` was verified at zellij 0.44.0 to preserve ANSI styling (real Claude Code rendered inside a zellij pane dumped `ESC[m` `❯` U+00A0 for its idle composer row), which is the capability the zellij composer classifier reads.
 
