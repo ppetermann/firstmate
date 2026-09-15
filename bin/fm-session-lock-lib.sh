@@ -4,10 +4,14 @@
 # ONE owner of the "which verified-harness process holds this home's session
 # lock, and does the current process belong to that same session?" decision -
 # by harness ancestry first, then by the stable per-session token fallback
-# defined below.
+# defined below - and of the classification that distinguishes a recoverable
+# session-identity divergence from a genuinely competing live session
+# (fm_session_lock_identity_state).
 # bin/fm-lock.sh uses it to acquire and inspect state/.lock;
 # bin/fm-claude-stop-autoarm.sh uses it to prove a Stop hook fires inside the
-# lock-owning primary session before it may arm or rewake.
+# lock-owning primary session before it may arm or rewake;
+# bin/fm-turnend-guard.sh uses it to keep the sidecar valid for the session's
+# lifetime and to name the cause when the auto-arm is structurally inert.
 # This file is sourced by scripts and has no side effects on source.
 
 # Cursor process identity is NOT expressible as a command-name pattern and is
@@ -230,4 +234,117 @@ EOF
   { IFS= read -r side_pid && IFS= read -r side_token; } < "$state/.lock.session" 2>/dev/null || return 1
   [ -n "$side_pid" ] && [ -n "$side_token" ] || return 1
   [ "$side_pid" = "$lock_pid" ] && [ "$side_token" = "$token" ]
+}
+
+# How long the session-identity sidecar may go unrefreshed before a live lock
+# pid whose recorded session token no longer matches any hook is treated as a
+# RECOVERABLE identity divergence rather than as a competing live session.
+# Generous on purpose: a live session that is actually working refreshes this
+# once per turn end (fm_session_lock_sidecar_sync below), so only a recorded
+# owner that has proven nothing for this long can be downgraded.
+FM_SESSION_LOCK_DIVERGENCE_GRACE_DEFAULT=1800
+
+# Seconds since $1 was last modified, or a large number when it cannot be read.
+# bin/fm-wake-lib.sh owns the general fm_path_age helper, but this library
+# documents itself as side-effect-free on source and fm-wake-lib.sh creates the
+# state root when sourced, so the two stat forms are repeated here rather than
+# pulling that side effect into every consumer of this file.
+_fm_session_lock_path_age() {  # <path>
+  local m
+  if [ "$(uname 2>/dev/null || echo unknown)" = Darwin ]; then
+    m=$(/usr/bin/stat -f %m "$1" 2>/dev/null)
+  else
+    m=$(stat -c %Y "$1" 2>/dev/null)
+  fi
+  case "$m" in
+    ''|*[!0-9]*) printf '%s\n' 999999; return 0 ;;
+  esac
+  printf '%s\n' "$(( $(date +%s) - m ))"
+}
+
+# Keep the session-identity sidecar valid for the LIFETIME of the session, not
+# only for the instant bin/fm-lock.sh acquired the lock.
+#
+# CLAUDE_CODE_SESSION_ID can change under a session that is already running -
+# moving a session into a daemon-hosted background job forks it with a new id -
+# and the acquisition-time sidecar then names a session that no longer presents
+# that token while the recorded lock pid is still alive. Both self-recognition
+# branches fail at once, so the session can neither recognize nor re-take its
+# own lock, and every Stop hook declines silently and permanently (the
+# 2026-09-15 nine-hour supervision outage).
+#
+# Refreshing on every PROVEN ownership gives two properties:
+#   1. the recorded token follows the live session id, so an id change while
+#      ancestry still holds never strands the home; and
+#   2. the sidecar's mtime becomes a liveness beacon for the lock-owning
+#      SESSION rather than merely for its pid, which is what lets
+#      fm_session_lock_identity_state tell a genuinely live competing session
+#      (refreshed every turn end) from a diverged one (never refreshed again).
+#
+# Silent and best-effort, exactly like the writer it delegates to: a refresh
+# failure must never fail the caller.
+fm_session_lock_sidecar_sync() {  # <state-dir>
+  local state=$1 lock_pid
+  # The sidecar exists only for a stable Claude session token, so answer the
+  # cheap question first and never pay for an ancestry walk on every turn end of
+  # every other harness.
+  fm_claude_session_token >/dev/null || return 0
+  fm_session_lock_owned_by_self "$state" || return 0
+  lock_pid=$(cat "$state/.lock" 2>/dev/null || true)
+  case "$lock_pid" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  fm_session_lock_write_sidecar "$lock_pid" "$state"
+}
+
+# ONE owner of "may this process act as this home's session, and if not, why
+# not?". Prints exactly one word:
+#
+#   self         this process runs inside the lock-owning session.
+#   free         no lock file, or a malformed one: nothing to reconcile.
+#   stale-owner  the recorded pid is not a live harness process.
+#   diverged     the recorded pid IS a live harness process, but the sidecar
+#                proves the lock was taken by a Claude session that has not
+#                proven ownership for the divergence grace, while THIS process
+#                is a Claude session carrying a different well-formed token.
+#                That is the session-id-changed-under-a-running-session shape:
+#                recoverable, because a session that is still running this
+#                home's hooks refreshes the sidecar at every turn end.
+#   competing    any other live owner: refuse, exactly as before.
+#
+# Every uncertainty classifies as competing, so the protection the identity
+# gate exists for can never widen by accident.
+fm_session_lock_identity_state() {  # <state-dir> [divergence-grace]
+  local state=$1 grace=${2:-${FM_SESSION_LOCK_DIVERGENCE_GRACE:-$FM_SESSION_LOCK_DIVERGENCE_GRACE_DEFAULT}}
+  local lock_pid token side_pid side_token
+  case "$grace" in
+    ''|*[!0-9]*) grace=$FM_SESSION_LOCK_DIVERGENCE_GRACE_DEFAULT ;;
+  esac
+  if fm_session_lock_owned_by_self "$state"; then
+    printf 'self\n'
+    return 0
+  fi
+  lock_pid=$(cat "$state/.lock" 2>/dev/null || true)
+  case "$lock_pid" in
+    ''|*[!0-9]*) printf 'free\n'; return 0 ;;
+  esac
+  if ! fm_harness_pid_alive "$lock_pid"; then
+    printf 'stale-owner\n'
+    return 0
+  fi
+  # A live recorded owner. Only the complete divergence signature may downgrade
+  # it, and every missing piece of that signature keeps the refusal.
+  token=$(fm_claude_session_token) || { printf 'competing\n'; return 0; }
+  { [ -f "$state/.lock.session" ] && [ ! -L "$state/.lock.session" ]; } \
+    || { printf 'competing\n'; return 0; }
+  { IFS= read -r side_pid && IFS= read -r side_token; } < "$state/.lock.session" 2>/dev/null \
+    || { printf 'competing\n'; return 0; }
+  [ -n "$side_pid" ] && [ -n "$side_token" ] || { printf 'competing\n'; return 0; }
+  # The sidecar must describe the CURRENT lock holder, and must name a session
+  # other than this one - otherwise there is no divergence to recover from.
+  [ "$side_pid" = "$lock_pid" ] || { printf 'competing\n'; return 0; }
+  [ "$side_token" != "$token" ] || { printf 'competing\n'; return 0; }
+  [ "$(_fm_session_lock_path_age "$state/.lock.session")" -ge "$grace" ] \
+    || { printf 'competing\n'; return 0; }
+  printf 'diverged\n'
 }

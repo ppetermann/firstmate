@@ -496,6 +496,164 @@ test_daemon_hosted_missing_or_malformed_identity_stays_inert() {
   pass "session-lock: a missing or malformed session identity refuses rather than matching"
 }
 
+# --- lifetime layer: the sidecar is a per-session liveness record, and a
+# divergence between it and the live session id must be DETECTABLE ------------
+
+# The staleness detector the 2026-09-15 outage needed and did not have: a lock
+# pid that is alive, is not in this process's ancestry, and whose sidecar token
+# differs from the live CLAUDE_CODE_SESSION_ID must be classified out loud as a
+# recoverable divergence instead of silently as a competing live session. The
+# predicate itself is correct in both regimes (the cases above); the gap this
+# closes is that nothing ever told the difference apart.
+test_identity_state_names_a_diverged_session_instead_of_declining_silently() {
+  local dir fakebin got
+  dir="$TMP_ROOT/identity-state-diverged"
+  mkdir -p "$dir/state"
+  fakebin=$(fakebin_no_harness_ancestry "$dir")
+  # The recorded owner is a live harness process (kill is stubbed, and the fake
+  # ps identifies any queried pid as a harness for fm_harness_pid_alive).
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+field= pid=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) field=$2; shift 2 ;;
+    -p) pid=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+case "$pid:$field" in
+  12345:comm=) printf '%s\n' claude ;;
+  12345:args=) printf '%s\n' 'claude --resume 650669dc' ;;
+  12345:ppid=) printf '%s\n' 1 ;;
+  *:comm=) printf '%s\n' sh ;;
+  *:args=) printf '%s\n' sh ;;
+  *:ppid=) printf '%s\n' 1 ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
+  printf '12345\n' > "$dir/state/.lock"
+  printf '12345\nsess-before-the-move\n' > "$dir/state/.lock.session"
+
+  # Fresh sidecar: the recorded session has proven ownership recently, so it is
+  # a genuinely live competing session and must still be refused.
+  got=$(CLAUDE_CODE_SESSION_ID=sess-after-the-move lib_eval "$fakebin" \
+    "fm_session_lock_identity_state '$dir/state'")
+  [ "$got" = competing ] \
+    || fail "a freshly proven competing session was not refused, classified '$got'"
+
+  # The same shape once the recorded session has proven nothing for the
+  # divergence grace: this is the session-id-changed-under-a-running-session
+  # state, and it must be named rather than left indistinguishable.
+  touch -t 200001010000 "$dir/state/.lock.session"
+  got=$(CLAUDE_CODE_SESSION_ID=sess-after-the-move lib_eval "$fakebin" \
+    "fm_session_lock_identity_state '$dir/state'")
+  [ "$got" = diverged ] \
+    || fail "a live lock pid outside this ancestry with a long-unrefreshed, token-mismatched sidecar was classified '$got', not diverged"
+  pass "session-lock: a long-unrefreshed sidecar whose token differs from the live session id is reported as a recoverable divergence"
+}
+
+# The divergence downgrade must never widen the refusal it lives inside. Each
+# missing piece of the signature keeps a live owner protected.
+test_identity_state_refuses_every_incomplete_divergence_signature() {
+  local dir fakebin got
+  dir="$TMP_ROOT/identity-state-incomplete"
+  mkdir -p "$dir/state"
+  fakebin=$(fakebin_no_harness_ancestry "$dir")
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+field=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) field=$2; shift 2 ;;
+    -p) shift 2 ;;
+    *) shift ;;
+  esac
+done
+case "$field" in
+  comm=) printf '%s\n' claude ;;
+  args=) printf '%s\n' claude ;;
+  ppid=) printf '%s\n' 1 ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
+  printf '12345\n' > "$dir/state/.lock"
+
+  # No sidecar at all: nothing proves the live owner was ever this session.
+  rm -f "$dir/state/.lock.session"
+  got=$(CLAUDE_CODE_SESSION_ID=sess-mine lib_eval "$fakebin" "fm_session_lock_identity_state '$dir/state'")
+  [ "$got" = competing ] || fail "a live owner with no sidecar at all was classified '$got'"
+
+  # A sidecar bound to a pid that is not the current lock holder describes some
+  # earlier lock, not this one.
+  printf '99999\nsess-other\n' > "$dir/state/.lock.session"
+  touch -t 200001010000 "$dir/state/.lock.session"
+  got=$(CLAUDE_CODE_SESSION_ID=sess-mine lib_eval "$fakebin" "fm_session_lock_identity_state '$dir/state'")
+  [ "$got" = competing ] || fail "a sidecar bound to a superseded pid was classified '$got'"
+
+  # This process carries no stable token of its own, so there is no divergence
+  # to measure - only an unprovable claim on someone else's home.
+  printf '12345\nsess-other\n' > "$dir/state/.lock.session"
+  touch -t 200001010000 "$dir/state/.lock.session"
+  got=$(lib_eval "$fakebin" "unset CLAUDE_CODE_SESSION_ID; fm_session_lock_identity_state '$dir/state'")
+  [ "$got" = competing ] || fail "a process with no session token of its own was classified '$got'"
+
+  # A malformed token is treated as absent, never as a wildcard divergence.
+  got=$(CLAUDE_CODE_SESSION_ID='../../etc/passwd' lib_eval "$fakebin" "fm_session_lock_identity_state '$dir/state'")
+  [ "$got" = competing ] || fail "a malformed session token was classified '$got'"
+  pass "session-lock: every incomplete divergence signature keeps refusing a live competing owner"
+}
+
+# The lifetime half of the fix: a proven owner rewrites the sidecar with the
+# token it presents NOW, so an id change that happens while ancestry still holds
+# never strands the home, and the sidecar's mtime tracks the owning session.
+test_sidecar_sync_rebinds_the_live_token_and_ignores_non_owners() {
+  local dir fakebin got
+  dir="$TMP_ROOT/sidecar-sync"
+  mkdir -p "$dir/state"
+  fakebin=$(fm_fakebin "$dir")
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+field= pid=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) field=$2; shift 2 ;;
+    -p) pid=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+case "$pid:$field" in
+  770:comm=) printf '%s\n' claude ;;
+  770:args=) printf '%s\n' claude ;;
+  770:ppid=) printf '%s\n' 1 ;;
+  *:comm=) printf '%s\n' bash ;;
+  *:args=) printf '%s\n' 'bash /repo/bin/fm-turnend-guard.sh' ;;
+  *:ppid=) printf '%s\n' 770 ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
+  printf '770\n' > "$dir/state/.lock"
+  printf '770\nsess-at-acquisition\n' > "$dir/state/.lock.session"
+
+  # Ownership still holds by ancestry while the session id has already changed:
+  # the sidecar must follow the live id instead of rotting at the old one.
+  CLAUDE_CODE_SESSION_ID=sess-now lib_eval "$fakebin" "fm_session_lock_sidecar_sync '$dir/state'"
+  got=$(cat "$dir/state/.lock.session")
+  [ "$got" = "$(printf '770\nsess-now')" ] \
+    || fail "the sidecar did not follow the live session id, got: $got"
+
+  # A process that cannot prove ownership must never rewrite the record.
+  printf '880\n' > "$dir/state/.lock"
+  CLAUDE_CODE_SESSION_ID=sess-intruder lib_eval "$fakebin" "fm_session_lock_sidecar_sync '$dir/state'"
+  got=$(cat "$dir/state/.lock.session")
+  [ "$got" = "$(printf '770\nsess-now')" ] \
+    || fail "a non-owner rewrote the session-identity sidecar, got: $got"
+  pass "session-lock: a proven owner rebinds the sidecar to its live session token, and a non-owner never touches it"
+}
+
 test_write_sidecar_binds_pid_and_token_and_is_a_noop_without_one() {
   local dir fakebin got
   dir="$TMP_ROOT/write-sidecar"
@@ -573,4 +731,7 @@ test_daemon_hosted_session_recognized_by_stable_token
 test_daemon_hosted_foreign_or_stale_token_refused
 test_daemon_hosted_missing_or_malformed_identity_stays_inert
 test_write_sidecar_binds_pid_and_token_and_is_a_noop_without_one
+test_identity_state_names_a_diverged_session_instead_of_declining_silently
+test_identity_state_refuses_every_incomplete_divergence_signature
+test_sidecar_sync_rebinds_the_live_token_and_ignores_non_owners
 test_fm_lock_reclaims_dead_owner_and_refreshes_sidecar

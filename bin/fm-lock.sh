@@ -3,6 +3,11 @@
 # Writes the harness (agent) process PID found by walking the shell's ancestry,
 # which lives as long as the firstmate session - unlike the transient subshell
 # PID of any one tool call, which is dead moments after it is written.
+# A live recorded owner refuses, with one exception owned by
+# fm_session_lock_identity_state (bin/fm-session-lock-lib.sh): a lock whose
+# recorded session identity has DIVERGED from the session that actually runs
+# this home's hooks is reclaimable, so a session whose id changed under it can
+# re-take its own lock instead of being locked out by its own predecessor.
 # Usage: fm-lock.sh           acquire; exit 1 unless ownership is verified
 #        fm-lock.sh status    print holder and liveness; always exits 0
 set -u
@@ -29,7 +34,15 @@ if [ "${1:-}" = "status" ]; then
     echo "lock: unreadable"
     exit 0
   }
-  if fm_harness_pid_alive "$old"; then echo "lock: held by live harness pid $old"; else echo "lock: stale (pid $old dead or not a harness)"; fi
+  if fm_harness_pid_alive "$old"; then
+    if [ "$(fm_session_lock_identity_state "$STATE")" = diverged ]; then
+      echo "lock: held by live harness pid $old, but its recorded session identity has diverged (reclaimable by this session)"
+    else
+      echo "lock: held by live harness pid $old"
+    fi
+  else
+    echo "lock: stale (pid $old dead or not a harness)"
+  fi
   exit 0
 fi
 
@@ -55,6 +68,22 @@ release_claim_lock() {
 trap release_claim_lock EXIT
 trap 'exit 1' HUP INT TERM
 
+# A live recorded owner normally refuses, and that refusal is the whole point of
+# the lock. The one exception is a DIVERGED identity: the recorded pid is alive,
+# but the session-identity sidecar it was written with names a Claude session
+# that has proven nothing for the divergence grace while this process presents a
+# different, well-formed token. That is a session whose id changed under it -
+# backgrounding one does exactly this - and without the exception the session
+# can never re-take or refresh its OWN lock, so its Stop hooks decline for as
+# long as the old pid happens to stay alive. fm_session_lock_identity_state
+# (bin/fm-session-lock-lib.sh) owns that classification; everything uncertain
+# still classifies as a competing session and still refuses here.
+live_owner_refuses() {  # <recorded-pid>
+  fm_harness_pid_alive "$1" || return 1
+  [ "$(fm_session_lock_identity_state "$STATE")" = diverged ] && return 1
+  return 0
+}
+
 if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
   old=$(cat "$LOCK" 2>/dev/null || true)
   if [ "$old" = "$me" ]; then
@@ -62,7 +91,7 @@ if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
     echo "lock acquired: harness pid $me"
     exit 0
   fi
-  if fm_harness_pid_alive "$old"; then
+  if live_owner_refuses "$old"; then
     echo "error: another live firstmate session holds the lock (pid $old); operate read-only until resolved" >&2
     exit 1
   fi
@@ -87,7 +116,7 @@ if [ -e "$LOCK" ] || [ -L "$LOCK" ]; then
     echo "error: session lock is unreadable; operate read-only until resolved" >&2
     exit 1
   }
-  if [ "$old" != "$me" ] && fm_harness_pid_alive "$old"; then
+  if [ "$old" != "$me" ] && live_owner_refuses "$old"; then
     echo "error: another live firstmate session holds the lock (pid $old); operate read-only until resolved" >&2
     exit 1
   fi

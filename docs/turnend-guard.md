@@ -110,10 +110,14 @@ The auto-arm itself rechecks the healthy watcher predicate and retries a bounded
 The first fresh exhausted-failure epoch preserves its handoff without consuming a blocked-stop count, while later fresh failed epochs advance the same monotonic progression instead of resetting it.
 When none of those proofs appears, it re-blocks up to `FM_CLAUDE_TURNEND_BLOCK_BUDGET` times (default 3, below Claude's 8-block override).
 In Claude mode, positive watcher recovery clears the block budget, failure notice, and attended alarm together under the existing budget lock before either hook reports ordinary recovery.
-The one loud attended fail-open is available only when the auto-arm has recorded an exhausted failure, its one notice is already consumed, the block budget is exhausted, and a final check finds neither a healthy watcher nor an automatic continuation.
+The one loud attended fail-open is available when the block budget is exhausted, a final check finds neither a healthy watcher nor an automatic continuation, and either the auto-arm has recorded an exhausted failure with its one notice already consumed or the auto-arm is structurally inert.
 Each epoch identity is charged at most once per Stop under the budget lock, and a re-block against an epoch the auto-arm did not advance past the previous re-block is charged as well.
 That second rule is what bounds an inert auto-arm: a hook kept silent by a session lock held by a live harness outside its ancestry, a hook that never fires, or a hook failing before its generation claim leaves the ledger frozen at its last outcome.
 Charging only epoch changes let the count freeze with that ledger, so the guard re-blocked without limit and the attended fail-open was never reachable; `budget_account_current_epoch` in `bin/fm-turnend-guard.sh` owns the rule.
+Counting bounds those re-blocks but never unlocks the alarm on its own, which is what the structural-inertness branch above covers.
+Structurally inert means this session cannot pass the auto-arm's identity gate at all, because `fm_session_lock_identity_state` (`bin/fm-session-lock-lib.sh`) classifies the home's session lock as held by a competing live session or as a divergence that reclaiming did not repair.
+Such a hook never fails, so it never writes a failed outcome and never creates the notice the exhausted-failure branch requires, and on 2026-09-15 that left a home shouting the same blind-turn banner every turn for nine hours with the one alarm structurally unreachable.
+It is therefore its own verified terminal condition, reported through the same single attended alarm rather than a second channel, and the blind-turn banner names the session lock and the process holding it so the cause is visible before the budget is even spent.
 Whenever both coordination locks are needed, positive auto-arm recovery and the terminal check acquire the auto-arm owner lock before the budget lock.
 After that alarm, the Stop auto-arm suppresses further exit-2 continuations until positive watcher recovery, so the final fail-open remains reachable.
 The alarm cannot repeat during that failure episode, and a later unhealthy stop blocks again.
