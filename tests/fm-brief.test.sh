@@ -795,6 +795,38 @@ ROWS
 }
 
 # Scout and secondmate paths still scaffold well-formed briefs.
+# The shared-terminal rule (AGENTS.md's tmux-daemon precedent, rule 7's sibling)
+# must reach a worker through the generated brief, not firstmate's memory alone.
+# A scout drives real terminals for reproduction exactly as a ship task does, so
+# both generated contracts must carry it - asserted on the actual output, not the
+# generator's own source text.
+test_shared_terminal_rule_reaches_generated_briefs() {
+  local home brief
+  home="$TMP_ROOT/shared-terminal-home"
+  write_registry "$home"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-term-ship some-proj --mode local-only >/dev/null 2>&1 \
+    || fail "ship scaffold for shared-terminal rule check exited non-zero"
+  brief="$home/data/brief-term-ship/brief.md"
+  assert_grep "ONE shared terminal server" "$brief" \
+    "ship brief missing the shared-terminal-server rule"
+  assert_grep "OWN uniquely-named socket" "$brief" \
+    "ship brief missing the own-socket instruction"
+  assert_grep "kills every other worker at once" "$brief" \
+    "ship brief missing the shared-terminal consequence"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-term-scout firstmate --scout >/dev/null 2>&1 \
+    || fail "scout scaffold for shared-terminal rule check exited non-zero"
+  brief="$home/data/brief-term-scout/brief.md"
+  assert_grep "ONE shared terminal server" "$brief" \
+    "scout brief missing the shared-terminal-server rule"
+  assert_grep "OWN uniquely-named socket" "$brief" \
+    "scout brief missing the own-socket instruction"
+  assert_grep "kills every other worker at once" "$brief" \
+    "scout brief missing the shared-terminal consequence"
+  pass "fm-brief.sh: the shared-terminal rule reaches both generated ship and scout briefs"
+}
+
 test_scout_and_secondmate_scaffold() {
   local brief
   FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-scout-q6 alpha --scout >/dev/null 2>&1 \
@@ -920,6 +952,7 @@ test_secondmate_marked_request_reporting_contract
 test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
+test_shared_terminal_rule_reaches_generated_briefs
 test_scout_and_secondmate_scaffold
 test_pr_hygiene_dod_sentences
 test_brief_lib_carries_every_mode_contract

@@ -398,6 +398,10 @@ The report is the only thing that survives, so anything worth keeping must be in
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+8. Firstmate and every other worker live on ONE shared terminal server. Anything you launch yourself
+   must run on your OWN uniquely-named socket, and teardown must remove only that socket, never by
+   pattern and never the shared server - doing either kills every other worker at once and destroys
+   whatever uncommitted work they had not yet saved.
 
 $INBOX_SECTION
 
@@ -473,6 +477,10 @@ $RULE1
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+8. Firstmate and every other worker live on ONE shared terminal server. Anything you launch yourself
+   must run on your OWN uniquely-named socket, and teardown must remove only that socket, never by
+   pattern and never the shared server - doing either kills every other worker at once and destroys
+   whatever uncommitted work they had not yet saved.
 
 $INBOX_SECTION
 
