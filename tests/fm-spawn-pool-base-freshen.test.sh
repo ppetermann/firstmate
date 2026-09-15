@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Regression tests for fm-spawn's pooled-worktree base refresh.
 #
-# A treehouse pool can return a clean detached worktree whose origin/main was
-# advanced after the worktree was allocated.
+# A treehouse pool can return a clean detached worktree that was allocated
+# before the spawning project's own local default branch last advanced - the
+# pool slot is stale relative to the project's clone, not relative to origin.
 # These tests drive the real spawn path with a fake terminal, then prove it
-# starts the worker from the fetched origin tip, launches a clean origin-less
-# pool as-is, or stops when a configured origin is unusable.
+# starts the worker from the project's own current LOCAL default-branch
+# commit, that an origin remote (present, absent, stale, or unreachable) never
+# factors in, and that a worktree the gate cannot actually refresh stops the
+# spawn with a concrete diagnostic instead of launching stale.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -13,14 +16,20 @@ set -u
 
 TMP_ROOT=$(fm_test_tmproot fm-spawn-pool-base-freshen)
 
+# make_case <name> <id> [default-branch=main]
+# Builds a spawning project with an initial commit, allocates a pooled
+# worktree detached at that commit (the pool slot as treehouse would hand it
+# over), then advances the project's OWN local default branch directly with a
+# second commit. That direct local advance - never pushed anywhere - is the
+# exact incident this gate exists for: a project whose delivery is local-only
+# (AGENTS.md section 7) can sit local commits ahead of origin, so "current"
+# has to mean the project's own local ref, not origin's.
 make_case() {
-  local name=$1 id=$2 default=${3:-main} case_dir home project origin pool publisher fakebin initial
+  local name=$1 id=$2 default=${3:-main} case_dir home project pool fakebin initial
   case_dir="$TMP_ROOT/$name"
   home="$case_dir/home"
   project="$case_dir/project"
-  origin="$case_dir/origin.git"
   pool="$case_dir/pool"
-  publisher="$case_dir/publisher"
   fakebin=$(make_spawn_fakebin "$case_dir/fake")
 
   mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
@@ -32,16 +41,12 @@ make_case() {
   printf 'base\n' > "$project/README.md"
   git -C "$project" add README.md
   git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
-  git clone --quiet --bare "$project" "$origin"
-  git -C "$project" remote add origin "file://$origin"
   initial=$(git -C "$project" rev-parse HEAD)
   git -C "$project" worktree add --quiet --detach "$pool" "$initial"
 
-  git clone --quiet "file://$origin" "$publisher"
-  printf 'must survive a newly spawned branch\n' > "$publisher/advanced-main.txt"
-  git -C "$publisher" add advanced-main.txt
-  git -C "$publisher" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm advance-main
-  git -C "$publisher" push --quiet origin "$default"
+  printf 'must survive a newly spawned branch\n' > "$project/advanced-main.txt"
+  git -C "$project" add advanced-main.txt
+  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm advance-main
 
   printf '%s\n' "$case_dir|$home|$project|$pool|$fakebin|$initial|$default"
 }
@@ -95,7 +100,7 @@ REC
 }
 
 test_linked_spawning_home_rejects_primary_before_refresh() {
-  local rec id out status returned primary spawning before_reflog
+  local rec id out status returned primary spawning before_reflog before_primary
   for returned in primary primary-alias spawning scout; do
     id="pool-linked-${returned}-r12"
     rec=$(make_case "linked-$returned" "$id")
@@ -113,6 +118,11 @@ test_linked_spawning_home_rejects_primary_before_refresh() {
       spawning) POOL_DIR=$spawning ;;
     esac
     before_reflog=$(git -C "$primary" reflog)
+    # make_case's own local advance-main commit already moved primary past
+    # INITIAL_SHA before this test does anything; the invariant under test is
+    # that the spawn itself never moves primary further, not that it never
+    # moved at all.
+    before_primary=$(git -C "$primary" rev-parse HEAD)
     # The assertion concerns identity, not how long an unchanged cwd is polled.
     fm_test_fake_sleep_noop "$FAKEBIN_DIR"
 
@@ -123,14 +133,11 @@ test_linked_spawning_home_rejects_primary_before_refresh() {
       printf '$ bin/fm-spawn.sh %s %s --scout\n%s\nexit=%s\n' "$id" "$PROJECT_DIR" "$out" "$status"
       printf 'primary HEAD before=%s after=%s\n' "$INITIAL_SHA" "$(git -C "$primary" rev-parse HEAD)"
       printf 'primary reflog before:\n%s\nprimary reflog after:\n%s\n' "$before_reflog" "$(git -C "$primary" reflog)"
-      if [ -e "$primary/.git/FETCH_HEAD" ]; then
-        printf 'FETCH_HEAD:\n'; cat "$primary/.git/FETCH_HEAD"
-      else
-        printf 'FETCH_HEAD absent\n'
-      fi
       if [ -e "$HOME_DIR/state/$id.meta" ]; then
         printf 'saved task metadata:\n'; cat "$HOME_DIR/state/$id.meta"
-        printf 'worker HEAD=%s origin/main=%s\n' "$(git -C "$POOL_DIR" rev-parse HEAD)" "$(git -C "$POOL_DIR" rev-parse origin/main)"
+        printf 'worker HEAD=%s spawning-home local %s=%s\n' \
+          "$(git -C "$POOL_DIR" rev-parse HEAD)" "$DEFAULT_BRANCH" \
+          "$(git -C "$spawning" rev-parse "$DEFAULT_BRANCH" 2>/dev/null || echo none)"
       else
         printf 'task metadata absent\n'
       fi
@@ -140,8 +147,8 @@ test_linked_spawning_home_rejects_primary_before_refresh() {
       expect_code 0 "$status" "a genuine scout copy from a linked home should launch"$'\n'"$out"
       assert_grep "worktree=$POOL_DIR" "$HOME_DIR/state/$id.meta" \
         "spawn did not record the genuine scout copy"
-      [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$(git -C "$POOL_DIR" rev-parse origin/main)" ] \
-        || fail "spawn did not refresh the genuine scout copy"
+      [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$(git -C "$spawning" rev-parse "$DEFAULT_BRANCH")" ] \
+        || fail "spawn did not refresh the genuine scout copy to the spawning project's local default branch"
     else
       [ "$status" -ne 0 ] || fail "linked spawning home accepted $returned as a disposable copy"
       # None of these is an isolated copy, so the worktree poll never adopts one
@@ -153,9 +160,8 @@ test_linked_spawning_home_rejects_primary_before_refresh() {
         "spawn did not explain its isolation refusal"
       assert_contains "$out" "last seen" "refusal did not name the path the pane reported"
       [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "refused spawn published task metadata"
-      [ ! -e "$primary/.git/FETCH_HEAD" ] || fail "refused spawn fetched before proving isolation"
     fi
-    [ "$(git -C "$primary" rev-parse HEAD)" = "$INITIAL_SHA" ] \
+    [ "$(git -C "$primary" rev-parse HEAD)" = "$before_primary" ] \
       || fail "spawn reset the repository primary from a linked home"
     [ "$(git -C "$primary" reflog)" = "$before_reflog" ] \
       || fail "spawn touched the primary reflog from a linked home"
@@ -163,23 +169,29 @@ test_linked_spawning_home_rejects_primary_before_refresh() {
   done
 }
 
-test_stale_pool_base_refreshes_before_branching() {
+test_stale_pool_base_refreshes_to_current_local_main_before_branching() {
   local rec id out status current branch_head
   id='pool-current-base-r1'
   rec=$(make_case current-base "$id")
   read_case_record "$rec"
+  ! git -C "$PROJECT_DIR" remote get-url origin >/dev/null 2>&1 \
+    || fail "fixture unexpectedly configured an origin remote"
 
   out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
-  expect_code 0 "$status" "spawn should refresh a stale pooled worktree"
+  expect_code 0 "$status" "spawn should refresh a stale pooled worktree to the project's current local main"
   assert_contains "$out" "spawned $id" "spawn did not report success"
-  current=$(git -C "$POOL_DIR" rev-parse origin/main)
+  assert_not_contains "$out" "fetch" \
+    "spawn mentioned a fetch even though local freshening never fetches"
+  current=$(git -C "$PROJECT_DIR" rev-parse "$DEFAULT_BRANCH")
   branch_head=$(git -C "$POOL_DIR" rev-parse HEAD)
   [ "$branch_head" = "$current" ] || fail "spawn left the pooled worktree on stale history"
-  [ "$branch_head" != "$INITIAL_SHA" ] || fail "fixture did not prove origin/main advanced past the pool base"
+  [ "$branch_head" != "$INITIAL_SHA" ] || fail "fixture did not prove the project's local main advanced past the pool base"
+  ! git -C "$POOL_DIR" remote get-url origin >/dev/null 2>&1 \
+    || fail "spawn added an origin remote to the pooled worktree"
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
     printf '# observed spawn: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
-    printf '# observed base: HEAD=%s origin/main=%s advanced-main=%s\n' \
+    printf '# observed base: HEAD=%s project-local-main=%s advanced-main=%s\n' \
       "$branch_head" "$current" "$(cat "$POOL_DIR/advanced-main.txt")"
   fi
 
@@ -189,199 +201,64 @@ test_stale_pool_base_refreshes_before_branching() {
   status=$?
   expect_code 0 "$status" "repeating the base refresh should be idempotent"
   [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$current" ] \
-    || fail "an idempotent repeat moved the pool away from current origin/main"
+    || fail "an idempotent repeat moved the pool away from the project's current local main"
 
   git -C "$POOL_DIR" checkout --quiet -b "fm/$id"
-  git -C "$POOL_DIR" diff --exit-code origin/main...HEAD >/dev/null \
-    || fail "a branch created after spawn differs from current origin/main"
+  git -C "$POOL_DIR" diff --exit-code "$current"...HEAD >/dev/null \
+    || fail "a branch created after spawn differs from the project's current local main"
   assert_grep 'must survive a newly spawned branch' "$POOL_DIR/advanced-main.txt" \
     "the branch created after spawn omitted advanced-main content"
-  pass "a stale pooled worktree refreshes to current origin/main before a crew branch is created"
+  pass "a stale pooled worktree refreshes to the project's current local main before a crew branch is created"
 }
 
-test_non_main_default_branch_refreshes_before_branching() {
-  local rec id out status current branch_head
+test_non_main_default_branch_refreshes_to_current_local_trunk_before_branching() {
+  local rec id out status seed current branch_head
   id='pool-current-trunk-r2'
   rec=$(make_case current-trunk "$id" trunk)
   read_case_record "$rec"
 
+  # A project's own local HEAD name alone cannot resolve a non-main/master
+  # default branch name (bin/fm-ff-lib.sh's default_branch); a real firstmate
+  # project clone carries a resolvable origin/HEAD symref from the clone
+  # step itself, so this fixture reproduces that, then never touches origin
+  # again - only the branch NAME comes from origin/HEAD, the commit used is
+  # always the project's own local ref.
+  seed="$CASE_DIR/seed.git"
+  git clone --quiet --bare "$PROJECT_DIR" "$seed"
+  git -C "$PROJECT_DIR" remote add origin "file://$seed"
+  git -C "$PROJECT_DIR" fetch --quiet origin
+  git -C "$PROJECT_DIR" remote set-head origin --auto >/dev/null
+
   out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
   expect_code 0 "$status" "spawn should refresh a stale pooled worktree on a non-main default branch"
-  current=$(git -C "$POOL_DIR" rev-parse "origin/$DEFAULT_BRANCH")
+  current=$(git -C "$PROJECT_DIR" rev-parse "$DEFAULT_BRANCH")
   branch_head=$(git -C "$POOL_DIR" rev-parse HEAD)
-  [ "$branch_head" = "$current" ] || fail "spawn did not refresh to current origin/$DEFAULT_BRANCH"
-  [ "$branch_head" != "$INITIAL_SHA" ] || fail "fixture did not prove origin/$DEFAULT_BRANCH advanced past the pool base"
-  pass "a stale pooled worktree resolves and refreshes a non-main default branch"
+  [ "$branch_head" = "$current" ] || fail "spawn did not refresh to the project's current local $DEFAULT_BRANCH"
+  [ "$branch_head" != "$INITIAL_SHA" ] || fail "fixture did not prove the project's local $DEFAULT_BRANCH advanced past the pool base"
+  pass "a stale pooled worktree resolves and refreshes a non-main local default branch"
 }
 
-make_originless_case() {  # <name> <id>
-  local name=$1 id=$2 case_dir home project pool fakebin initial
-  case_dir="$TMP_ROOT/$name"
-  home="$case_dir/home"
-  project="$case_dir/project"
-  pool="$case_dir/pool"
-  fakebin=$(make_spawn_fakebin "$case_dir/fake")
-
-  mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
-  printf 'codex\n' > "$home/config/crew-harness"
-  fm_test_spawn_brief "$home" "$id"
-  touch "$home/state/.last-watcher-beat"
-
-  git init --quiet -b main "$project"
-  printf 'base\n' > "$project/README.md"
-  git -C "$project" add README.md
-  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
-  initial=$(git -C "$project" rev-parse HEAD)
-  git -C "$project" worktree add --quiet --detach "$pool" "$initial"
-
-  printf '%s\n' "$case_dir|$home|$project|$pool|$fakebin|$initial|main"
-}
-
-test_originless_pool_launches_without_a_freshness_fetch() {
-  local rec id out status before
-  id='pool-originless-r6'
-  rec=$(make_originless_case originless "$id")
+test_stale_and_unreachable_origin_is_irrelevant_to_local_freshening() {
+  local rec id out status current
+  id='pool-origin-irrelevant-r6'
+  rec=$(make_case origin-irrelevant "$id")
   read_case_record "$rec"
-  ! git -C "$POOL_DIR" remote get-url origin >/dev/null 2>&1 \
-    || fail "fixture unexpectedly configured an origin remote"
-  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+  git -C "$PROJECT_DIR" remote add origin "file://$CASE_DIR/missing-origin.git"
+  current=$(git -C "$PROJECT_DIR" rev-parse "$DEFAULT_BRANCH")
 
   out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
-  expect_code 0 "$status" "spawn should launch a local-only pooled worktree with no origin"$'\n'"$out"
-  assert_contains "$out" "spawned $id" "spawn did not report success for the origin-less pool"
-  assert_not_contains "$out" "could not fetch origin" \
-    "spawn attempted a freshness fetch against a nonexistent origin"
-  [ ! -e "$POOL_DIR/.git/FETCH_HEAD" ] || fail "spawn fetched against a pooled worktree with no origin"
-  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
-    || fail "spawn moved HEAD on an origin-less pooled worktree that had nothing to refresh against"
+  expect_code 0 "$status" \
+    "spawn should refresh from the project's local main even with an unreachable origin"$'\n'"$out"
+  assert_not_contains "$out" "fetch" \
+    "spawn attempted or reported a fetch even though it no longer depends on origin"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$current" ] \
+    || fail "spawn did not refresh to the project's current local main despite an unreachable origin"
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
-    printf '# observed origin-less launch: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+    printf '# observed origin-irrelevant spawn: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
   fi
-  pass "an origin-less pooled worktree launches as-is, skipping the freshness gate"
-}
-
-test_originless_dirty_pool_refuses_without_discarding_work() {
-  local rec id out status before
-  id='pool-originless-dirty-r1'
-  rec=$(make_originless_case originless-dirty "$id")
-  read_case_record "$rec"
-  before=$(git -C "$POOL_DIR" rev-parse HEAD)
-  printf 'keep this local work\n' > "$POOL_DIR/uncommitted.txt"
-
-  out=$(run_spawn "$id" --mode direct-PR --yolo off)
-  status=$?
-  [ "$status" -ne 0 ] || fail "spawn succeeded despite a dirty origin-less pooled worktree"
-  assert_contains "$out" "is not clean" \
-    "spawn did not clearly refuse a dirty origin-less pooled worktree"
-  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
-    || fail "spawn moved HEAD while refusing a dirty origin-less pooled worktree"
-  assert_grep 'keep this local work' "$POOL_DIR/uncommitted.txt" \
-    "spawn discarded local work from an origin-less pool"
-  pass "a dirty origin-less pooled worktree is refused without discarding its local work"
-}
-
-test_origin_config_without_url_refuses_pool() {
-  local rec id out status before
-  id='pool-origin-without-url-r1'
-  rec=$(make_originless_case origin-without-url "$id")
-  read_case_record "$rec"
-  git -C "$POOL_DIR" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
-  before=$(git -C "$POOL_DIR" rev-parse HEAD)
-
-  out=$(run_spawn "$id" --mode direct-PR --yolo off)
-  status=$?
-  [ "$status" -ne 0 ] || fail "spawn succeeded despite an origin configuration with no URL"
-  assert_contains "$out" "could not fetch origin" \
-    "spawn did not refuse an origin configuration with no URL as unusable"
-  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
-    || fail "spawn moved HEAD after finding an unusable origin configuration"
-  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "refused spawn published task metadata"
-  pass "an origin configuration without a URL refuses the pooled worktree"
-}
-
-test_empty_origin_config_section_refuses_pool() {
-  local rec id out status before config
-  id='pool-empty-origin-section-r1'
-  rec=$(make_originless_case empty-origin-section "$id")
-  read_case_record "$rec"
-  config=$(git -C "$POOL_DIR" rev-parse --path-format=absolute --git-path config)
-  printf '\n[remote "origin"]\n' >> "$config"
-  before=$(git -C "$POOL_DIR" rev-parse HEAD)
-
-  out=$(run_spawn "$id" --mode direct-PR --yolo off)
-  status=$?
-  [ "$status" -ne 0 ] || fail "spawn succeeded despite an empty origin configuration section"
-  assert_contains "$out" "could not fetch origin" \
-    "spawn did not refuse an empty origin configuration section as unusable"
-  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
-    || fail "spawn moved HEAD after finding an empty origin configuration section"
-  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "refused spawn published task metadata"
-  pass "an empty origin configuration section refuses the pooled worktree"
-}
-
-test_empty_only_included_origin_config_section_launches_pool() {
-  local rec id out status before config included
-  id='pool-empty-only-included-origin-section-r1'
-  rec=$(make_originless_case empty-only-included-origin-section "$id")
-  read_case_record "$rec"
-  config=$(git -C "$POOL_DIR" rev-parse --path-format=absolute --git-path config)
-  included=$(dirname "$config")/empty-origin.inc
-  printf '[remote "origin"]\n' > "$included"
-  git -C "$POOL_DIR" config include.path "$(basename "$included")"
-  before=$(git -C "$POOL_DIR" rev-parse HEAD)
-
-  out=$(run_spawn "$id" --mode direct-PR --yolo off)
-  status=$?
-  expect_code 0 "$status" "spawn should proceed when an included empty origin section is not enumerable"$'\n'"$out"
-  assert_contains "$out" "spawned $id" "spawn did not report success for the undetectable included section"
-  assert_not_contains "$out" "could not fetch origin" \
-    "spawn treated an undetectable included empty section as a configured origin"
-  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
-    || fail "spawn moved HEAD despite treating the included empty section as origin-less"
-  pass "an empty-only included origin section documents the accepted detection boundary"
-}
-
-test_inactive_conditional_origin_include_launches_pool() {
-  local rec id out status before config included
-  id='pool-inactive-origin-include-r1'
-  rec=$(make_originless_case inactive-origin-include "$id")
-  read_case_record "$rec"
-  config=$(git -C "$POOL_DIR" rev-parse --path-format=absolute --git-path config)
-  included=$(dirname "$config")/inactive-origin.inc
-  printf '[fm-test]\n\tmarker = true\n[remote "origin"]\n' > "$included"
-  git -C "$POOL_DIR" config 'includeIf.gitdir:/never/matches/this/worktree/.path' "$included"
-  before=$(git -C "$POOL_DIR" rev-parse HEAD)
-
-  out=$(run_spawn "$id" --mode direct-PR --yolo off)
-  status=$?
-  expect_code 0 "$status" "spawn should ignore an inactive conditional origin include"$'\n'"$out"
-  assert_contains "$out" "spawned $id" "spawn did not report success with an inactive origin include"
-  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
-    || fail "spawn moved HEAD despite having no effective origin"
-  pass "an inactive conditional origin include leaves the pooled worktree origin-less"
-}
-
-test_unreachable_origin_refuses_stale_pool_base() {
-  local rec id out status before after
-  id='pool-unreachable-origin-r2'
-  rec=$(make_case unreachable-origin "$id")
-  read_case_record "$rec"
-  git -C "$POOL_DIR" remote set-url origin "file://$CASE_DIR/missing-origin.git"
-  before=$(git -C "$POOL_DIR" rev-parse HEAD)
-
-  out=$(run_spawn "$id" --mode direct-PR --yolo off)
-  status=$?
-  [ "$status" -ne 0 ] || fail "spawn succeeded despite an unreachable origin"
-  assert_contains "$out" "could not fetch origin" \
-    "spawn did not clearly refuse an unreachable origin"
-  after=$(git -C "$POOL_DIR" rev-parse HEAD)
-  [ "$after" = "$before" ] || fail "spawn changed the pooled worktree after origin became unreachable"
-  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
-    printf '# observed unreachable-origin refusal: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
-  fi
-  pass "an unreachable origin refuses a potentially stale pooled worktree"
+  pass "an unreachable or stale origin has no effect on the local freshening gate"
 }
 
 test_direct_pr_and_scout_refresh_before_launch() {
@@ -397,9 +274,9 @@ test_direct_pr_and_scout_refresh_before_launch() {
     fi
     status=$?
     expect_code 0 "$status" "$contract spawn should refresh a stale pooled worktree"
-    current=$(git -C "$POOL_DIR" rev-parse origin/main)
+    current=$(git -C "$PROJECT_DIR" rev-parse "$DEFAULT_BRANCH")
     [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$current" ] \
-      || fail "$contract spawn did not start at current origin/main"
+      || fail "$contract spawn did not start at the project's current local main"
     assert_grep 'must survive a newly spawned branch' "$POOL_DIR/advanced-main.txt" \
       "$contract spawn omitted advanced-main content"
     if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
@@ -432,25 +309,86 @@ test_dirty_pool_refuses_without_discarding_work() {
   pass "a dirty pooled worktree is refused without discarding its local work"
 }
 
-test_unresolved_remote_default_refuses_pool() {
+# make_stranded_default_case <name> <id>
+# A project checked out on a branch that is neither main nor master, with no
+# origin at all: bin/fm-ff-lib.sh's default_branch cannot name a local default
+# branch for it, so primary_head_commit fails and the gate has nothing to
+# reset to.
+make_stranded_default_case() {
+  local name=$1 id=$2 case_dir home project pool fakebin
+  case_dir="$TMP_ROOT/$name"
+  home="$case_dir/home"
+  project="$case_dir/project"
+  pool="$case_dir/pool"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+
+  mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
+  printf 'codex\n' > "$home/config/crew-harness"
+  fm_test_spawn_brief "$home" "$id"
+  touch "$home/state/.last-watcher-beat"
+
+  git init --quiet -b wip "$project"
+  printf 'base\n' > "$project/README.md"
+  git -C "$project" add README.md
+  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
+  git -C "$project" worktree add --quiet --detach "$pool" HEAD
+
+  printf '%s\n' "$case_dir|$home|$project|$pool|$fakebin"
+}
+
+read_stranded_case_record() {
+  IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR POOL_DIR FAKEBIN_DIR <<EOF
+$1
+EOF
+}
+
+test_unresolvable_local_default_branch_refuses_pool() {
   local rec id out status before
-  id='pool-unresolved-default-r5'
-  rec=$(make_case unresolved-default "$id")
-  read_case_record "$rec"
-  git --git-dir="$CASE_DIR/origin.git" symbolic-ref HEAD refs/heads/missing-default
+  id='pool-unresolvable-default-r5'
+  rec=$(make_stranded_default_case unresolvable-default "$id")
+  read_stranded_case_record "$rec"
   before=$(git -C "$POOL_DIR" rev-parse HEAD)
 
   out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
-  [ "$status" -ne 0 ] || fail "spawn succeeded despite an unresolved remote default branch"
-  assert_contains "$out" "could not resolve origin's current default branch" \
-    "spawn did not clearly refuse an unresolved remote default branch"
+  [ "$status" -ne 0 ] || fail "spawn succeeded despite an unresolvable local default branch"
+  assert_contains "$out" "could not resolve" \
+    "spawn did not clearly refuse an unresolvable local default branch"
+  assert_contains "$out" "$PROJECT_DIR" "refusal did not name the spawning project"
   [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
-    || fail "spawn moved HEAD after failing to resolve the remote default branch"
+    || fail "spawn moved HEAD after failing to resolve the project's local default branch"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "refused spawn published task metadata"
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
-    printf '# observed unresolved-default refusal: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+    printf '# observed unresolvable-default refusal: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
   fi
-  pass "an unresolved remote default branch refuses the pooled worktree"
+  pass "an unresolvable local default branch refuses the pooled worktree"
+}
+
+test_worktree_that_cannot_reach_local_main_refuses_rather_than_launching() {
+  local rec id out status before
+  id='pool-unreachable-commit-r14'
+  rec=$(make_case unreachable-commit "$id")
+  read_case_record "$rec"
+  # Replace the pool with a wholly unrelated repository at the same path the
+  # fake terminal reports as its cwd: it shares no history with the spawning
+  # project, so the reset below cannot reach the project's local default-branch
+  # commit no matter how the base is resolved.
+  rm -rf "$POOL_DIR"
+  git init --quiet -b "$DEFAULT_BRANCH" "$POOL_DIR"
+  printf 'unrelated\n' > "$POOL_DIR/unrelated.txt"
+  git -C "$POOL_DIR" add unrelated.txt
+  git -C "$POOL_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm unrelated
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+
+  out=$(run_spawn "$id" --mode direct-PR --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched from a worktree that cannot reach the project's local main"
+  assert_contains "$out" "could not reset" \
+    "spawn did not clearly refuse a worktree that cannot reach the project's local default-branch commit"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn moved HEAD in a worktree it could not actually refresh"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "refused spawn published task metadata"
+  pass "a worktree that cannot reach the project's local default-branch commit refuses rather than launching stale"
 }
 
 # A slot left on a stale submodule pin is the field failure this diagnosis exists
@@ -460,13 +398,11 @@ test_unresolved_remote_default_refuses_pool() {
 # only builds the repositories; the residue itself is produced by a real spawn, so
 # these tests cover the reset that actually strands the submodule.
 make_submodule_case() {  # <name> <id>
-  local name=$1 id=$2 case_dir home project origin pool publisher fakebin sub subpin1 subpin2 advanced
+  local name=$1 id=$2 case_dir home project pool fakebin sub subpin1 subpin2 advanced
   case_dir="$TMP_ROOT/$name"
   home="$case_dir/home"
   project="$case_dir/project"
-  origin="$case_dir/origin.git"
   pool="$case_dir/pool"
-  publisher="$case_dir/publisher"
   sub="$case_dir/sub-origin"
   fakebin=$(make_spawn_fakebin "$case_dir/fake")
 
@@ -491,18 +427,14 @@ make_submodule_case() {  # <name> <id>
   git -C "$project" -c protocol.file.allow=always -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
     submodule --quiet add "file://$sub" ui
   git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
-  git clone --quiet --bare "$project" "$origin"
-  git -C "$project" remote add origin "file://$origin"
   git -C "$project" worktree add --quiet --detach "$pool" HEAD
   git -C "$pool" -c protocol.file.allow=always submodule --quiet update --init
 
-  # Advance origin and move the submodule pin, exactly as the field incident did.
-  git clone --quiet "file://$origin" "$publisher"
-  git -C "$publisher" -c protocol.file.allow=always submodule --quiet update --init
-  git -C "$publisher/ui" checkout --quiet "$subpin2"
-  git -C "$publisher" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qam advance-pin
-  git -C "$publisher" push --quiet origin main
-  advanced=$(git -C "$publisher" rev-parse HEAD)
+  # Advance the project's own local main and move the submodule pin directly on
+  # its clone - exactly as the field incident did, with no origin involved.
+  git -C "$project/ui" checkout --quiet "$subpin2"
+  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qam advance-pin
+  advanced=$(git -C "$project" rev-parse HEAD)
 
   printf '%s\n' "$case_dir|$home|$project|$pool|$fakebin|$subpin1|$subpin2|$advanced"
 }
@@ -536,7 +468,6 @@ test_stale_submodule_pin_explains_itself() {
   rec=$(make_submodule_case stale-pin "$id")
   read_submodule_case "$rec"
   strand_submodule_pin_via_spawn 'pool-stale-pin-seed-r7'
-  git -C "$POOL_DIR" remote remove origin
   before=$(git -C "$POOL_DIR" rev-parse HEAD)
   before_sub=$(git -C "$POOL_DIR/ui" rev-parse HEAD)
 
@@ -562,7 +493,7 @@ test_stale_submodule_pin_explains_itself() {
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
     printf '# observed stale-pin refusal: %s\n' "$(printf '%s\n' "$out" | grep 'submodule' | head -n 1)"
   fi
-  pass "an origin-less pool with a stale submodule pin refuses while naming both pins and no remedy"
+  pass "a pool with a stale submodule pin refuses while naming both pins and no remedy"
 }
 
 test_unpushed_submodule_commit_is_still_uncommitted_work() {
@@ -728,15 +659,14 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
     || fail "spawn moved the slot's HEAD after failing to claim it"
 
   id='pool-slot-claim-aborted-r1'
-  rec=$(make_originless_case slot-claim-aborted "$id")
-  read_case_record "$rec"
+  rec=$(make_stranded_default_case slot-claim-aborted "$id")
+  read_stranded_case_record "$rec"
   lay_out_as_pool_slot
-  git -C "$POOL_DIR" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
   out=$(run_spawn "$id" --mode direct-PR --yolo off)
   status=$?
-  [ "$status" -ne 0 ] || fail "spawn succeeded despite an unusable origin on the slot"
-  assert_contains "$out" "could not fetch origin" \
-    "the aborted spawn did not refuse on its unusable origin"
+  [ "$status" -ne 0 ] || fail "spawn succeeded despite an unresolvable local default branch on the slot"
+  assert_contains "$out" "could not resolve" \
+    "the aborted spawn did not refuse on its unresolvable local default branch"
   [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "the aborted spawn published task metadata"
   [ ! -e "$SLOT_CLAIM" ] && [ ! -L "$SLOT_CLAIM" ] \
     || fail "the aborted spawn left a slot claim naming a task with no record: $(cat "$SLOT_CLAIM")"
@@ -746,18 +676,13 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
 test_remote_seeded_home_spawns_from_treehouse_pool
 test_pool_slot_claim_follows_the_spawn_outcome
 test_linked_spawning_home_rejects_primary_before_refresh
-test_stale_pool_base_refreshes_before_branching
-test_non_main_default_branch_refreshes_before_branching
+test_stale_pool_base_refreshes_to_current_local_main_before_branching
+test_non_main_default_branch_refreshes_to_current_local_trunk_before_branching
+test_stale_and_unreachable_origin_is_irrelevant_to_local_freshening
 test_direct_pr_and_scout_refresh_before_launch
 test_dirty_pool_refuses_without_discarding_work
-test_unresolved_remote_default_refuses_pool
-test_unreachable_origin_refuses_stale_pool_base
-test_originless_pool_launches_without_a_freshness_fetch
-test_originless_dirty_pool_refuses_without_discarding_work
-test_origin_config_without_url_refuses_pool
-test_empty_origin_config_section_refuses_pool
-test_empty_only_included_origin_config_section_launches_pool
-test_inactive_conditional_origin_include_launches_pool
+test_unresolvable_local_default_branch_refuses_pool
+test_worktree_that_cannot_reach_local_main_refuses_rather_than_launching
 test_stale_submodule_pin_explains_itself
 test_unpushed_submodule_commit_is_still_uncommitted_work
 test_work_inside_submodule_is_still_uncommitted_work
