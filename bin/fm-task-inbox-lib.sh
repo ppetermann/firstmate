@@ -28,8 +28,10 @@
 #   <task>.inbox/.seq.lock     serializes sequence allocation across writers
 #                              (the session and the away daemon)
 #   <task>.inbox/.ring-state   watcher re-ring ladder: "<msg>\t<count>\t<epoch>"
-#   <task>.inbox/.escalated    oldest-message name already surfaced as stale,
-#                              so later polls suppress another escalation
+#   <task>.inbox/.escalated    newline-separated set of record names already
+#                              surfaced as stale, so later polls suppress
+#                              another escalation for each one individually
+#                              rather than for only the oldest
 #
 # Record format (fm_task_inbox_write / fm_task_inbox_body):
 #   schema=fm-task-inbox.v1
@@ -44,9 +46,13 @@
 # lifetime even if every doorbell is duplicated. Concurrent writers serialize
 # on .seq.lock; the worst racing outcome is ordering, never loss.
 #
-# Re-ring ladder (fm_task_inbox_due_action): an unhandled message older than
-# FM_TASK_INBOX_GRACE_SECS is due one delivery attempt per grace period; an
-# attempt may ring or be skipped to protect proven pending composer text. After
+# Re-ring ladder (fm_task_inbox_due_action): the oldest unhandled message
+# decides whose turn it is UNLESS it has already escalated and stays
+# unhandled, in which case it remains parked and the oldest NOT-yet-escalated
+# message takes over with its own independent ladder - so one escalation never
+# silences delivery for every later message too. Whichever message is due is
+# due one delivery attempt per FM_TASK_INBOX_GRACE_SECS; an attempt may ring or
+# be skipped to protect proven pending composer text. After
 # FM_TASK_INBOX_RING_MAX attempts without an acknowledgement it escalates. The
 # caller owns the busy and recovery-grade endpoint checks: a busy pane waits,
 # while a positively dead or missing endpoint skips delivery and the ladder and
@@ -353,15 +359,59 @@ fm_task_inbox_oldest_unhandled() {  # <state-dir> <task-id>
   printf '%s' "$best"
 }
 
+# True iff <basename> already appears in the task's .escalated set (see
+# fm_task_inbox_record_escalated below for why that set holds more than one
+# name).
+fm_task_inbox_is_escalated() {  # <state-dir> <task-id> <basename>
+  local dir
+  dir=$(fm_task_inbox_dir "$1" "$2")
+  [ -f "$dir/.escalated" ] || return 1
+  grep -qxF "$3" "$dir/.escalated" 2>/dev/null
+}
+
+# Oldest unhandled, non-fire-and-forget record that has NOT already escalated,
+# or fail when every unhandled record has. Used when the true oldest
+# (fm_task_inbox_oldest_unhandled) has already escalated and remains parked:
+# the oldest unhandled record never changes while it stays unhandled, so
+# without this a single escalation would silence the ladder for every LATER
+# message too (Finding B, data/fm-steer-stall-diagnosis/report.md). Skipping
+# past every already-escalated record lets the oldest not-yet-escalated one
+# start its own independent ladder instead.
+fm_task_inbox_oldest_unhandled_not_escalated() {  # <state-dir> <task-id>
+  local dir best='' best_n=0 f n
+  dir=$(fm_task_inbox_dir "$1" "$2")
+  for f in "$dir"/*.msg; do
+    [ -e "$f" ] || continue
+    fm_task_inbox_is_fire_and_forget "$f" && continue
+    fm_task_inbox_is_escalated "$1" "$2" "${f##*/}" && continue
+    n=$(fm_task_inbox_seq_of "${f##*/}") || continue
+    if [ -z "$best" ] || [ "$n" -lt "$best_n" ]; then
+      best=$f
+      best_n=$n
+    fi
+  done
+  [ -n "$best" ] || return 1
+  printf '%s' "$best"
+}
+
 # The re-ring ladder decision for one task. Prints exactly one of:
 #   quiet                     nothing due (healthy, within grace or spacing,
-#                             or already escalated for the current oldest)
+#                             or every unhandled record has already escalated)
 #   ring <record-path>        one doorbell re-ring is due
 #   escalate <record-path> <count>   attempt budget spent; surface as stale
 # An empty inbox also resets the ladder bookkeeping so the next message starts
 # a fresh ladder.
+#
+# The true oldest unhandled record decides whose turn it is UNLESS it has
+# already escalated and is still unhandled - that record stays parked (its
+# stale wake already fired; stuck-crewmate-recovery owns it from here), and
+# the oldest record that has NOT yet escalated becomes the ladder's subject
+# instead, with its own independent grace/spacing/budget. Without this
+# redirect the true oldest never changes while it stays unhandled, so one
+# escalation would silence the ladder for every later message too (Finding B,
+# data/fm-steer-stall-diagnosis/report.md).
 fm_task_inbox_due_action() {  # <state-dir> <task-id>
-  local dir oldest base now grace max ladder rec_base count last
+  local dir oldest base subject subject_base now grace max ladder rec_base count last
   dir=$(fm_task_inbox_dir "$1" "$2")
   if ! oldest=$(fm_task_inbox_oldest_unhandled "$1" "$2"); then
     rm -f "$dir/.ring-state" "$dir/.escalated" 2>/dev/null || true
@@ -369,8 +419,17 @@ fm_task_inbox_due_action() {  # <state-dir> <task-id>
     return 0
   fi
   base=${oldest##*/}
+  subject=$oldest
+  subject_base=$base
+  if fm_task_inbox_is_escalated "$1" "$2" "$base"; then
+    if ! subject=$(fm_task_inbox_oldest_unhandled_not_escalated "$1" "$2"); then
+      printf 'quiet'
+      return 0
+    fi
+    subject_base=${subject##*/}
+  fi
   grace=$(fm_task_inbox_grace_secs)
-  if [ "$(fm_path_age "$oldest")" -lt "$grace" ]; then
+  if [ "$(fm_path_age "$subject")" -lt "$grace" ]; then
     printf 'quiet'
     return 0
   fi
@@ -380,24 +439,16 @@ fm_task_inbox_due_action() {  # <state-dir> <task-id>
   IFS=$(printf '\t') read -r rec_base count last <<EOF
 $ladder
 EOF
-  if [ -n "$rec_base" ] && [ "$rec_base" != "$base" ]; then
-    # A different oldest message: the previous ladder is stale. An absent
-    # ladder is left alone so a dead-pane escalation, which never rings and so
-    # never writes one, keeps its marker (the marker check below still ignores
-    # a marker naming some other message).
+  if [ -n "$rec_base" ] && [ "$rec_base" != "$subject_base" ]; then
+    # A different ladder subject: the previous ladder bookkeeping is stale.
     count=0
     last=0
-    rm -f "$dir/.escalated" 2>/dev/null || true
   fi
   case "$count" in ''|*[!0-9]*) count=0 ;; esac
   case "$last" in ''|*[!0-9]*) last=0 ;; esac
-  if [ "$(cat "$dir/.escalated" 2>/dev/null || true)" = "$base" ]; then
-    printf 'quiet'
-    return 0
-  fi
   max=$(fm_task_inbox_ring_max)
   if [ "$count" -ge "$max" ]; then
-    printf 'escalate %s %s' "$oldest" "$count"
+    printf 'escalate %s %s' "$subject" "$count"
     return 0
   fi
   now=$(date +%s)
@@ -405,7 +456,7 @@ EOF
     printf 'quiet'
     return 0
   fi
-  printf 'ring %s' "$oldest"
+  printf 'ring %s' "$subject"
 }
 
 # Advance the ladder after a delivery attempt. A failed ring or a composer-
@@ -433,15 +484,27 @@ EOF
   fi
 }
 
-# Mark the current oldest as escalated after its stale wake is durably queued,
-# suppressing another wake on later polls. Wake-before-marker ordering favors
-# at-least-once recovery: a crash or marker failure can cause a rare duplicate;
-# stuck-crewmate-recovery owns the message from here.
+# Mark <record-path> as escalated after its stale wake is durably queued,
+# suppressing another wake for that SAME record on later polls. Appends to the
+# task's .escalated set rather than overwriting it: a later, unrelated
+# record's escalation must not erase an earlier one's marker, or the earlier
+# record could re-enter the ladder and escalate a second time despite its
+# stale wake already having fired (Finding B,
+# data/fm-steer-stall-diagnosis/report.md). Idempotent: escalating the same
+# record twice records it once. Wake-before-marker ordering favors
+# at-least-once recovery: a crash or marker failure can cause a rare
+# duplicate; stuck-crewmate-recovery owns the message from here.
 fm_task_inbox_record_escalated() {  # <state-dir> <task-id> <record-path>
-  local dir
+  local dir base existing
   dir=$(fm_task_inbox_dir "$1" "$2")
   [ -d "$dir" ] || return 0
-  if ! { printf '%s\n' "${3##*/}" > "$dir/.escalated"; } 2>/dev/null; then
+  base=${3##*/}
+  fm_task_inbox_is_escalated "$1" "$2" "$base" && return 0
+  existing=$(cat "$dir/.escalated" 2>/dev/null || true)
+  if ! {
+    [ -z "$existing" ] || printf '%s\n' "$existing"
+    printf '%s\n' "$base"
+  } > "$dir/.escalated" 2>/dev/null; then
     [ -d "$dir" ] || return 0
     return 1
   fi

@@ -567,6 +567,75 @@ test_ring_ladder_policy() {
   pass "inbox: the re-ring ladder paces by grace, escalates once, and resets on ack"
 }
 
+# Finding B, data/fm-steer-stall-diagnosis/report.md: test_ring_ladder_policy
+# above is strictly serial (escalate, THEN acknowledge, THEN write the next
+# message), so it can never observe a message written WHILE an earlier one is
+# still escalated and unacknowledged - exactly the ordinary situation ("a
+# steer sent while the worker is momentarily gone") that parked the whole
+# task's ladder forever before this fix. Both parking paths are covered: the
+# ordinary ring-budget escalation, and the dead-or-missing-endpoint escalation
+# that parks with zero ring attempts (fm_task_inbox_record_escalated called
+# directly, mirroring inbox_steer_escalate_unavailable in bin/fm-watch.sh).
+test_ring_ladder_survives_a_parked_escalation() {
+  local state rec1 rec2 rec3 action
+  state="$TMP_ROOT/ladder-parked/state"; mkdir -p "$state"
+  rec1=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "first")
+  age_path "$rec1"
+  inbox_lib "$state" fm_task_inbox_record_ring "$state" t1 "$rec1"
+  printf '001.msg\t3\t100\n' > "$state/t1.inbox/.ring-state"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] || fail "a spent ring budget should escalate, got: $action"
+  inbox_lib "$state" fm_task_inbox_record_escalated "$state" t1 "$rec1"
+  # The missing assertion test_ring_ladder_policy's own comment says is the
+  # boundary it never tests: with 001 escalated and STILL unacknowledged, a
+  # brand-new 002 must still get its own delivery attempt.
+  rec2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "second, written while 001 is still parked")
+  age_path "$rec2"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "ring $rec2" ] \
+    || fail "a message written while an older one is parked, unacknowledged, must still ring, got: $action"
+  # A third message must not disturb 002's own ladder while it is active.
+  rec3=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "third")
+  age_path "$rec3"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "ring $rec2" ] \
+    || fail "a still-active ladder subject must not be displaced by a newer message, got: $action"
+  # Acknowledging ONLY the parked 001 changes nothing about 002's own ladder;
+  # it simply stops being the reason a redirect is needed.
+  mv "$rec1" "$state/t1.inbox/handled/"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "ring $rec2" ] \
+    || fail "acknowledging the parked message should not disturb the active ladder subject, got: $action"
+  # 002 can independently escalate too, without 001's earlier escalation
+  # marker being clobbered or reused for a message it was never about.
+  printf '002.msg\t3\t100\n' > "$state/t1.inbox/.ring-state"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec2 3" ] || fail "002 should escalate independently of 001, got: $action"
+  pass "inbox: a message written while an earlier one is parked, unacknowledged, still starts its own ladder"
+}
+
+# The dead-or-missing-endpoint path (inbox_steer_escalate_unavailable in
+# bin/fm-watch.sh) writes the escalation marker immediately, with zero ring
+# attempts - reachable the instant a steer lands while the worker's agent is
+# momentarily gone. That is ordinary and frequent, so it must park only the
+# one record it named, never the whole task.
+test_dead_endpoint_escalation_parks_only_its_own_record() {
+  local state rec1 rec2 action
+  state="$TMP_ROOT/ladder-dead-endpoint/state"; mkdir -p "$state"
+  rec1=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "sent while the agent was gone")
+  inbox_lib "$state" fm_task_inbox_record_escalated "$state" t1 "$rec1"
+  [ ! -e "$state/t1.inbox/.ring-state" ] \
+    || fail "a dead-endpoint escalation must not have rung, so no ring-state should exist"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = quiet ] || fail "the zero-ring-escalated record alone should stay parked, got: $action"
+  rec2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "worker recovered; firstmate steers again")
+  age_path "$rec2"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "ring $rec2" ] \
+    || fail "a steer sent after the worker recovers must still ring, got: $action"
+  pass "inbox: a zero-ring dead-endpoint escalation parks only its own record"
+}
+
 setup_watch_case() {  # <name> -> echoes case dir; state in <dir>/state
   local name=$1 dir
   dir="$TMP_ROOT/$name"
@@ -793,6 +862,8 @@ test_writer_retries_after_a_vanished_lock_collision
 test_ladder_writes_ignore_vanished_inbox
 test_fire_and_forget_records_never_enter_the_ladder
 test_ring_ladder_policy
+test_ring_ladder_survives_a_parked_escalation
+test_dead_endpoint_escalation_parks_only_its_own_record
 test_watcher_rerings_idle_pane_quietly
 test_watcher_waits_on_busy_pane
 test_watcher_quiet_on_healthy_inbox
