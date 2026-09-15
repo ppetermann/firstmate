@@ -189,6 +189,15 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+# tests/harness-drift-helpers.sh is the one owner of the verified-adapter list
+# (FM_DRIFT_HARNESSES) and launch-path resolver every opt-in composer/liveness
+# drift guard shares; the composer-drift version check below reuses it rather
+# than keeping a second copy that could fall out of sync. Sourced from
+# SCRIPT_DIR, not FM_ROOT: a test fixture's FM_ROOT_OVERRIDE points at a
+# synthetic home with no tests/ directory, while SCRIPT_DIR is always this
+# script's own real bin/ directory.
+# shellcheck source=tests/harness-drift-helpers.sh disable=SC1091
+. "$SCRIPT_DIR/../tests/harness-drift-helpers.sh"
 # fm-timing-lib.sh is inert unless FM_TIMING_LOG names a file, which only the
 # deferred network stage sets, so an ordinary bootstrap run records nothing.
 # shellcheck source=bin/fm-timing-lib.sh disable=SC1091
@@ -942,6 +951,39 @@ tool_version_at_least() {  # <tool> <min-version>
   [ "$patch" -ge "$min_patch" ]
 }
 
+# COMPOSER_DRIFT_LEDGER records, per verified adapter, the exact `--version`
+# string the opt-in live guard (tests/fm-composer-drift-live-e2e.test.sh) last
+# ran against and passed. bin/fm-composer-lib.sh's classifier reads a rendered
+# surface the vendor changes without notice - a 2026-09-14 opencode release
+# silently broke the left-rail footer rule this way, and the guard that would
+# have caught it existed but nothing ever reminded anyone to run it. The
+# ledger is updated BY HAND, immediately after a passing live-guard run, so it
+# always reflects the last version actually proven, never an assumption.
+COMPOSER_DRIFT_LEDGER="$FM_ROOT/docs/verification/composer-drift-versions.tsv"
+
+composer_drift_ledger_version() {  # <harness> -> recorded version, or empty
+  [ -r "$COMPOSER_DRIFT_LEDGER" ] || return 0
+  awk -F'\t' -v h="$1" '$1 == h { print $2; exit }' "$COMPOSER_DRIFT_LEDGER"
+}
+
+# composer_drift_version_check: for every verified adapter actually installed
+# here, compare its current --version against the ledger above and report a
+# harness whose installed release the live guard has never confirmed (no
+# ledger row) or has drifted past (a changed row). Local-only, no network: the
+# same install-detection every other check in this function already performs.
+composer_drift_version_check() {
+  local h bin_path installed recorded
+  for h in "${FM_DRIFT_HARNESSES[@]}"; do
+    bin_path=$(fm_drift_resolve_harness_binary "$h") || continue
+    installed=$("$bin_path" --version 2>/dev/null | head -1 | tr -d '\r')
+    [ -n "$installed" ] || continue
+    recorded=$(composer_drift_ledger_version "$h")
+    if [ "$installed" != "$recorded" ]; then
+      echo "COMPOSER_DRIFT_UNVERIFIED: $h installed '$installed', composer guard last verified '${recorded:-never}' - run FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh, then record the new version in $COMPOSER_DRIFT_LEDGER"
+    fi
+  done
+}
+
 x_mode_write_if_changed() {
   local dest=$1 content=$2 mode=$3 parent tmp parent_device current_mode
   parent=${dest%/*}
@@ -1533,6 +1575,7 @@ detect_local_tools() {
   if command -v tasks-axi >/dev/null 2>&1 && ! fm_tasks_axi_compatible; then
     echo "MISSING: tasks-axi (install: $(install_cmd tasks-axi))"
   fi
+  composer_drift_version_check
 }
 
 detect_local_config() {

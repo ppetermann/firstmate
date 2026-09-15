@@ -420,7 +420,14 @@ FM_COMPOSER_IDLE_RE_DEFAULT='^Type a message\.\.\.$|^Ask anything\.\.\.|^Plan, s
 # Opencode draws a mode/model footer line INSIDE its left-bar composer
 # ("Build · GPT-5.5 Fast OpenAI · high"). It is composer furniture, not typed
 # text, and only the run's LAST row is ever matched against it.
-FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT='^(Build|Plan)[[:space:]]+·[[:space:]]+'
+# The pattern anchors on the leading Build/Plan mode token ALONE, without
+# requiring the middle dot: opencode 1.18.30 paints that separator, and
+# everything after it, at truecolor luminance exactly 128 - the same grey
+# fm_composer_strip_ghost drops as ghost text (see its header) - so a styled
+# read never has the dot to match against. The mode token itself is always
+# followed by at least one space before the model name, styled or not, so
+# that alone is a reliable, ghost-stripping-proof anchor for this furniture row.
+FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT='^(Build|Plan)[[:space:]]'
 # omp (Oh My Pi) draws a one-row status line directly BELOW its borderless
 # composer: an identity or spinner cell, then middle-dot separated model, path,
 # git, and context cells. Verified live through Herdr on omp 18.1.11:

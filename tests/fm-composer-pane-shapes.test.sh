@@ -215,6 +215,33 @@ test_left_rail_reads_rows_above_the_cursor() {
   pass "composer shape: a left rail is read from its top through the cursor row"
 }
 
+# opencode 1.18.30's real footer paints its "Build · GLM-5.2 Z.AI Coding Plan"
+# row with the mode token (Build/Plan) in blue, the model name near-white, and
+# the middle dot AND everything after it in truecolor 38;2;128;128;128 - the
+# exact grey fm_composer_strip_ghost drops as ghost text (luminance 128, the
+# inclusive bound). Every OTHER footer fixture in this file paints that row
+# with no SGR at all, so the ghost-stripper is a no-op on it and none of them
+# can see this: the dot survives untouched, the old dot-anchored footer regex
+# matches, and the row is correctly exempted for the wrong reason. Painted with
+# opencode's real colours, ghost-stripping removes the dot before the
+# classifier ever sees it. This is the styled arm; test_left_rail_composer
+# above is its unstyled counterpart, so neither can go vacuous alone.
+test_left_rail_footer_survives_ghost_stripping() {
+  local footer empty_target text_target empty_state text_state
+  footer="  $RAIL  \\033[38;2;92;156;245mBuild\\033[0m \\033[38;2;128;128;128m\302\267\\033[0m \\033[38;2;238;238;238mGLM-5.2\\033[0m \\033[38;2;128;128;128m Z.AI Coding Plan\\033[0m"
+  empty_target=$(paint rail-footer-ghost-empty "  $RAIL\\n  $RAIL\\n  $RAIL\\n$footer\\n" 2)
+  text_target=$(paint rail-footer-ghost-text "  $RAIL\\n  $RAIL  half typed steer\\n  $RAIL\\n$footer\\n" 2)
+  empty_state=$(fm_tmux_composer_state "$empty_target")
+  text_state=$(fm_tmux_composer_state "$text_target")
+  [ "$empty_state" = empty ] \
+    || fail "a real-SGR opencode footer must still be exempted as furniture once its dot is ghost-stripped, got '$empty_state'"
+  [ "$text_state" = pending ] \
+    || fail "a left-rail composer holding text stays pending beside a real-SGR footer, got '$text_state'"
+  [ "$empty_state" != "$text_state" ] \
+    || fail "empty and text-holding rail composers collapsed to one verdict '$empty_state' with a real-SGR footer"
+  pass "composer shape: opencode's real-SGR footer is still recognized once ghost-stripping removes its dot"
+}
+
 # --- 3. the safety counterweights --------------------------------------------
 
 # A dead shell is the failure the shared classifier exists to prevent: its
@@ -344,6 +371,7 @@ test_nbsp_only_content_is_blank_not_text
 test_left_rail_composer
 test_left_rail_composer_in_non_utf8_locale
 test_left_rail_reads_rows_above_the_cursor
+test_left_rail_footer_survives_ghost_stripping
 test_dead_shell_prompt_stays_unknown
 test_unbounded_box_stays_unknown
 test_rail_placeholder_at_the_luminance_bound

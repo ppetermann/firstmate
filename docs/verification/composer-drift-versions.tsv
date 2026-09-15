@@ -1,0 +1,16 @@
+# composer-drift-versions.tsv - the single machine-readable record of which
+# harness release tests/fm-composer-drift-live-e2e.test.sh last ran against
+# and passed. bin/fm-bootstrap.sh's composer_drift_version_check reads this
+# file every session and reports a COMPOSER_DRIFT_UNVERIFIED diagnostic for
+# any installed adapter whose current `--version` no longer matches its row
+# (or has no row at all), so a harness upgrade is flagged instead of forgotten
+# (docs/verification/runtime-backends.md "Composer verification").
+#
+# Update a row BY HAND, immediately after
+#   FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh
+# passes for that harness - never edit a row without having just run the
+# guard. One owner: do not record these versions anywhere else.
+#
+# harness<TAB>exact first line of `<binary> --version`
+claude	2.1.272 (Claude Code)
+opencode	1.18.31
