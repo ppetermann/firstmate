@@ -442,15 +442,25 @@ const flagsLanded = (projects, key, flags) =>
   flags.every((flag) => projects?.[key]?.[flag] === true);
 // The project entry is the launching user's OWN interactive config, not a
 // throwaway worktree, so a spawn must never silently reverse a decision the
-// human already recorded there. hasClaudeMdExternalIncludesApproved===false
-// is exactly that decision (Claude Code only ever writes it on an explicit
-// "No, disable" answer); flipping it to true would grant every future
-// interactive session in that checkout silent external-file inclusion the
-// human declined. Refuse the whole registration instead of overriding it -
-// the worktree entry is not written either, so the spawn wedges on the
-// dialog rather than the human's consent being spent without being asked.
+// human already recorded there. Refuse the whole registration instead of
+// overriding it - the worktree entry is not written either, so the spawn
+// wedges on the dialog rather than the human's consent being spent without
+// being asked.
+//
+// A DECLINE IS ONLY A DECLINE WHEN THE QUESTION WAS ACTUALLY ASKED, so this
+// reads both flags, not just the verdict. hasClaudeMdExternalIncludesApproved
+// ===false alone is NOT an answer: measured 2026-09-15 across a real store,
+// 34 of 62 project entries carried Approved===false together with
+// WarningShown===false, and not one entry in the store had WarningShown===true
+// - the dialog had never been shown for any of them. That shape is the
+// default Claude Code writes when it creates a project entry, so treating it
+// as a standing decline refused every spawn in 34 projects at once, including
+// this home's. A warning that was never shown cannot have been answered.
+// WarningShown===true is what makes Approved===false a recorded "No, disable"
+// rather than an untouched default.
 const declinedExternalImports = (projects, key) =>
-  projects?.[key]?.hasClaudeMdExternalIncludesApproved === false;
+  projects?.[key]?.hasClaudeMdExternalIncludesApproved === false &&
+  projects?.[key]?.hasClaudeMdExternalIncludesWarningShown === true;
 // True only on an explicit prior "Yes, allow" answer - the sole state this
 // script may treat as standing consent to refresh. Absent, or any other
 // value, is NOT consent (see the block comment above this script's node call).

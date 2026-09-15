@@ -264,6 +264,45 @@ JSON
   pass "fm-claude-trust.sh: refuses to override a project's declined external-imports consent"
 }
 
+# The sibling of the case above, and the one that matters: Approved===false
+# with WarningShown===false is NOT a decline, it is the untouched default
+# Claude Code writes when it creates a project entry. Measured 2026-09-15 on a
+# real store, 34 of 62 entries carried exactly this shape and NOT ONE entry
+# had WarningShown===true - so reading the verdict flag alone refused every
+# spawn in 34 projects, this whole fleet included. The pair of tests is the
+# point: the case above pins that a real answer is still honored, this one
+# pins that an unanswered question is not mistaken for one. Trust registers
+# normally here, while the import flags stay untouched exactly as they do for
+# a plain-absent entry, because this spawn has no consent to spend either.
+test_project_root_entry_unasked_external_imports_is_not_a_decline() {
+  local rec store out
+  rec=$(make_case project-unasked)
+  read_case "$rec"
+  store="$CONFIG/.claude.json"
+  cat > "$store" <<JSON
+{"hasCompletedOnboarding":true,"projects":{"$PROJ":{"hasTrustDialogAccepted":true,"hasClaudeMdExternalIncludesApproved":false,"hasClaudeMdExternalIncludesWarningShown":false,"allowedTools":["Read"]}}}
+JSON
+  out=$(run_trust "$CONFIG" "$WT" "$PROJ")
+  expect_code 0 $? "an entry whose import dialog was never shown must register, not refuse: $out"
+  assert_trusted "$store" "$WT" "the worktree entry was not registered for a never-asked project"
+  assert_trusted "$store" "$PROJ" "the project entry lost its trust flag"
+  node -e '
+    const fs = require("fs");
+    const root = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const proj = root.projects[process.argv[2]];
+    if (proj.hasClaudeMdExternalIncludesApproved !== false) {
+      throw new Error("the unasked approval flag was flipped: " + proj.hasClaudeMdExternalIncludesApproved);
+    }
+    if (proj.hasClaudeMdExternalIncludesWarningShown !== false) {
+      throw new Error("the unasked warning flag was flipped: " + proj.hasClaudeMdExternalIncludesWarningShown);
+    }
+    if (!Array.isArray(proj.allowedTools) || proj.allowedTools[0] !== "Read") {
+      throw new Error("an unrelated key was lost");
+    }
+  ' "$store" "$PROJ" || fail "registering a never-asked project spent or altered its import consent"
+  pass "fm-claude-trust.sh: a never-shown import dialog is not a decline, and its consent is left unspent"
+}
+
 test_registration_is_idempotent() {
   local rec out count
   rec=$(make_case idempotent)
@@ -796,6 +835,7 @@ test_fresh_worktree_also_trusts_the_project_root_without_import_consent
 test_registration_carries_forward_existing_import_consent
 test_project_root_entry_preserves_other_keys
 test_project_root_entry_declined_external_imports_is_not_overridden
+test_project_root_entry_unasked_external_imports_is_not_a_decline
 test_registration_is_idempotent
 test_primary_checkout_is_refused
 test_cdpath_cannot_defeat_the_primary_checkout_refusal
