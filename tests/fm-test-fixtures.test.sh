@@ -266,10 +266,11 @@ test_spawn_home_layout() {
 # 2026-09-15: a fixture symlinked a fakebin `jq` entry to the real host jq, and
 # a later `cat > <fakebin>/jq` in the same test followed that symlink and
 # overwrote the real binary with a stub. fm_fakebin_write (tests/lib.sh) is the
-# fix: every fakebin stub writer now unlinks its target path before writing, so
-# a symlinked entry is always replaced rather than written through. This pins
-# that guarantee directly against the writer every one of them now shares.
-test_fakebin_write_refuses_symlink_writethrough() {
+# carrier that answers that shape; its header owns what it does and does not
+# cover. The three cases below pin its two guarantees and, separately, the
+# routing that carries them to the shared fixture helpers.
+
+test_fakebin_write_replaces_symlinked_entry() {
   local dir="$TMP_ROOT/symlink-trap" fakebin outside real_tool before after
   fakebin=$(fm_fakebin "$dir")
   outside="$dir/outside-host-tools"
@@ -291,7 +292,112 @@ SH
   [ ! -L "$fakebin/jq" ] || fail "fakebin entry should be a regular file after fm_fakebin_write, not still a symlink"
   [ -f "$fakebin/jq" ] || fail "fakebin entry should exist as a regular file after fm_fakebin_write"
   assert_grep 'exit 0' "$fakebin/jq" "fakebin entry did not receive the stub content"
-  pass "fm_fakebin_write unlinks a symlinked fixture entry instead of writing through it to the real tool"
+  pass "fm_fakebin_write replaces a symlinked fixture entry instead of writing through it to the real tool"
+}
+
+# The other half of the same defect, and the half unlinking cannot answer: the
+# fakebin ENTRY is an ordinary name but its DIRECTORY is a symlink to somewhere
+# real. Unlinking there would delete the real file outright, so the carrier has
+# to refuse. The temp base is moved under the fixture for the duration of the
+# call so "outside the temp base" is reproduced exactly as a live repository
+# checkout sits outside it, without this case going anywhere near a real one.
+test_fakebin_write_refuses_symlinked_parent_directory() {
+  local dir="$TMP_ROOT/symlink-parent" real before after err rc=0
+  mkdir -p "$dir/outside/bin" "$dir/fixture" "$dir/tempbase"
+  real="$dir/outside/bin/fm-guard.sh"
+  printf '#!/usr/bin/env bash\n# a real repository script\n' > "$real"
+  before=$(cat "$real")
+  ln -s "$dir/outside/bin" "$dir/fixture/bin"
+
+  err=$(printf '#!/usr/bin/env bash\nexit 0\n' |
+    TMPDIR="$dir/tempbase" fm_fakebin_write "$dir/fixture/bin/fm-guard.sh" 2>&1) || rc=$?
+
+  [ "$rc" -ne 0 ] || fail "fm_fakebin_write wrote through a symlinked parent directory instead of refusing"
+  [ -e "$real" ] || fail "fm_fakebin_write DELETED the real file its symlinked parent directory pointed at"
+  after=$(cat "$real")
+  [ "$before" = "$after" ] || fail "fm_fakebin_write altered the real file its symlinked parent directory pointed at"
+  case $err in
+    *"$dir/outside/bin/fm-guard.sh"*) ;;
+    *) fail "the refusal did not name where the write would really have landed: $err" ;;
+  esac
+  pass "fm_fakebin_write refuses a write whose directory is a symlink out of the fixture, naming the real destination"
+}
+
+# The routing is the load-bearing part, and it is the part nothing else pins:
+# fm_fakebin_write can stay perfect while any single helper quietly goes back to
+# a bare `cat >` redirect, and every assertion above still passes. So exercise
+# each routed helper for real against a fixture entry symlinked to a file
+# outside it. A helper that stops routing fails here, by name.
+#
+# The table is a hand-kept inventory of the routed writes, not a discovered one:
+# it catches a helper that STOPS routing, and a new helper has to be added here
+# to be covered at all. Row format: <label>|<library>|<entry it writes>|
+# <snippet>. The snippet runs in a child shell with that library sourced and
+# DIR, FAKEBIN, TMP_ROOT and NAME pointing at the planted fixture, so each
+# helper is driven through its own public signature, never through its source
+# text.
+# The snippets are deliberately single-quoted: $FAKEBIN, $DIR and $NAME must
+# reach the child shell literally and expand there, against the planted
+# fixture, not here against this suite's own scope.
+# shellcheck disable=SC2016
+FM_ROUTED_FAKEBIN_HELPERS=(
+  'fm_fake_exit0|lib.sh|jq|fm_fake_exit0 "$FAKEBIN" jq'
+  'fm_fake_crash_injector|lib.sh|fm-crash-inject|fm_fake_crash_injector "$FAKEBIN"'
+  'fm_fake_blind_ancestry|lib.sh|ps|fm_fake_blind_ancestry "$FAKEBIN"'
+  'fm_fake_version_tool|lib.sh|node|fm_fake_version_tool "$FAKEBIN" node FM_TEST_ROUTING_VERSION 1.2.3'
+  'fm_test_fake_no_mistakes|fixtures.sh|no-mistakes|fm_test_fake_no_mistakes "$FAKEBIN"'
+  'fm_test_fake_gh|fixtures.sh|gh|fm_test_fake_gh "$FAKEBIN"'
+  'fm_test_fake_tmux_spawn|fixtures.sh|tmux|fm_test_fake_tmux_spawn "$FAKEBIN"'
+  'fm_test_fake_tmux_send|fixtures.sh|tmux|fm_test_fake_tmux_send "$FAKEBIN"'
+  'fm_test_fake_ssh|fixtures.sh|fake-ssh|fm_test_fake_ssh "$FAKEBIN"'
+  'fm_test_fake_sleep_noop|fixtures.sh|sleep|fm_test_fake_sleep_noop "$FAKEBIN"'
+  'fm_test_fake_sleep_log|fixtures.sh|sleep|fm_test_fake_sleep_log "$FAKEBIN"'
+  'make_fake_crew_state|wake-helpers.sh|fm-crew-state.sh|make_fake_crew_state "$FAKEBIN"'
+  'make_case|wake-helpers.sh|tmux|make_case "$NAME"'
+  'make_supercase|wake-helpers.sh|tmux|make_supercase "$NAME"'
+  'make_bordered_case|wake-helpers.sh|tmux|make_bordered_case "$NAME"'
+  'make_fake_tmux_tmux|secondmate-helpers.sh|tmux|make_fake_tmux "$DIR"'
+  'make_fake_tmux_treehouse|secondmate-helpers.sh|treehouse|make_fake_tmux "$DIR"'
+)
+
+assert_routed_helper_protects_real_tool() {  # <label> <library> <entry> <snippet>
+  local label=$1 lib=$2 entry=$3 snippet=$4
+  local dir="$TMP_ROOT/routing/$label" real before after rc=0
+
+  rm -rf "$dir"
+  mkdir -p "$dir/fakebin" "$dir/outside"
+  real="$dir/outside/$entry"
+  printf '#!/usr/bin/env bash\necho real %s\n' "$entry" > "$real"
+  chmod +x "$real"
+  before=$(cat "$real")
+  ln -s "$real" "$dir/fakebin/$entry"
+
+  FM_ROUTING_DIR="$dir" FM_ROUTING_NAME="$label" bash -c '
+    set -u
+    . "$1"
+    DIR=$FM_ROUTING_DIR
+    FAKEBIN=$DIR/fakebin
+    TMP_ROOT=$(dirname "$DIR")
+    NAME=$FM_ROUTING_NAME
+    eval "$2"
+  ' _ "$ROOT/tests/$lib" "$snippet" >/dev/null 2>&1 || rc=$?
+
+  [ "$rc" -eq 0 ] || fail "$lib: $label did not run to completion (rc=$rc)"
+  [ -e "$real" ] || fail "$lib: $label deleted the real tool its fixture entry pointed at - it is not routed through fm_fakebin_write"
+  after=$(cat "$real")
+  [ "$before" = "$after" ] || fail "$lib: $label wrote through a symlinked fixture entry and altered the real tool - it is not routed through fm_fakebin_write"
+  if [ ! -f "$dir/fakebin/$entry" ] || [ -L "$dir/fakebin/$entry" ]; then
+    fail "$lib: $label left $entry a symlink instead of replacing it with a regular file"
+  fi
+}
+
+test_shared_fixture_helpers_route_their_stub_writes() {
+  local row label lib entry snippet
+  for row in "${FM_ROUTED_FAKEBIN_HELPERS[@]}"; do
+    IFS='|' read -r label lib entry snippet <<<"$row"
+    assert_routed_helper_protects_real_tool "$label" "$lib" "$entry" "$snippet"
+  done
+  pass "all ${#FM_ROUTED_FAKEBIN_HELPERS[@]} inventoried fixture-helper stub writes still go through fm_fakebin_write"
 }
 
 test_git_config_isolation || fail "Git fixture config isolation"
@@ -301,4 +407,6 @@ test_fake_gh_and_gh_axi
 test_spawn_tmux_and_fakebin
 test_send_stubs_and_ssh
 test_spawn_home_layout
-test_fakebin_write_refuses_symlink_writethrough
+test_fakebin_write_replaces_symlinked_entry
+test_fakebin_write_refuses_symlinked_parent_directory
+test_shared_fixture_helpers_route_their_stub_writes
