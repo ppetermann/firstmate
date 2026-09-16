@@ -263,6 +263,37 @@ test_spawn_home_layout() {
   pass "spawn-home layout writes harness pin, beat, and brief"
 }
 
+# 2026-09-15: a fixture symlinked a fakebin `jq` entry to the real host jq, and
+# a later `cat > <fakebin>/jq` in the same test followed that symlink and
+# overwrote the real binary with a stub. fm_fakebin_write (tests/lib.sh) is the
+# fix: every fakebin stub writer now unlinks its target path before writing, so
+# a symlinked entry is always replaced rather than written through. This pins
+# that guarantee directly against the writer every one of them now shares.
+test_fakebin_write_refuses_symlink_writethrough() {
+  local dir="$TMP_ROOT/symlink-trap" fakebin outside real_tool before after
+  fakebin=$(fm_fakebin "$dir")
+  outside="$dir/outside-host-tools"
+  mkdir -p "$outside"
+  real_tool="$outside/jq"
+  printf '#!/usr/bin/env bash\necho real jq output\n' > "$real_tool"
+  chmod +x "$real_tool"
+  before=$(cat "$real_tool")
+
+  ln -s "$real_tool" "$fakebin/jq"
+  fm_fakebin_write "$fakebin/jq" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+
+  [ -e "$real_tool" ] || fail "writing through a symlinked fakebin entry deleted the real tool it pointed at"
+  after=$(cat "$real_tool")
+  [ "$before" = "$after" ] || fail "writing through a symlinked fakebin entry altered the real tool's bytes"
+  [ ! -L "$fakebin/jq" ] || fail "fakebin entry should be a regular file after fm_fakebin_write, not still a symlink"
+  [ -f "$fakebin/jq" ] || fail "fakebin entry should exist as a regular file after fm_fakebin_write"
+  assert_grep 'exit 0' "$fakebin/jq" "fakebin entry did not receive the stub content"
+  pass "fm_fakebin_write unlinks a symlinked fixture entry instead of writing through it to the real tool"
+}
+
 test_git_config_isolation || fail "Git fixture config isolation"
 test_touch_epoch_preserves_repeated_dst_hour
 test_no_mistakes_version_constant
@@ -270,3 +301,4 @@ test_fake_gh_and_gh_axi
 test_spawn_tmux_and_fakebin
 test_send_stubs_and_ssh
 test_spawn_home_layout
+test_fakebin_write_refuses_symlink_writethrough

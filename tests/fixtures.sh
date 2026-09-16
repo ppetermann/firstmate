@@ -38,7 +38,7 @@ export FM_TEST_GH_AXI_VERSION=0.1.29
 # and exits 0 for every other invocation.
 fm_test_fake_no_mistakes() {
   local fakebin=$1
-  cat > "$fakebin/no-mistakes" <<SH
+  fm_fakebin_write "$fakebin/no-mistakes" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = --version ]; then
   printf '%s\\n' "\${FM_FAKE_NO_MISTAKES_VERSION:-$FM_TEST_NO_MISTAKES_FAKE_VERSION}"
@@ -55,7 +55,7 @@ SH
 # Authenticates (`gh auth status` exits 0) and otherwise exits 0.
 fm_test_fake_gh() {
   local fakebin=$1
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
   exit 0
@@ -85,7 +85,7 @@ fm_test_fake_gh_axi() {
 # suites that do not set FM_FAKE_LAUNCH_LOG keep a silent send-keys.
 fm_test_fake_tmux_spawn() {
   local fakebin=$1
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "$*" in
@@ -126,7 +126,7 @@ SH
 #   FM_FAKE_TMUX_COMPOSER=pending  capture-pane shows leftover composer text
 fm_test_fake_tmux_send() {
   local fakebin=$1
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -174,7 +174,7 @@ SH
 # shadowing a real ssh on PATH.
 fm_test_fake_ssh() {
   local fakebin=$1 name=${2:-fake-ssh}
-  cat > "$fakebin/$name" <<'SH'
+  fm_fakebin_write "$fakebin/$name" <<'SH'
 #!/usr/bin/env bash
 cat > /dev/null
 printf '%s\n' "$*" >> "${FM_SSH_LOG:-/dev/null}"
@@ -186,7 +186,7 @@ SH
 # fm_test_fake_sleep_noop <fakebin>
 fm_test_fake_sleep_noop() {
   local fakebin=$1
-  cat > "$fakebin/sleep" <<'SH'
+  fm_fakebin_write "$fakebin/sleep" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -197,7 +197,7 @@ SH
 # Records each requested duration to FM_SLEEP_LOG instead of sleeping.
 fm_test_fake_sleep_log() {
   local fakebin=$1
-  cat > "$fakebin/sleep" <<'SH'
+  fm_fakebin_write "$fakebin/sleep" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${1:-}" >> "${FM_SLEEP_LOG:-/dev/null}"
 exit 0

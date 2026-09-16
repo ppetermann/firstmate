@@ -354,11 +354,26 @@ fm_fakebin() {
   printf '%s\n' "$fakebin"
 }
 
+# fm_fakebin_write <path>: the single writer every fakebin stub goes through.
+# A plain `cat > <path>` redirect FOLLOWS a symlink and overwrites whatever it
+# points to. A fixture that symlinks a fakebin entry to a real host tool (so
+# the fixture has a working copy of it) combined with a later helper in the
+# same test writing a stub through that same entry name is exactly how a
+# 2026-09-15 incident overwrote this box's real /usr/bin/jq with a 27-byte
+# stub for three hours. Unlinking first guarantees every write lands on a
+# fresh regular file, never on a write-through, whether <path> was previously
+# absent, a regular file, or a symlink to something outside the fixture.
+fm_fakebin_write() {
+  local path=$1
+  rm -f -- "$path"
+  cat > "$path"
+}
+
 fm_fake_exit0() {
   local fakebin=$1 tool
   shift
   for tool in "$@"; do
-    cat > "$fakebin/$tool" <<'SH'
+    fm_fakebin_write "$fakebin/$tool" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -377,7 +392,7 @@ SH
 # fails loudly rather than silently changing what the case measures.
 fm_fake_crash_injector() {
   local fakebin=$1
-  cat > "$fakebin/fm-crash-inject" <<'SH'
+  fm_fakebin_write "$fakebin/fm-crash-inject" <<'SH'
 #!/usr/bin/env bash
 set -u
 target=${1:?fm-crash-inject: <pid> required}
@@ -418,7 +433,7 @@ SH
 fm_fake_blind_ancestry() {
   local fakebin=$1 real_ps
   real_ps=$(command -v ps) || return 1
-  cat > "$fakebin/ps" <<SH
+  fm_fakebin_write "$fakebin/ps" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   '-o comm= -p '*) printf '%s\n' bash ;;
@@ -436,7 +451,7 @@ SH
 # exits 0. A case that needs to drive a version floor exports the variable.
 fm_fake_version_tool() {
   local fakebin=$1 tool=$2 override=$3 default=$4
-  cat > "$fakebin/$tool" <<SH
+  fm_fakebin_write "$fakebin/$tool" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = --version ]; then
   printf '%s\n' "\${$override:-$default}"

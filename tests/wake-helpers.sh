@@ -64,7 +64,7 @@ make_case() {
   # regardless of the ambient umask a given machine happens to run tests
   # under (fm_procevent_private_directory_valid).
   chmod 0700 "$dir/state"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = "list-windows" ]; then
@@ -121,7 +121,7 @@ SH
 # safe default so a test that forgets to set one surfaces rather than absorbs.
 make_fake_crew_state() {  # <fakebin>
   local fakebin=$1
-  cat > "$fakebin/fm-crew-state.sh" <<'SH'
+  fm_fakebin_write "$fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
 id=${1:-}
@@ -167,7 +167,7 @@ make_supercase() {
   fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
   chmod 0700 "$dir/state"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -248,7 +248,7 @@ make_bordered_case() {
   mkdir -p "$dir/state" "$fakebin"
   chmod 0700 "$dir/state"
   printf '╭─────╮\n│ >   │\n╰─────╯\n' > "$dir/composer"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 COMPOSER="${FM_FAKE_COMPOSER:?FM_FAKE_COMPOSER unset}"
