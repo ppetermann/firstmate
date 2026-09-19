@@ -215,6 +215,40 @@ test_poll_draft_lifecycle() {
   pass "fm-ocrbot-poll tracks draft PRs silently and wakes on ready"
 }
 
+test_poll_draft_pending_bypasses_stale_etag() {
+  local home fakebin out rc
+  home="$TMP_ROOT/draft-stale-etag"; make_home "$home"
+  set_listing "$home" 9:ccc333:true
+  fakebin=$(make_fake_gh "$home")
+  out=$(run_poll "$home" "$fakebin"); rc=$?
+  expect_code 0 "$rc" "draft-first exit"
+  [ -z "$out" ] || fail "a draft PR must not wake (got: $out)"
+  [ "$(cat "$home/state/ocrbot/seen/ppetermann__maia")" = "9 ccc333 1" ] \
+    || fail "a draft PR must be recorded as seen"
+  # GitHub's listing ETag does not reliably change on a draft-only flip
+  # (fleet-delivery-flow "C flip", measured 2026-09-04): model that by
+  # keeping the fixture's cached ETag valid even though the PR is now ready.
+  set_listing "$home" 9:ccc333:false
+  printf '"etag-maia-1"\n' > "$home/ghfix/ppetermann__maia/match-etag"
+  : > "$home/gh.log"
+  out=$(run_poll "$home" "$fakebin"); rc=$?
+  expect_code 0 "$rc" "flip-with-stale-etag exit"
+  assert_no_grep "cond=If-None-Match" "$home/gh.log" \
+    "a pending draft must force an unconditional GET instead of trusting the stale ETag"
+  [ "$out" = "ocr-pr ppetermann/maia#9 ccc333" ] \
+    || fail "the flip must wake even though GitHub's ETag did not change (got: $out)"
+  [ "$(cat "$home/state/ocrbot/seen/ppetermann__maia")" = "9 ccc333 0" ] \
+    || fail "the seen-state must record the ready state"
+  # With nothing left draft, the ETag optimization resumes normally.
+  : > "$home/gh.log"
+  out=$(run_poll "$home" "$fakebin"); rc=$?
+  expect_code 0 "$rc" "steady-ready exit"
+  [ -z "$out" ] || fail "a stable ready PR must stay silent (got: $out)"
+  assert_grep "cond=If-None-Match" "$home/gh.log" \
+    "once nothing tracked is draft, the cached ETag must be used again"
+  pass "fm-ocrbot-poll bypasses a stale cached ETag while a tracked PR is still draft"
+}
+
 test_poll_multiple_repos_and_prs() {
   local home fakebin out rc
   home="$TMP_ROOT/multi"; mkdir -p "$home/config/ocr-bot" \
@@ -382,6 +416,7 @@ test_poll_invalid_repos_entry_reports_once
 test_poll_new_pr_wakes_then_stays_silent
 test_poll_new_head_sha_wakes
 test_poll_draft_lifecycle
+test_poll_draft_pending_bypasses_stale_etag
 test_poll_multiple_repos_and_prs
 test_poll_closed_pr_leaves_seen_state
 test_poll_gh_failure_reports_once_and_recovers

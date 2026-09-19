@@ -14,6 +14,15 @@
 #     gh api -i prints the status line, headers, a blank line, then the body,
 #     and exits 1 on the expected 304, so the status line in stdout (not the
 #     exit code) classifies the response.
+#   - The cached ETag is skipped (an unconditional GET is sent instead)
+#     whenever the durable seen-state still has any PR recorded as draft.
+#     Measured 2026-09-04 (fleet-delivery-flow "C flip"): a draft-to-ready
+#     flip does not reliably change the listing's ETag, so a conditional
+#     request can keep matching (304) and the repo never gets re-read - the
+#     flip silently vanishes until an unrelated listing change in the same
+#     repo finally busts the cached ETag. A pending draft is exactly the
+#     state that can transition invisibly, so it forces a fresh read every
+#     cycle until nothing tracked is still draft.
 #   - Every currently open PR (draft or not) is recorded as
 #     "<number> <head_sha> <draft:0|1>" in state/ocrbot/seen/<owner>__<repo>.
 #   - One stdout line "ocr-pr <owner/repo>#<number> <head_sha>" per reviewable
@@ -84,7 +93,8 @@ while IFS= read -r repo; do
   etag_file="$STATE_DIR/etag/$name"
 
   etag=
-  if fmx_private_artifact_file_valid "$STATE_DIR/etag" "$name" 600; then
+  if fmx_private_artifact_file_valid "$STATE_DIR/etag" "$name" 600 \
+    && ! awk '$3 == 1 { found = 1; exit } END { exit !found }' "$seen_file" 2>/dev/null; then
     etag=$(cat "$etag_file" 2>/dev/null || true)
   fi
 

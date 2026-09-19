@@ -40,7 +40,10 @@ such section is NOT on this flow yet - resolve it at registration
    short-circuits on an unchanged PR listing and never re-reads the seen file, so
    clearing seen alone is inert until something else changes that repo's listing
    (measured 2026-09-04 on maia-eve-secretary#44 - seen cleared at 18:32, the repo
-   was still not polled at 18:40 while two sibling repos polled twice). Flip-CI failure: fix via
+   was still not polled at 18:40 while two sibling repos polled twice). fm-ocrbot-poll.sh
+   now skips its cached ETag whenever the seen-state still has a tracked PR recorded
+   draft, so an ordinary flip no longer needs this manual recovery; the sed+rm remains
+   the fallback for any other reason ocr-review is missing. Flip-CI failure: fix via
    ladder + one push; longer work: `gh-axi pr ready <n> --undo`, iterate, re-flip.
    Converging cascade = stop and merge. Every thread resolved or rejected in-thread.
    REVIEWER ORDER, where two bind (maia, eve-members) - captain, 2026-09-06: the bot's
