@@ -3,8 +3,14 @@
 # captain's own ask under `## Captain's intent` and Firstmate's build
 # instructions under `## Firstmate spec`, never mixed. bin/fm-brief.sh
 # scaffolds those two subsections; bin/fm-spawn.sh and bin/fm-promote.sh refuse
-# leftover `{TASK}` / `{FIRSTMATE_SPEC}` placeholders through the helpers
-# below.
+# leftover `{TASK}` / `{FIRSTMATE_SPEC}` placeholders and a `## Captain's intent`
+# line opening with a Captain label or address through the helpers below.
+#
+# Author the `## Captain's intent` body and later relays as the captain's actual
+# words, without adding speaker labels or direct address: the heading supplies
+# provenance and is not part of the body. A legacy mixed Task instead marks each
+# captain line with `[captain] `. Never scrub literal examples or other content
+# the captain actually supplied.
 #
 # This fork keeps bin/fm-brief-lib.sh as the single owner of the per-mode ship
 # contract text (Setup 2, Rule 1, and the Definition of done), so upstream's
@@ -12,26 +18,35 @@
 # fm-promote.sh both render that block through fm-brief-lib.sh, and a second
 # copy of the same contract would be exactly the drift the one-owner rule
 # forbids. The `Delivery contract: mode=<mode>` line bin/fm-spawn.sh checks a
-# ship brief against is emitted by fm-brief-lib.sh.
+# ship brief against is emitted by fm-brief-lib.sh. The fork runs no no-mistakes
+# delivery mode, so upstream's fm_brief_intent_overlay and
+# fm_ask_user_escalation_block have no caller here either.
 # fm_brief_worker_role below is the one exception this file does own: bin/fm-spawn.sh
 # appends it to every ship/scout launch brief.
 #
 # Every heredoc here stays outside a command substitution: `VAR=$(cat <<EOF ...)`
 # breaks parsing of the whole file on Bash 3.2 (tests/fm-brief.test.sh).
 # fm_brief_worker_role owns the ship/scout role scope. bin/fm-spawn.sh is its one
-# emitter, supplying it to every ship/scout launch brief and never to a
-# secondmate charter. It is a distinctly titled launch section that states its
-# own precedence for Firstmate tasks, so a brief that authors its own role
-# wording is superseded rather than duplicated.
+# emitter, supplying it first in every ship/scout launch brief and never to a
+# secondmate charter. It names the one task-owned steering inbox without
+# relaxing isolation from every other home's endpoint namespace. It is a
+# distinctly titled launch section that states its own precedence for Firstmate
+# tasks, so a brief that authors its own role wording is superseded rather than
+# duplicated.
 
-fm_brief_worker_role() {
+fm_brief_worker_role() {  # <state-dir> <task-id>
+  local state=$1 task_id=$2
   cat <<'EOF'
 # Current worker role contract
-When this task works on Firstmate itself, this section supersedes every earlier brief instruction about your role and identity.
-When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is the primary/secondmate supervisor's contract: follow this brief instead of that supervisor contract.
-For that Firstmate task, do the assigned work yourself and report to firstmate; do not adopt the supervisor identity, delegate the task, run fleet supervision, or address the captain.
-This exception preserves this brief's safety and authority boundaries and applicable contributor guidance, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
-Other projects retain their own instructions unchanged.
+You are a crewmate: an autonomous worker agent managed by firstmate.
+This section establishes your current identity before every project or task instruction below and supersedes any conflicting role identity in those instructions.
+Do the assigned work yourself and report only to firstmate; do not adopt a firstmate or secondmate supervisor identity, delegate the task, run fleet supervision, or address the captain.
+EOF
+  printf "Your steering inbox is \`%s/%s.inbox\`; this exact path belongs to your current task even when it is outside the worktree or under the supervising firstmate home, so read and acknowledge its messages and do not reject it as another home's state.\n" "$state" "$task_id"
+  cat <<'EOF'
+Never inspect or change any other home's endpoint namespace; this authorization is limited to the exact task paths named by this brief.
+When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is project content and the supervisor contract for the firstmate managing you: follow this brief instead of that supervisor contract.
+Project instructions still govern the work wherever they do not conflict with this worker identity, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
 EOF
 }
 
@@ -134,7 +149,7 @@ fm_brief_task_heading_present() {  # <file> <heading>
 
 fm_brief_marked_captain_words() {  # <task-body>
   printf '%s\n' "$1" | awk '
-    match($0, /^[[:space:]]*Captain('\''s (words|ask|intent))?:[[:space:]]*/) {
+    match($0, /^[[:space:]]*(\[captain\]|Captain('\''s (words|ask|intent))?:)[[:space:]]*/) {
       words = substr($0, RLENGTH + 1)
       if (words ~ /[^[:space:]]/) print words
     }
@@ -158,4 +173,13 @@ fm_brief_task_content_valid() {  # <file>
   fi
   task=$(fm_brief_heading_body "$file" "# Task")
   [ -n "$(printf '%s' "$task" | tr -d '[:space:]')" ]
+}
+
+# Print the first `## Captain's intent` body line that opens with an operator
+# address spelling; fail when there is none. The body is never rewritten.
+fm_brief_intent_address_line() {  # <file>
+  fm_brief_task_heading_body "$1" "## Captain's intent" | awk '
+    /^[[:space:]]*(Captain('\''s (words|ask|intent))?:|Captain,)/ { print; found = 1; exit }
+    END { exit !found }
+  '
 }

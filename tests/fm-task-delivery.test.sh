@@ -634,8 +634,8 @@ EOF
 You are a crewmate.
 
 # Task
-Captain's words: Investigate the fold's session-floor refusal.
-Captain: Preserve the existing successful session behavior.
+[captain] Investigate the fold's session-floor refusal.
+[captain] Preserve the existing successful session behavior.
 
 Reproduce the refusal before changing code.
 Ship the narrow session-floor fix with a regression test.
@@ -666,8 +666,101 @@ EOF
   pass "fm-spawn/fm-promote: leftover Task placeholders are refused until both subsections are filled"
 }
 
+# No live model is needed: spawn publishes the launch brief before the fixture
+# backend refuses to create an endpoint.
+# The `## Captain's intent` subsection carries the captain's actual words, and
+# the heading supplies the provenance, so a body line that OPENS with an
+# operator address is refused rather than rewritten. This fork runs no
+# --intent pipeline, so the rule is exercised mode-free through the two gates
+# that enforce it: fm-spawn's ship/scout brief gate and fm-promote's scout
+# brief gate. A label mentioned mid-line stays data, never a refusal.
+test_intent_keeps_words_without_composed_address() {
+  local rec home proj fakebin id brief words out status marker n=0
+  rec=$(make_home intent-emission)
+  IFS='|' read -r home proj fakebin <<EOF
+$rec
+EOF
+  id='intent-plain'
+  words=$(printf '%s\n' 'Keep the original request intact.' '' "Preserve its provenance, punctuation, and \`literal code\`.")
+  FM_HOME="$home" "$BRIEF" "$id" proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "intent brief should scaffold"
+  fill_brief_subsections "$home/data/$id/brief.md" "$words" 'This build constraint is not the captain ask.'
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  assert_not_contains "$out" "operator-address line" "a plain intent was refused as operator address"
+  brief="$home/data/$id/launch-brief.md"
+  assert_present "$brief" "plain intent was not serialized"
+  assert_grep 'Keep the original request intact.' "$brief" \
+    "the launch brief lost the captain's words"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'Preserve its provenance, punctuation, and `literal code`.' "$brief" \
+    "the launch brief altered the captain's punctuation or literal code"
+
+  # The request itself may discuss an address spelling. It is data, not an
+  # invitation to scrub the captain's words or synthesize a different request.
+  words=$(printf '%s\n' "Keep the literal example \`Captain, hello\` in the documentation." \
+    "Stop composing Captain:, Captain's words:, Captain's ask:, and Captain's intent: into PR bodies.")
+  write_brief "$home" intent-literal direct-PR
+  printf '# Task\n## Captain'"'"'s intent\n%s\n\n## Firstmate spec\nDo not paraphrase.\n\n# Definition of done\nDelivery contract: mode=direct-PR\n' "$words" > "$home/data/intent-literal/brief.md"
+  out=$(run_spawn "$home" "$fakebin" intent-literal "$proj" claude --mode direct-PR --yolo off)
+  assert_not_contains "$out" "operator-address line" "labels mentioned mid-line were refused as address"
+  brief="$home/data/intent-literal/launch-brief.md"
+  assert_present "$brief" "an intent quoting address spellings was not serialized"
+  assert_grep "Keep the literal example \`Captain, hello\` in the documentation." "$brief" \
+    "literal words in the request were scrubbed"
+  assert_grep "Stop composing Captain:, Captain's words:, Captain's ask:, and Captain's intent: into PR bodies." "$brief" \
+    "literal address spellings in the request were scrubbed"
+
+  # A body line that opens with operator address is refused, never rewritten.
+  for marker in 'Captain:' "Captain's words:" "Captain's ask:" "Captain's intent:" 'Captain,'; do
+    n=$((n + 1))
+    id="intent-addressed-$n"
+    write_brief "$home" "$id" direct-PR
+    printf '# Task\n## Captain'"'"'s intent\nKeep the original request intact.\n  %s preserve its provenance.\n\n## Firstmate spec\nDo not paraphrase.\n\n# Definition of done\nDelivery contract: mode=direct-PR\n' \
+      "$marker" > "$home/data/$id/brief.md"
+    out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+    status=$?
+    [ "$status" -ne 0 ] || fail "$marker: addressed intent should be refused"
+    assert_contains "$out" "operator-address line:   $marker preserve its provenance." \
+      "$marker: refusal did not name the offending line"
+    assert_contains "$out" "write the captain's actual words without a Captain label or address" \
+      "$marker: refusal did not say what to write instead"
+    assert_absent "$home/data/$id/launch-brief.md" "$marker: addressed intent was serialized"
+    assert_absent "$home/state/$id.meta" "$marker: addressed intent spawn wrote task metadata"
+    assert_grep "  $marker preserve its provenance." "$home/data/$id/brief.md" "$marker: refusal rewrote the brief"
+  done
+
+  id='intent-addressed-promote'
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$home/state/$id.meta"
+  write_brief "$home" "$id"
+  printf '# Task\n## Captain'"'"'s intent\nCaptain: investigate the refusal.\n\n## Firstmate spec\nReproduce it first.\n' > "$home/data/$id/brief.md"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "promotion of addressed intent should be refused"
+  assert_contains "$out" "operator-address line: Captain: investigate the refusal." \
+    "promotion refusal did not name the offending line"
+  assert_absent "$home/data/$id/ship-instructions.md" "promotion published addressed intent"
+  assert_grep 'kind=scout' "$home/state/$id.meta" "refused promotion changed the task record"
+
+  # Legacy briefs predating the two subsections still spawn: their neutral
+  # `[captain]` provenance marker, and previously stored labels, stay readable.
+  for marker in '[captain]' 'Captain:' "Captain's words:" "Captain's ask:" "Captain's intent:"; do
+    n=$((n + 1))
+    id="intent-marked-$n"
+    write_brief "$home" "$id" direct-PR
+    printf '# Task\n%s %s\nDo not paraphrase.\n%s %s\n\n# Definition of done\nDelivery contract: mode=direct-PR\n' \
+      "$marker" 'Keep the original request intact.' "$marker" 'Preserve its provenance.' > "$home/data/$id/brief.md"
+    out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+    assert_not_contains "$out" "operator-address line" \
+      "$marker: a legacy mixed Task carries no intent subsection, so its gate must not fire"
+    assert_present "$home/data/$id/launch-brief.md" "$marker: legacy provenance was not accepted"
+    assert_grep "$marker Keep the original request intact." "$home/data/$id/launch-brief.md" \
+      "$marker: legacy intent changed the captain's words"
+  done
+  pass "fm-spawn/fm-promote: intent keeps exact words and refuses operator-address lines"
+}
+
 test_spawn_refreshes_legacy_worker_roles() {
-  local rec home proj fakebin kind id out brief project_kind
+  local rec home proj fakebin kind id out brief project_kind first_line role_line supervisor_line
   rec=$(make_home worker-roles)
   IFS='|' read -r home proj fakebin <<EOF
 $rec
@@ -694,9 +787,13 @@ EOF
       assert_not_contains "$out" 'could not render' "worker role rendering failed"
       brief="$home/data/$id/launch-brief.md"
       assert_present "$brief" "$project_kind $kind did not refresh the legacy launch brief"
+      first_line=$(sed -n '1p' "$brief")
+      [ "$first_line" = '# Current worker role contract' ] ||
+        fail "$project_kind $kind did not put worker identity first"
       assert_grep 'follow this brief instead of that supervisor contract' "$brief" "$project_kind $kind omitted worker authority"
+      assert_grep "$home/state/$id.inbox" "$brief" "$project_kind $kind omitted its exact steering inbox"
       assert_grep 'When this task works on Firstmate itself' "$brief" "$project_kind $kind made the exception unconditional"
-      assert_grep 'Other projects retain their own instructions unchanged' "$brief" "$project_kind $kind displaced project guidance"
+      assert_grep 'Project instructions still govern the work wherever they do not conflict with this worker identity' "$brief" "$project_kind $kind displaced project guidance"
       ! grep -q '^This section supersedes every earlier brief instruction about your role' "$brief" ||
         fail "$project_kind $kind revoked the brief's own role for a task that is not Firstmate"
       assert_no_grep '# Current worker role contract' "$home/data/$id/brief.md" "spawn rewrote the source brief"
@@ -704,10 +801,15 @@ EOF
       [ "$(cat "$proj/CLAUDE.md")" = '@AGENTS.md' ] || fail "spawn changed the project import"
     done
   done
+  role_line=$(grep -n 'A ship or scout worker launched by Firstmate into a worktree of this repository' "$ROOT/AGENTS.md" | cut -d: -f1)
+  supervisor_line=$(grep -n '^You are the first mate\.$' "$ROOT/AGENTS.md" | head -1 | cut -d: -f1)
+  [ -n "$role_line" ] && [ "$role_line" -lt "$supervisor_line" ] ||
+    fail "Firstmate AGENTS.md does not disambiguate a launched worker before assigning the supervisor identity"
   cmp -s "$ROOT/AGENTS.md" "$home/AGENTS.md" || fail "worker spawn changed the primary contract"
   pass "fm-spawn: every legacy worker receives scoped role instructions without changing project or primary instructions"
 }
 
+test_intent_keeps_words_without_composed_address
 test_spawn_refreshes_legacy_worker_roles
 test_ship_spawn_requires_a_valid_delivery_contract
 test_scout_and_secondmate_refuse_delivery_flags
