@@ -5,17 +5,25 @@
 # Usage:
 #   fm-dispatch-resolve.sh <brief-file> [--project <name>]
 #
-# Opt-in gate: TYPESAFE_API_KEY non-empty in this process environment, else a
-#   TYPESAFE_API_KEY= line in $FM_HOME/.env read with fmx_env_get, the same
-#   accessor as FMX_PAIRING_TOKEN (bin/fm-env-lib.sh). The environment wins.
-#   Absent in both: one "dispatch-resolve: off" line on stderr, nothing on
-#   stdout, exit 0, no network call, so firstmate dispatches exactly as today.
-#   The key lives in one shell variable and reaches curl as a header read from
-#   a file descriptor, never on argv; nothing logs or writes it.
+# Opt-in gate, two keys, transport switch: TYPESAFE_API_KEY non-empty in this
+#   process environment, else a TYPESAFE_API_KEY= line in $FM_HOME/.env read
+#   with fmx_env_get, the same accessor as FMX_PAIRING_TOKEN
+#   (bin/fm-env-lib.sh); the environment wins over .env for each key
+#   independently. Absent that, the same lookup for OPENROUTER_API_KEY.
+#   TYPESAFE_API_KEY present selects the direct typesafe.ai transport
+#   (unchanged behavior); absent that, OPENROUTER_API_KEY present selects the
+#   OpenRouter transport; both present is direct, with one stderr line saying
+#   so; neither present: one "dispatch-resolve: off" line on stderr, nothing
+#   on stdout, exit 0, no network call, so firstmate dispatches exactly as
+#   today. Whichever key is active lives in one shell variable and reaches
+#   curl as a header read from a file descriptor, never on argv; nothing logs
+#   or writes it.
 #
-# What it does when on with at least one rule: one POST to
-#   https://api.typesafe.ai/v1/systemone with the project name and the whole brief as
-#   state and ONE Choice question whose
+# What it does when on with at least one rule: one POST, to
+#   https://api.typesafe.ai/v1/systemone (direct transport) or
+#   https://openrouter.ai/api/alpha/decisions (OpenRouter transport, same
+#   underlying model under the slug typesafe/jev-latest), with the project
+#   name and the whole brief as state and ONE Choice question whose
 #   options are every rule's `when` from config/crew-dispatch.json plus one
 #   fixed generic none option. Jev returns the matched rule, a probability per
 #   option, and a confidence. Everything after that is jq: the confidence
@@ -44,7 +52,8 @@
 #   actionable, never selected around.
 #
 # Environment:
-#   TYPESAFE_API_KEY is the only resolver-specific environment setting.
+#   TYPESAFE_API_KEY and OPENROUTER_API_KEY are the resolver-specific
+#   environment settings; TYPESAFE_API_KEY wins when both are present.
 #
 # Authority: this tool never replaces firstmate's judgment, quota-array-dispatch,
 #   the captain-approval gate, or fm-spawn.sh validation; it publishes one
@@ -54,6 +63,10 @@ set -u
 TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
 export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
 unset TYPESAFE_API_KEY
+
+OPENROUTER_API_KEY_PRIVATE=${OPENROUTER_API_KEY:-}
+export -n OPENROUTER_API_KEY_PRIVATE 2>/dev/null || true
+unset OPENROUTER_API_KEY
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -72,7 +85,10 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 CONFIDENCE_FLOOR=0.6
 TS_MODEL=jev-latest
 TS_BASE=https://api.typesafe.ai
-TS_TIMEOUT=5
+OR_MODEL=typesafe/jev-latest
+OR_BASE=https://openrouter.ai
+OR_PATH=/api/alpha/decisions
+TIMEOUT_SECS=5
 DEFAULT_WHEN="No listed rule applies to this task."
 
 die() { printf 'error: %s\n' "$1" >&2; exit 2; }
@@ -98,12 +114,26 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# ---- opt-in gate ---------------------------------------------------------------
+# ---- opt-in gate and transport switch -------------------------------------------
 if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
   TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
 fi
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
-  echo "dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env)" >&2
+if [ -z "$OPENROUTER_API_KEY_PRIVATE" ]; then
+  OPENROUTER_API_KEY_PRIVATE=$(fmx_env_get OPENROUTER_API_KEY "$FM_HOME/.env")
+fi
+if [ -n "$TYPESAFE_API_KEY_PRIVATE" ]; then
+  TRANSPORT=typesafe
+  REQUEST_URL="$TS_BASE/v1/systemone"
+  REQUEST_MODEL=$TS_MODEL
+  REQUEST_KEY=$TYPESAFE_API_KEY_PRIVATE
+  [ -z "$OPENROUTER_API_KEY_PRIVATE" ] || echo "dispatch-resolve: TYPESAFE_API_KEY and OPENROUTER_API_KEY both present; TYPESAFE_API_KEY (direct) wins" >&2
+elif [ -n "$OPENROUTER_API_KEY_PRIVATE" ]; then
+  TRANSPORT=openrouter
+  REQUEST_URL="$OR_BASE$OR_PATH"
+  REQUEST_MODEL=$OR_MODEL
+  REQUEST_KEY=$OPENROUTER_API_KEY_PRIVATE
+else
+  echo "dispatch-resolve: off (TYPESAFE_API_KEY and OPENROUTER_API_KEY both absent from the environment and $FM_HOME/.env)" >&2
   exit 0
 fi
 
@@ -221,7 +251,7 @@ QUOTA=$(mktemp) || { rm -f "$RESP_FILE"; die "mktemp failed"; }
 trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA"' EXIT
 LAT_MS=null
 command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
-  REQUEST=$(jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" --arg model "$TS_MODEL" \
+  REQUEST=$(jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" --arg model "$REQUEST_MODEL" \
     --arg none_criterion "$DEFAULT_WHEN" --slurpfile rules "$RULES" '
     ($rules[0]) as $cfg |
     ($cfg.rules | to_entries | map({key: ("rule_" + ((.key + 1) | tostring)), value: .value.when}) | from_entries) as $criteria |
@@ -237,9 +267,9 @@ command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
       }
     }')
   T0=$(fm_timing_now_ms)
-  HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
-    -X POST "$TS_BASE/v1/systemone" -H 'Content-Type: application/json' \
-    -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "$TYPESAFE_API_KEY_PRIVATE") \
+  HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TIMEOUT_SECS" -o "$RESP_FILE" -w '%{http_code}' \
+    -X POST "$REQUEST_URL" -H 'Content-Type: application/json' \
+    -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "$REQUEST_KEY") \
     --data-binary @- 2>/dev/null) || HTTP=000
   T1=$(fm_timing_now_ms)
   LAT_MS=$(( T1 - T0 ))
@@ -255,8 +285,8 @@ jq -e --slurpfile rules "$RULES" '
     ((.answers.rule.probabilities | [.[]] | add) as $total | $total >= 0.99 and $total <= 1.01) and
     ((has("usage") | not) or
       ((.usage | type) == "object" and
-       (.usage.input_tokens | type) == "number" and
-       (.usage.output_tokens | type) == "number"))' \
+       (((.usage.input_tokens | type) == "number" and (.usage.output_tokens | type) == "number") or
+        ((.usage.prompt_tokens | type) == "number" and (.usage.completion_tokens | type) == "number"))))' \
   "$RESP_FILE" >/dev/null 2>&1 || emit_error "response is not a rule Choice answer"
 
 # ---- quota evidence: one quota-axi --json snapshot -----------------------------
@@ -268,6 +298,11 @@ fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an inval
 RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson pmap "$PMAP" \
   --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" '
   ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
+  def norm_usage($u):
+    if $u == null then null
+    elif ($u.input_tokens? != null) then {input_tokens: $u.input_tokens, output_tokens: $u.output_tokens}
+    elif ($u.prompt_tokens? != null) then {input_tokens: $u.prompt_tokens, output_tokens: $u.completion_tokens}
+    else null end;
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   def prov($p): ([$q.providers[] | select(.provider == $p)] | first) // null;
   def rows($p): (prov($p) | .quotaSemantics.effectiveAvailability // []);
@@ -352,7 +387,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
      then {source: "default", use: profiles($cfg.default // null), note: "rule \($choice) floor \($rule.floor.scope) below \($rule.floor.min_percent)%: fall through to default"}
    else {source: $choice, use: profiles($rule.use), note: "rule matched"} end) as $sel |
   {
-    model: $r.model, latency_ms: $lat, tokens: ($r.usage // null),
+    model: $r.model, latency_ms: $lat, tokens: norm_usage($r.usage // null),
     rule: $choice,
     rule_when: (if $rule == null then $none_criterion else $rule.when end | .[0:60]),
     confidence: $a.confidence, probabilities: $a.probabilities

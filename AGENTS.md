@@ -68,7 +68,7 @@ README.md            public overview and development notes
 .claude/mods/        Claude Code mods (function-hooks plugins), committed; Calm's module may load through CLAUDE_CODE_ENABLE_FUNCTION_HOOKS or tengu_plugin_hooks_modules, but activates only when CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is exactly "1" and is otherwise a complete no-op (docs/calm.md)
 skills/              standalone public installer-facing skills, committed; not loaded by firstmate
 bin/                 helper scripts, committed; read each script's header before first use
-.env                 optional Relay pairing token (presence-gates section 14) and typed dispatch resolution key TYPESAFE_API_KEY (presence-gates the typed dispatch resolution in section 4; docs/configuration.md "Typed dispatch resolution"); LOCAL, gitignored
+.env                 optional Relay pairing token (presence-gates section 14) and typed dispatch resolution keys TYPESAFE_API_KEY (direct) and OPENROUTER_API_KEY (either presence-gates the typed dispatch resolution in section 4 and selects its transport; TYPESAFE_API_KEY wins when both are present; docs/configuration.md "Typed dispatch resolution"); LOCAL, gitignored
 config/              local operating choices; docs/configuration.md owns every file and its schema
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history

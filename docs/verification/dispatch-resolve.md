@@ -53,6 +53,13 @@ The maximum latency was one outlier; the next slowest request was 309 ms.
 The differing clear result was a synthetic small tweak that matched the simple-bug-fix rule at 0.90 and selected `cursor-grok-4.6-medium` instead of the hand-labeled `cursor-grok-4.6-high`: the tweak exemption removed from the none-option text belongs in that rule's own `when` text.
 Two default-labeled briefs became ambiguous.
 
+## OpenRouter transport
+
+`bin/fm-dispatch-resolve.sh` also serves the same Jev model through OpenRouter's alpha Decisions endpoint (`POST https://openrouter.ai/api/alpha/decisions`, model slug `typesafe/jev-latest`) when `OPENROUTER_API_KEY` is present and `TYPESAFE_API_KEY` is not.
+As of this writing no keyed call against OpenRouter has been made from this home (no `OPENROUTER_API_KEY` exists in `$FM_HOME/.env` or the environment), so this section carries no live measurements yet.
+Unverified until a keyed run confirms them: whether OpenRouter names token counts `input_tokens`/`output_tokens` (TypeSafe's naming, which the resolver also accepts) or `prompt_tokens`/`completion_tokens` (OpenAI's naming); the exact `model` string OpenRouter echoes back; whether the model slug must be `typesafe/jev-latest` or the page's `~typesafe/jev-latest` spelling; and OpenRouter-side rate limits and error bodies.
+Rerun the table format above against this transport once a key is available, pointing the tool at a brief with `OPENROUTER_API_KEY` injected for that one command, and record parity against the direct transport if a `TYPESAFE_API_KEY` is also available for the same run.
+
 ## Offline behavior
 
 `tests/fm-dispatch-resolve.test.sh` drives the public interface with a fake `curl` that records argv, the request body, the header read from file descriptor 3, and whether the secret reached its environment, plus a fake `quota-axi` that performs the same environment check.
@@ -63,7 +70,8 @@ It proves the documented starter configuration resolves its Pi default through t
 It proves the key is absent from child environments, never appears on `curl` argv, and arrives only as the bearer header on the descriptor.
 It proves the request uses the fixed endpoint and model, carries only the project, brief, and rule Choice with one option per rule plus the fixed neutral none option, and never carries `why`, `use`, or quota.
 It proves the clear, fixed-floor ambiguous with candidate evidence, escalate (approval with candidate evidence, unverifiable rule floor, tie, nothing rankable), known rule-floor fall-through, known and unverifiable profile-floor evidence, explicit-provider and provider-ID enforcement, authoritative Agy and explicit-provider Gemini routing, partial providers, eligible unranked candidates and their clear-result note, concrete quota vetoes and profile-floor shortfalls taking precedence over uncertainty, account-wide quota veto, limiting-bound ranking, missing-curl and quota-axi failures, HTTP 429 and 500, transport failure, malformed usage, zero-mass or malformed probabilities or confidence, malformed or duplicate profile, invalid selector, removed-option rejection, and out-of-range rule ID paths behave as the contract states, with configuration errors exiting 2 before any network call.
-`tests/fm-bootstrap.test.sh` proves bootstrap ignores resolver-only fields without the typed key, validates each malformed shape when the environment or home `.env` activates typed resolution, and prevents an environment-provided key from reaching child processes.
+It also proves the OpenRouter transport switch: `OPENROUTER_API_KEY` alone selects the OpenRouter endpoint and model slug and reaches `curl` only as its own bearer header, a `.env` `OPENROUTER_API_KEY` line activates it the same way the typesafe `.env` key does, both keys present resolves through the direct transport with one stderr note explaining why, the OpenRouter key never reaches a child environment, and a superset response (extra `id`/`provider`/`usage.cost` fields, either `input_tokens`/`output_tokens` or `prompt_tokens`/`completion_tokens` naming) resolves and renders identically to the direct transport's response shape.
+`tests/fm-bootstrap.test.sh` proves bootstrap ignores resolver-only fields without either typed key, validates each malformed shape when the environment or home `.env` activates typed resolution through `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY`, and prevents an environment-provided key of either kind from reaching child processes.
 
 ```console
 $ bash tests/fm-dispatch-resolve.test.sh | tail -1

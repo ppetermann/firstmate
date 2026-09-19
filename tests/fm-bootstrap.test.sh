@@ -126,7 +126,8 @@ add_real_jq() {
   cat > "$fakebin/jq" <<SH
 #!/usr/bin/env bash
 if [ -n "\${FM_TEST_CHILD_ENV_LOG:-}" ]; then
-  if [ -n "\${TYPESAFE_API_KEY+x}" ] || [ -n "\${TYPESAFE_API_KEY_PRIVATE+x}" ]; then
+  if [ -n "\${TYPESAFE_API_KEY+x}" ] || [ -n "\${TYPESAFE_API_KEY_PRIVATE+x}" ] \
+    || [ -n "\${OPENROUTER_API_KEY+x}" ] || [ -n "\${OPENROUTER_API_KEY_PRIVATE+x}" ]; then
     printf 'secret-present\n' >> "\$FM_TEST_CHILD_ENV_LOG"
   else
     printf 'clean\n' >> "\$FM_TEST_CHILD_ENV_LOG"
@@ -1249,6 +1250,39 @@ ROWS
   pass "bootstrap gates resolver fields and additive harnesses on the typed key"
 }
 
+test_crew_dispatch_openrouter_key_activates_typed_resolution() {
+  local case_dir fakebin out child_env
+  case_dir="$TMP_ROOT/dispatch-openrouter-gate"
+  mkdir -p "$case_dir/home/config"
+  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  add_real_jq "$fakebin"
+
+  printf '%s\n' '{"rules":[{"when":"legacy metadata","use":{"harness":"claude","provider":"Anthropic"}}]}' > "$case_dir/home/config/crew-dispatch.json"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  [ -z "$out" ] || fail "resolver-only fields must be ignored without either typed key, got: $out"
+
+  printf '%s\n' 'OPENROUTER_API_KEY=test-key' > "$case_dir/home/.env"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  [ "$out" = 'CREW_DISPATCH: invalid config/crew-dispatch.json - use profile model and effort must be non-empty strings, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present' ] \
+    || fail "OpenRouter .env key must activate resolver-field validation same as the typesafe key, got: $out"
+  rm -f "$case_dir/home/.env"
+
+  printf '%s\n' '{"rules":[{"when":"legacy metadata","use":{"harness":"claude","provider":"Anthropic"}}]}' > "$case_dir/home/config/crew-dispatch.json"
+  : > "$case_dir/child-env.log"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+    OPENROUTER_API_KEY=test-key FM_TEST_CHILD_ENV_LOG="$case_dir/child-env.log" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  [ "$out" = 'CREW_DISPATCH: invalid config/crew-dispatch.json - use profile model and effort must be non-empty strings, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present' ] \
+    || fail "environment OpenRouter key must activate resolver-field validation, got: $out"
+  child_env=$(cat "$case_dir/child-env.log")
+  [ -n "$child_env" ] || fail "bootstrap child environment probe did not run"
+  assert_not_contains "$child_env" 'secret-present' "bootstrap children never inherit the OpenRouter key"
+  pass "bootstrap gates resolver fields identically on OPENROUTER_API_KEY and never leaks it to children"
+}
+
 test_bootstrap_reporting
 test_no_mistakes_is_not_a_bootstrap_tool
 test_gh_axi_min_version
@@ -1279,3 +1313,4 @@ test_network_phases_record_per_step_elapsed_times
 test_tasks_axi_verdict_handoff_is_consumed_once
 test_crew_dispatch_active_rules_are_verbose_bootstrap_info
 test_crew_dispatch_validation
+test_crew_dispatch_openrouter_key_activates_typed_resolution
