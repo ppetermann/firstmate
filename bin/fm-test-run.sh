@@ -786,6 +786,7 @@ tests/fm-pi-codex-native.test.sh 46
 tests/fm-pi-primary-live-e2e.test.sh 47
 tests/fm-pi-watch-extension.test.sh 50637
 tests/fm-pi-windows-shell-invocation.test.sh 5121
+tests/fm-pr-blockers-live-e2e.test.sh 225
 tests/fm-pr-blockers.test.sh 833
 tests/fm-pr-check-lint.test.sh 436
 tests/fm-pr-check-security.test.sh 226546
@@ -836,7 +837,10 @@ tests/fm-sessionstart-nudge.test.sh 66247
 tests/fm-shared-captain-inheritance.test.sh 6108
 tests/fm-signal-wait-lib.test.sh 62670
 tests/fm-spawn-brief-content.test.sh 738
+tests/fm-spawn-compact-adviser-disable-remote.test.sh 46757
+tests/fm-spawn-compact-adviser-disable.test.sh 26943
 tests/fm-spawn-dispatch-profile.test.sh 138433
+tests/fm-spawn-empty-project.test.sh 2125
 tests/fm-spawn-pool-base-freshen.test.sh 62249
 tests/fm-spawn-worktree-settle.test.sh 8482
 tests/fm-startup-memory-budget.test.sh 7392
@@ -875,6 +879,7 @@ tests/fm-watch-checkpoint.test.sh 6076
 tests/fm-watch-recovery-loop.test.sh 58946
 tests/fm-watch-triage.test.sh 697969
 tests/fm-watcher-lock.test.sh 108940
+tests/ocr-review-rule-live.test.sh 925
 EOF
 }
 
@@ -1377,7 +1382,7 @@ families_for_unmapped_bin() {
 # Conservative path → family map. Over-selects rather than under-selects.
 # Never expands to the complete suite.
 families_for_changed_path() {
-  local path=$1 fixture_ref
+  local path=$1 fixture_ref capture_ref
   case "$path" in
     tests/fm-backend-herdr-eventwait.test.py)
       printf '%s\n' real-herdr-gated
@@ -1647,6 +1652,7 @@ families_for_changed_path() {
       printf '%s\n' pure-contract-unit
       ;;
     .github/*|.gitattributes|.tasks.toml|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|\
+    GROK_BOT.md|VISION.md|\
     docs/configuration.md|docs/supervision-protocols/*)
       printf '%s\n' pure-contract-unit
       ;;
@@ -1668,8 +1674,20 @@ families_for_changed_path() {
           || printf '%s\n' "__unmapped__:$path"
       fi
       ;;
+    tests/captures/*/*)
+      # A recorded capture belongs to whichever suite reads its directory, the
+      # same rule and the same reference scan as tests/fixtures/*/* above, and
+      # for the same reason: keying on the directory means adding a capture
+      # file selects the suite that already reads that capture set.
+      capture_ref=${path#tests/captures/}
+      capture_ref=${capture_ref%%/*}
+      if [ -d "tests/captures/$capture_ref" ]; then
+        families_for_test_reference "captures/$capture_ref" \
+          || printf '%s\n' "__unmapped__:$path"
+      fi
+      ;;
     tests/lib.sh|tests/*-helpers.sh|tests/fm-composer-classify-probe.sh|\
-    tests/fixtures.sh|tests/*-fixture.sh)
+    tests/fixtures.sh|tests/*-fixture.sh|tests/*.py|tests/assets/*)
       # Shared top-level test files, selected by the suites that name them.
       # Must stay below the tests/fixtures/*/* arm: a case glob's * spans /, so
       # tests/*-fixture.sh would otherwise swallow a nested
