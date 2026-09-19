@@ -53,7 +53,7 @@ test_promotion_records_ship_contract_in_instructions() {
     "ship instructions do not tell the worker to verify its worktree"
   assert_grep 'git rev-parse --show-toplevel' "$instructions" \
     "ship instructions do not tell the worker to verify its repository root"
-  assert_grep 'These ship instructions supersede the scout delivery rules' "$instructions" \
+  assert_grep 'These current ship instructions supersede the scout delivery rules' "$instructions" \
     "ship instructions do not declare their supersession"
   assert_grep "Inventory this worktree's scratch state" "$instructions" \
     "ship instructions lost the scratch-inventory instruction"

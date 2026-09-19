@@ -18,9 +18,11 @@
 # fm-promote.sh both render that block through fm-brief-lib.sh, and a second
 # copy of the same contract would be exactly the drift the one-owner rule
 # forbids. The `Delivery contract: mode=<mode>` line bin/fm-spawn.sh checks a
-# ship brief against is emitted by fm-brief-lib.sh. The fork runs no no-mistakes
-# delivery mode, so upstream's fm_brief_intent_overlay and
-# fm_ask_user_escalation_block have no caller here either.
+# ship brief against is emitted by fm-brief-lib.sh, whose fm_brief_ship_rule1
+# leaves upstream's fm_ship_rule_one without a caller here for the same reason.
+# The fork runs no no-mistakes delivery mode, so upstream's
+# fm_brief_intent_overlay and fm_ask_user_escalation_block have no caller here
+# either.
 # fm_brief_worker_role below is the one exception this file does own: bin/fm-spawn.sh
 # appends it to every ship/scout launch brief.
 #
