@@ -9,9 +9,9 @@
 #   process environment, else a TYPESAFE_API_KEY= line in $FM_HOME/.env read
 #   with fmx_env_get, the same accessor as FMX_PAIRING_TOKEN
 #   (bin/fm-env-lib.sh); the environment wins over .env for each key
-#   independently. Absent that, the same lookup for OPENROUTER_API_KEY.
+#   independently. Absent that, the same lookup for FM_JEV_OPENROUTER_API_KEY.
 #   TYPESAFE_API_KEY present selects the direct typesafe.ai transport
-#   (unchanged behavior); absent that, OPENROUTER_API_KEY present selects the
+#   (unchanged behavior); absent that, FM_JEV_OPENROUTER_API_KEY present selects the
 #   OpenRouter transport; both present is direct, with one stderr line saying
 #   so; neither present: one "dispatch-resolve: off" line on stderr, nothing
 #   on stdout, exit 0, no network call, so firstmate dispatches exactly as
@@ -52,7 +52,7 @@
 #   actionable, never selected around.
 #
 # Environment:
-#   TYPESAFE_API_KEY and OPENROUTER_API_KEY are the resolver-specific
+#   TYPESAFE_API_KEY and FM_JEV_OPENROUTER_API_KEY are the resolver-specific
 #   environment settings; TYPESAFE_API_KEY wins when both are present.
 #
 # Authority: this tool never replaces firstmate's judgment, quota-array-dispatch,
@@ -64,9 +64,9 @@ TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
 export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
 unset TYPESAFE_API_KEY
 
-OPENROUTER_API_KEY_PRIVATE=${OPENROUTER_API_KEY:-}
-export -n OPENROUTER_API_KEY_PRIVATE 2>/dev/null || true
-unset OPENROUTER_API_KEY
+FM_JEV_OPENROUTER_API_KEY_PRIVATE=${FM_JEV_OPENROUTER_API_KEY:-}
+export -n FM_JEV_OPENROUTER_API_KEY_PRIVATE 2>/dev/null || true
+unset FM_JEV_OPENROUTER_API_KEY
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -118,22 +118,22 @@ done
 if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
   TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
 fi
-if [ -z "$OPENROUTER_API_KEY_PRIVATE" ]; then
-  OPENROUTER_API_KEY_PRIVATE=$(fmx_env_get OPENROUTER_API_KEY "$FM_HOME/.env")
+if [ -z "$FM_JEV_OPENROUTER_API_KEY_PRIVATE" ]; then
+  FM_JEV_OPENROUTER_API_KEY_PRIVATE=$(fmx_env_get FM_JEV_OPENROUTER_API_KEY "$FM_HOME/.env")
 fi
 if [ -n "$TYPESAFE_API_KEY_PRIVATE" ]; then
   TRANSPORT=typesafe
   REQUEST_URL="$TS_BASE/v1/systemone"
   REQUEST_MODEL=$TS_MODEL
   REQUEST_KEY=$TYPESAFE_API_KEY_PRIVATE
-  [ -z "$OPENROUTER_API_KEY_PRIVATE" ] || echo "dispatch-resolve: TYPESAFE_API_KEY and OPENROUTER_API_KEY both present; TYPESAFE_API_KEY (direct) wins" >&2
-elif [ -n "$OPENROUTER_API_KEY_PRIVATE" ]; then
+  [ -z "$FM_JEV_OPENROUTER_API_KEY_PRIVATE" ] || echo "dispatch-resolve: TYPESAFE_API_KEY and FM_JEV_OPENROUTER_API_KEY both present; TYPESAFE_API_KEY (direct) wins" >&2
+elif [ -n "$FM_JEV_OPENROUTER_API_KEY_PRIVATE" ]; then
   TRANSPORT=openrouter
   REQUEST_URL="$OR_BASE$OR_PATH"
   REQUEST_MODEL=$OR_MODEL
-  REQUEST_KEY=$OPENROUTER_API_KEY_PRIVATE
+  REQUEST_KEY=$FM_JEV_OPENROUTER_API_KEY_PRIVATE
 else
-  echo "dispatch-resolve: off (TYPESAFE_API_KEY and OPENROUTER_API_KEY both absent from the environment and $FM_HOME/.env)" >&2
+  echo "dispatch-resolve: off (TYPESAFE_API_KEY and FM_JEV_OPENROUTER_API_KEY both absent from the environment and $FM_HOME/.env)" >&2
   exit 0
 fi
 

@@ -4,7 +4,7 @@
 #
 # This file is the single owner of the one-key .env read: the Relay pairing
 # token (bin/fm-x-lib.sh and its callers) and the optional typed dispatch
-# resolution keys, TYPESAFE_API_KEY (direct) and OPENROUTER_API_KEY
+# resolution keys, TYPESAFE_API_KEY (direct) and FM_JEV_OPENROUTER_API_KEY
 # (bin/fm-dispatch-resolve.sh, bin/fm-bootstrap.sh), all resolve their value
 # through fmx_env_get, so those opt-in secrets in $FM_HOME/.env are parsed by
 # one rule. (bin/fm-mail.sh loads its whole .env block itself under the same

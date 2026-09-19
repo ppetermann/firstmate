@@ -7,7 +7,7 @@
 # A fake quota-axi serves the selected schema-5 fixture. No case touches the
 # network, and the absent-key case proves the tool makes no call
 # at all. A second block of cases drives the same interface with
-# OPENROUTER_API_KEY to prove the OpenRouter transport switch: endpoint,
+# FM_JEV_OPENROUTER_API_KEY to prove the OpenRouter transport switch: endpoint,
 # model, and active key selection, transport precedence when both keys are
 # present, and acceptance of the OpenRouter superset response shape (extra
 # `id`/`provider`/`usage.cost` fields, either token-count naming).
@@ -115,7 +115,7 @@ cat > "$FAKEBIN/curl" <<'SH'
 # read from fd 3, then answers with FAKE_CURL_RESPONSE and FAKE_CURL_HTTP.
 set -u
 if [ -n "${TYPESAFE_API_KEY+x}" ] || [ -n "${TYPESAFE_API_KEY_PRIVATE+x}" ] \
-  || [ -n "${OPENROUTER_API_KEY+x}" ] || [ -n "${OPENROUTER_API_KEY_PRIVATE+x}" ]; then
+  || [ -n "${FM_JEV_OPENROUTER_API_KEY+x}" ] || [ -n "${FM_JEV_OPENROUTER_API_KEY_PRIVATE+x}" ]; then
   printf 'curl:secret-present\n' >> "${CHILD_ENV_LOG:?}"
 else
   printf 'curl:clean\n' >> "${CHILD_ENV_LOG:?}"
@@ -144,7 +144,7 @@ cat > "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ -n "${TYPESAFE_API_KEY+x}" ] || [ -n "${TYPESAFE_API_KEY_PRIVATE+x}" ] \
-  || [ -n "${OPENROUTER_API_KEY+x}" ] || [ -n "${OPENROUTER_API_KEY_PRIVATE+x}" ]; then
+  || [ -n "${FM_JEV_OPENROUTER_API_KEY+x}" ] || [ -n "${FM_JEV_OPENROUTER_API_KEY_PRIVATE+x}" ]; then
   printf 'quota-axi:secret-present\n' >> "${CHILD_ENV_LOG:?}"
 else
   printf 'quota-axi:clean\n' >> "${CHILD_ENV_LOG:?}"
@@ -195,7 +195,7 @@ write_response "$RESPONSE" rule_4 0.9
 run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "absent key exits 0"
 assert_equals '' "$out" "absent key prints nothing on stdout"
-assert_contains "$err" 'dispatch-resolve: off (TYPESAFE_API_KEY and OPENROUTER_API_KEY both absent from the environment and' "absent key explains itself on stderr"
+assert_contains "$err" 'dispatch-resolve: off (TYPESAFE_API_KEY and FM_JEV_OPENROUTER_API_KEY both absent from the environment and' "absent key explains itself on stderr"
 assert_absent "$LOG/argv" "absent key never calls curl"
 assert_absent "$LOG/quota-axi.calls" "absent key never reads quota-axi"
 pass "absent key is off: one stderr line, exit 0, no network call"
@@ -272,7 +272,7 @@ JSON
 
 reset_log
 write_or_response "$RESPONSE" rule_4 0.9
-OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF" --project pager
+FM_JEV_OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "OpenRouter transport clear exits 0"
 assert_contains "$out" '  status: clear' "OpenRouter transport resolves clear"
 assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'" "OpenRouter transport picks the same argmax profile"
@@ -286,34 +286,34 @@ body=$(cat "$LOG/body")
 assert_equals 'typesafe/jev-latest' "$(jq -r .model <<<"$body")" "OpenRouter transport sends the router alias model slug"
 assert_contains "$out" '  model: typesafe/jev-1.13' "the superset id/provider/model fields render without error"
 assert_contains "$out" 'tokens: 812/60' "typesafe-style usage field names are read on the OpenRouter transport too"
-pass "OpenRouter transport: correct endpoint, model, and key when OPENROUTER_API_KEY is the only key present"
+pass "OpenRouter transport: correct endpoint, model, and key when FM_JEV_OPENROUTER_API_KEY is the only key present"
 
 reset_log
 write_or_response "$RESPONSE" rule_4 0.9 openai
-OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF" --project pager
+FM_JEV_OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "OpenAI-style usage naming still resolves clear"
 assert_contains "$out" '  status: clear' "OpenAI-style usage naming still resolves clear"
 assert_contains "$out" 'tokens: 700/55' "prompt_tokens/completion_tokens normalize into the printed tokens field"
 pass "OpenRouter transport accepts OpenAI-style usage field names and normalizes them"
 
-printf '%s\n' '# local secrets' "export OPENROUTER_API_KEY=\"$OR_KEY\"" > "$HOME_DIR/.env"
+printf '%s\n' '# local secrets' "export FM_JEV_OPENROUTER_API_KEY=\"$OR_KEY\"" > "$HOME_DIR/.env"
 reset_log
 write_or_response "$RESPONSE" rule_4 0.9
 run code out err "$BRIEF" --project pager
-assert_contains "$out" '  status: clear' ".env OPENROUTER_API_KEY activates the OpenRouter transport"
-assert_equals "Authorization: Bearer $OR_KEY" "$(cat "$LOG/header")" ".env OPENROUTER_API_KEY reaches curl on the fd header"
+assert_contains "$out" '  status: clear' ".env FM_JEV_OPENROUTER_API_KEY activates the OpenRouter transport"
+assert_equals "Authorization: Bearer $OR_KEY" "$(cat "$LOG/header")" ".env FM_JEV_OPENROUTER_API_KEY reaches curl on the fd header"
 rm -f "$HOME_DIR/.env"
-pass "OPENROUTER_API_KEY= in .env activates the tool on the OpenRouter transport"
+pass "FM_JEV_OPENROUTER_API_KEY= in .env activates the tool on the OpenRouter transport"
 
 reset_log
 write_response "$RESPONSE" rule_4 0.9
-TYPESAFE_API_KEY=$KEY OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF" --project pager
+TYPESAFE_API_KEY=$KEY FM_JEV_OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "both keys present still resolves clear"
 argv=$(cat "$LOG/argv")
 assert_contains "$argv" 'https://api.typesafe.ai/v1/systemone' "TYPESAFE_API_KEY wins the transport when both keys are present"
 assert_not_contains "$argv" 'openrouter.ai' "the direct transport never calls OpenRouter when both keys are present"
 assert_equals "Authorization: Bearer $KEY" "$(cat "$LOG/header")" "the direct key, not the OpenRouter key, reaches curl when both are present"
-assert_contains "$err" 'TYPESAFE_API_KEY and OPENROUTER_API_KEY both present; TYPESAFE_API_KEY (direct) wins' "both-present is explained on stderr"
+assert_contains "$err" 'TYPESAFE_API_KEY and FM_JEV_OPENROUTER_API_KEY both present; TYPESAFE_API_KEY (direct) wins' "both-present is explained on stderr"
 pass "both keys present: TYPESAFE_API_KEY (direct) wins, with one stderr note"
 
 # --- rules are snapshotted and line output is injection-safe -------------------

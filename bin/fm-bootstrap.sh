@@ -160,9 +160,9 @@ TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
 export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
 unset TYPESAFE_API_KEY
 
-OPENROUTER_API_KEY_PRIVATE=${OPENROUTER_API_KEY:-}
-export -n OPENROUTER_API_KEY_PRIVATE 2>/dev/null || true
-unset OPENROUTER_API_KEY
+FM_JEV_OPENROUTER_API_KEY_PRIVATE=${FM_JEV_OPENROUTER_API_KEY:-}
+export -n FM_JEV_OPENROUTER_API_KEY_PRIVATE 2>/dev/null || true
+unset FM_JEV_OPENROUTER_API_KEY
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -1244,8 +1244,8 @@ crew_dispatch_validate() {
   typed_key=$TYPESAFE_API_KEY_PRIVATE
   [ -n "$typed_key" ] || typed_key=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
   if [ -z "$typed_key" ]; then
-    typed_key=$OPENROUTER_API_KEY_PRIVATE
-    [ -n "$typed_key" ] || typed_key=$(fmx_env_get OPENROUTER_API_KEY "$FM_HOME/.env")
+    typed_key=$FM_JEV_OPENROUTER_API_KEY_PRIVATE
+    [ -n "$typed_key" ] || typed_key=$(fmx_env_get FM_JEV_OPENROUTER_API_KEY "$FM_HOME/.env")
   fi
   [ -z "$typed_key" ] || typed_active=true
   if $typed_active; then

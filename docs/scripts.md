@@ -145,7 +145,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-teardown.sh`         | Fail-closed teardown: return landed ship worktrees, require completed scout deliverables, retire secondmate homes |
 | `fm-harness.sh`          | Detect the running harness, resolve crew or secondmate harness, model, and effort, and validate the native-only `ultra` effort |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                      |
-| `fm-dispatch-resolve.sh` | Resolve one concrete crewmate or scout dispatch profile from a written brief with typesafe.ai's System One model, opt-in on `TYPESAFE_API_KEY` (direct) or `OPENROUTER_API_KEY` (OpenRouter transport), a silent no-op without either |
+| `fm-dispatch-resolve.sh` | Resolve one concrete crewmate or scout dispatch profile from a written brief with typesafe.ai's System One model, opt-in on `TYPESAFE_API_KEY` (direct) or `FM_JEV_OPENROUTER_API_KEY` (OpenRouter transport), a silent no-op without either |
 | `fm-env-lib.sh`          | One owner of the single-key `.env` read shared by the Relay pairing token and the typed dispatch keys |
 | `fm-x-lib.sh`            | Shared Relay config, relay, and reply-threading helpers                              |
 | `fm-x-poll.sh`           | One bounded Relay poll: stash newly offered mentions and emit their once-only wake   |
