@@ -10,14 +10,15 @@
 #   - Scope: only a genuine primary checkout (plain checkout or validly marked
 #     secondmate home) with AGENTS.md, bin/, and the effective state dir - the
 #     exact fm-turnend-guard.sh scope. Child crew/scout worktrees stay inert.
-#   - Identity: only when THIS session's harness ancestor holds state/.lock, or
-#     the stable per-session token proves the same thing for a daemon-hosted
-#     session. When the recorded owner is a dead pid, or a live pid whose
-#     recorded session identity has diverged from the session that actually runs
-#     this home's hooks, the hook delegates guarded recovery to bin/fm-lock.sh
-#     and then re-verifies ownership. A competing live owner, missing lock,
-#     malformed lock, or unresolved ancestry remains inert, so a competing
-#     session never arms or rewakes.
+#   - Identity: only when THIS session holds state/.lock, as
+#     bin/fm-session-lock-lib.sh decides it: the recorded pid is a harness
+#     ancestor, or a live lock was recorded under this same trusted Claude
+#     session id (which is what keeps a background session arming after its
+#     transient helper chain is recycled).
+#     When an existing numeric owner fails the shared harness-liveness predicate,
+#     the hook delegates guarded recovery to bin/fm-lock.sh and then re-verifies
+#     ownership. A live owner, missing lock, malformed lock, or unresolved
+#     ancestry remains inert, so a competing session never arms or rewakes.
 #   - AFK: while state/.afk exists the away daemon owns the watcher and triage;
 #     this hook exits 0 and NEVER rewakes the primary (checked again at
 #     translation time so a mid-cycle AFK transition is honored).
@@ -123,23 +124,20 @@ fm_hook_payload_is_foreign_host "$PAYLOAD" && exit 0
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
 # --- identity: only the lock-owning session's hooks may arm ------------------
-# fm_session_lock_identity_state (bin/fm-session-lock-lib.sh) owns the whole
-# classification. Two of its outcomes are recoverable: a prior session that died
-# after leaving its numeric harness pid in .lock (stale-owner), and a lock whose
-# recorded session identity has diverged from the session that actually runs
-# this home's hooks (diverged) - the shape a backgrounded Claude session
-# produces, which otherwise leaves this hook permanently and silently inert.
+# A prior session may have died after leaving its numeric harness pid in .lock.
+# Use the shared liveness predicate to recognize only that stale-owner case.
 # Defer the mutating claim until after the unchanged AFK and need gates, so an
-# idle or away home remains byte-for-byte inert. A missing or malformed lock is
-# uncertainty rather than recovery evidence, and a competing live session is
-# refused exactly as before.
+# idle or away home remains byte-for-byte inert. Missing or malformed locks are
+# uncertainty rather than stale-owner evidence and remain inert.
 RECOVER_SESSION_LOCK=0
-IDENTITY_STATE=$(fm_session_lock_identity_state "$STATE")
-case "$IDENTITY_STATE" in
-  self) : ;;
-  stale-owner|diverged) RECOVER_SESSION_LOCK=1 ;;
-  *) exit 0 ;;
-esac
+if ! fm_session_lock_owned_by_self "$STATE"; then
+  LOCK_PID=$(cat "$STATE/.lock" 2>/dev/null || true)
+  case "$LOCK_PID" in
+    ''|*[!0-9]*) exit 0 ;;
+  esac
+  fm_harness_pid_alive "$LOCK_PID" && exit 0
+  RECOVER_SESSION_LOCK=1
+fi
 
 # --- AFK: the away daemon owns the watcher and triage; never rewake ----------
 [ -e "$STATE/.afk" ] && exit 0
@@ -150,7 +148,7 @@ need_supervision() {
 }
 need_supervision || exit 0
 
-# --- session-lock recovery (stale owner or diverged identity) ----------------
+# --- stale session-lock recovery ---------------------------------------------
 # Delegate the claim to fm-lock.sh so its live-owner refusal and write semantics
 # remain the single acquisition owner, then re-verify current-session identity
 # before touching any auto-arm state.
@@ -158,11 +156,6 @@ if [ "$RECOVER_SESSION_LOCK" -eq 1 ]; then
   "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || exit 0
   fm_session_lock_owned_by_self "$STATE" || exit 0
 fi
-
-# Ownership is proven from here on. Re-bind the session-identity sidecar to the
-# token this session actually presents, so a later session-id change cannot
-# strand the home again (fm_session_lock_sidecar_sync owns the contract).
-fm_session_lock_sidecar_sync "$STATE"
 
 # --- single-flight generation claim --------------------------------------------
 # Claude runs one background process per firing with no dedupe. Exactly one

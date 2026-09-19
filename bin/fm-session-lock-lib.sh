@@ -2,16 +2,15 @@
 # Shared session-lock harness identity.
 #
 # ONE owner of the "which verified-harness process holds this home's session
-# lock, and does the current process belong to that same session?" decision -
-# by harness ancestry first, then by the stable per-session token fallback
-# defined below - and of the classification that distinguishes a recoverable
-# session-identity divergence from a genuinely competing live session
-# (fm_session_lock_identity_state).
-# bin/fm-lock.sh uses it to acquire and inspect state/.lock;
-# bin/fm-claude-stop-autoarm.sh uses it to prove a Stop hook fires inside the
-# lock-owning primary session before it may arm or rewake;
-# bin/fm-turnend-guard.sh uses it to keep the sidecar valid for the session's
-# lifetime and to name the cause when the auto-arm is structurally inert.
+# lock, and does the current process run inside that same session?" decision.
+# bin/fm-lock.sh uses it to acquire and inspect state/.lock and its
+# state/.lock-session sidecar; bin/fm-claude-stop-autoarm.sh uses it to prove a
+# Stop hook fires inside the lock-owning primary session before it may arm or
+# rewake. Two signals decide ownership, either one sufficient: the recorded pid
+# is a member of this process's contiguous harness ancestry, or the trusted
+# Claude session id below matches the id recorded beside a live lock. Neither
+# signal ever fails open: no id, no sidecar, an untrusted id, or a different
+# recorded id leaves the ancestry verdict exactly as it was.
 # This file is sourced by scripts and has no side effects on source.
 
 # Cursor process identity is NOT expressible as a command-name pattern and is
@@ -138,19 +137,24 @@ fm_harness_ancestry_pids() {
   [ "$printed" -eq 1 ]
 }
 
-# Print the one pid that identifies this session when the session lock is being
-# WRITTEN: the outermost pid of the contiguous run. That is the pid that lives as
-# long as the session - a Claude worker several levels in is reaped when its hook
-# returns, and a lock naming it would look stale moments later while the session
-# is still running. Every non-Claude harness reports a single pid, so this is its
-# innermost match unchanged.
+# Print the outermost pid of this session's contiguous harness run for callers
+# that need that ancestry identity. This is not necessarily the pid written to
+# the session lock: fm_session_lock_anchor_pid owns that choice and uses a
+# trusted Claude session's model-loop pid instead. Every non-Claude harness
+# reports a single pid, so this remains its innermost match unchanged.
 fm_harness_ancestry_pid() {
-  local pids pid outermost=''
+  local pids
   pids=$(fm_harness_ancestry_pids) || return 1
+  _fm_harness_outermost_pid "$pids"
+}
+
+# Print the last (outermost) pid of ancestry list $1, or return 1 when empty.
+_fm_harness_outermost_pid() {  # <ancestry-pids>
+  local pid outermost=''
   while IFS= read -r pid; do
     [ -n "$pid" ] && outermost=$pid
   done <<EOF
-$pids
+$1
 EOF
   [ -n "$outermost" ] || return 1
   printf '%s\n' "$outermost"
@@ -165,186 +169,147 @@ fm_harness_pid_alive() {
   fm_harness_process_matches "$comm" "$args"
 }
 
-# Claude Code's stable per-session identity, carried in every hook subprocess'
-# own environment regardless of OS process ancestry. This is the only signal
-# that still identifies a Claude daemon-hosted background session: unlike a
-# harness-named daemon that literally OS-parents its session (already covered
-# by ancestry membership below), a daemon-hosted session's hook subprocesses
-# are dispatched with no OS ancestry path back to the process that wrote the
-# lock at session start, so ancestry walking finds nothing to match at all.
-# Sanitized and length-bounded before use, exactly like the lock-sidecar
-# filename it becomes: never trust it unsanitized, and treat anything
-# malformed as absent rather than as a wildcard match.
-fm_claude_session_token() {
-  local raw=${CLAUDE_CODE_SESSION_ID:-}
-  [ -n "$raw" ] || return 1
-  case "$raw" in
-    *[!A-Za-z0-9._-]*) return 1 ;;
-  esac
-  [ "${#raw}" -le 128 ] || return 1
-  printf '%s' "$raw"
+# --- trusted same-session identity -------------------------------------------
+# Claude Code hands every hook and tool shell CLAUDE_CODE_SESSION_ID (the
+# session's conversation id) and CLAUDE_PID (the pid of the process running the
+# model loop). A background session runs that model loop in a transient helper
+# bridged to its front-end by a shared daemon, and when that bridge is recycled
+# the contiguous claude-named ancestry from a hook to the recorded lock owner
+# breaks while the owner pid stays alive, so ancestry alone reads the session's
+# own lock as another live session's. The id is the one identity that survives
+# the recycling, so it is accepted as a second ownership signal - but only from
+# an environment proven to belong to the current Claude run.
+#
+# Trust gate: CLAUDE_PID must be a Claude-shaped member of this process's
+# contiguous harness ancestry. An id merely retained in a helper environment
+# fails that membership and is ignored: a hand-started Pi or codex primary under
+# a Claude pane still carries the pane's CLAUDE_CODE_SESSION_ID and CLAUDE_PID,
+# and must never own a lock with them. Ids are read from the environment only,
+# never from ps argv, where prompts and briefs are visible.
+#
+# A --fork-session successor mints a new id, so it stays a foreign live owner
+# until the pre-fork process exits; that is the safe direction and a documented
+# non-goal. Two genuinely different live sessions sharing one id is not a
+# supported state (Claude refuses to resume a running session under its id).
+
+# Print the Claude session id this process may own with, or return 1. $1 is the
+# ancestry list an earlier walk already produced, so a caller that walked once
+# need not walk again.
+fm_session_lock_trusted_session_id() {  # [<ancestry-pids>]
+  local id=${CLAUDE_CODE_SESSION_ID:-} claude_pid=${CLAUDE_PID:-} pids=${1:-} pid comm args
+  [ -n "$id" ] || return 1
+  case "$id" in *$'\n'*|*$'\r'*) return 1 ;; esac
+  case "$claude_pid" in ''|*[!0-9]*) return 1 ;; esac
+  if [ -z "$pids" ]; then
+    pids=$(fm_harness_ancestry_pids) || return 1
+  fi
+  while IFS= read -r pid; do
+    [ "$pid" = "$claude_pid" ] || continue
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
+    args=$(ps -o args= -p "$pid" 2>/dev/null)
+    fm_harness_process_matches "$comm" "$args" || return 1
+    [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || return 1
+    printf '%s\n' "$id"
+    return 0
+  done <<EOF
+$pids
+EOF
+  return 1
 }
 
-# Write (or refresh) state dir $2's session-identity sidecar, binding pid $1
-# (the pid fm-lock.sh just recorded in state/.lock) to this process' stable
-# Claude session token. Best-effort and silent: this sidecar is an ADDITIONAL
-# self-recognition path on top of state/.lock, never a substitute for it, so a
-# write failure here must never fail lock acquisition itself. A session with
-# no stable token (every non-Claude harness, and Claude outside a hook) simply
-# leaves no sidecar, which fm_session_lock_owned_by_self treats as absent.
-fm_session_lock_write_sidecar() {  # <pid> <state-dir>
-  local pid=$1 state=$2 token tmp
-  token=$(fm_claude_session_token) || return 0
-  tmp=$(mktemp "$state/.lock-session-write.XXXXXX" 2>/dev/null) || return 0
-  { printf '%s\n%s\n' "$pid" "$token" > "$tmp"; } 2>/dev/null \
-    && mv -f "$tmp" "$state/.lock.session" 2>/dev/null
-  rm -f "$tmp" 2>/dev/null || true
-  return 0
+# Print the session id recorded beside the lock in state dir $1, or return 1.
+# bin/fm-lock.sh is the only writer of state/.lock-session; a missing,
+# symlinked, unreadable, or empty sidecar, or one whose first line contains a
+# newline or carriage return, is simply no recorded id.
+fm_session_lock_recorded_session_id() {  # <state>
+  local state=$1 recorded
+  [ -f "$state/.lock-session" ] && [ ! -L "$state/.lock-session" ] || return 1
+  recorded=$(head -n 1 "$state/.lock-session" 2>/dev/null) || return 1
+  [ -n "$recorded" ] || return 1
+  case "$recorded" in *$'\n'*|*$'\r'*) return 1 ;; esac
+  printf '%s\n' "$recorded"
 }
 
-# True when state dir $1 holds a session lock whose pid is ANY harness ancestor
-# of the current process: this script runs inside the session that owns the
-# home's fleet lock. Membership is the honest test of that question, because the
-# lock owner sits at an unknown depth in a contiguous Claude run - it is the
-# outermost pid when the hook fires inside the session's own nested worker chain,
-# and an inner pid when a harness-named daemon parents the session.
-# When ancestry finds no match at all - including a daemon-hosted session whose
-# hook subprocesses share no OS ancestry with the process that wrote the lock -
-# fall back to the stable per-session token above, bound to the exact pid it was
-# recorded against so a lock a different, later session has since taken can
-# never be claimed by a stale token. A missing lock, a malformed lock, a lock
-# held by a harness outside this ancestry, and a missing or mismatched token all
-# fail closed.
+# True when the lock in state dir $1 was recorded by this same Claude session:
+# the trusted id equals the id recorded beside the lock. No trusted id, no
+# sidecar, or a different recorded id is false.
+fm_session_lock_same_session() {  # <state> [<ancestry-pids>]
+  local state=$1 trusted recorded
+  trusted=$(fm_session_lock_trusted_session_id "${2:-}") || return 1
+  recorded=$(fm_session_lock_recorded_session_id "$state") || return 1
+  [ "$recorded" = "$trusted" ]
+}
+
+# Print the pid bin/fm-lock.sh records on lock line 1 for this session. For a
+# Claude session with a trusted id that is CLAUDE_PID, the model-loop process:
+# never the shared transient daemon and never a front-end that outlives the
+# session, so "recorded pid dead" keeps meaning "session gone" instead of
+# wedging a home behind a live daemon whose session died. A replaced background
+# helper leaves a dead pid that its own session's next hook reclaims, because
+# the sidecar still names that session. Every other session records the
+# outermost pid of its contiguous run, exactly as before.
+fm_session_lock_anchor_pid() {
+  local pids
+  pids=$(fm_harness_ancestry_pids) || return 1
+  if fm_session_lock_trusted_session_id "$pids" >/dev/null; then
+    printf '%s\n' "$CLAUDE_PID"
+    return 0
+  fi
+  _fm_harness_outermost_pid "$pids"
+}
+
+# True when state dir $1 holds a session lock that this process's session owns:
+# the recorded pid is ANY harness ancestor of the current process, or the lock
+# was recorded by this same trusted Claude session and its recorded pid is still
+# a live harness. Membership is the honest ancestry test, because the lock owner
+# sits at an unknown depth in a contiguous Claude run - it is the outermost pid
+# when the hook fires inside the session's own nested worker chain, and an inner
+# pid when a harness-named daemon parents the session. The same-session path
+# requires the recorded pid alive so that a dead one is reclaimed through
+# bin/fm-lock.sh's ordinary stale-owner path, which refreshes line 1, rather than
+# silently owned with a dead anchor. A missing lock, a malformed lock, a lock
+# held by a harness outside this ancestry under another (or no) session id, or
+# an ancestry that cannot be resolved all fail closed.
 fm_session_lock_owned_by_self() {
-  local state=$1 lock_pid pids pid token side_pid side_token
+  local state=$1 lock_pid pids pid
   lock_pid=$(cat "$state/.lock" 2>/dev/null || true)
   case "$lock_pid" in
     ''|*[!0-9]*) return 1 ;;
   esac
-  pids=$(fm_harness_ancestry_pids) || pids=''
-  if [ -n "$pids" ]; then
-    while IFS= read -r pid; do
-      [ "$pid" = "$lock_pid" ] && return 0
-    done <<EOF
+  pids=$(fm_harness_ancestry_pids) || return 1
+  while IFS= read -r pid; do
+    [ "$pid" = "$lock_pid" ] && return 0
+  done <<EOF
 $pids
 EOF
-  fi
-  token=$(fm_claude_session_token) || return 1
-  [ -f "$state/.lock.session" ] && [ ! -L "$state/.lock.session" ] || return 1
-  { IFS= read -r side_pid && IFS= read -r side_token; } < "$state/.lock.session" 2>/dev/null || return 1
-  [ -n "$side_pid" ] && [ -n "$side_token" ] || return 1
-  [ "$side_pid" = "$lock_pid" ] && [ "$side_token" = "$token" ]
+  fm_session_lock_same_session "$state" "$pids" || return 1
+  fm_harness_pid_alive "$lock_pid"
 }
 
-# How long the session-identity sidecar may go unrefreshed before a live lock
-# pid whose recorded session token no longer matches any hook is treated as a
-# RECOVERABLE identity divergence rather than as a competing live session.
-# Generous on purpose: a live session that is actually working refreshes this
-# once per turn end (fm_session_lock_sidecar_sync below), so only a recorded
-# owner that has proven nothing for this long can be downgraded.
-FM_SESSION_LOCK_DIVERGENCE_GRACE_DEFAULT=1800
-
-# Seconds since $1 was last modified, or a large number when it cannot be read.
-# bin/fm-wake-lib.sh owns the general fm_path_age helper, but this library
-# documents itself as side-effect-free on source and fm-wake-lib.sh creates the
-# state root when sourced, so the two stat forms are repeated here rather than
-# pulling that side effect into every consumer of this file.
-_fm_session_lock_path_age() {  # <path>
-  local m
-  if [ "$(uname 2>/dev/null || echo unknown)" = Darwin ]; then
-    m=$(/usr/bin/stat -f %m "$1" 2>/dev/null)
-  else
-    m=$(stat -c %Y "$1" 2>/dev/null)
-  fi
-  case "$m" in
-    ''|*[!0-9]*) printf '%s\n' 999999; return 0 ;;
-  esac
-  printf '%s\n' "$(( $(date +%s) - m ))"
-}
-
-# Keep the session-identity sidecar valid for the LIFETIME of the session, not
-# only for the instant bin/fm-lock.sh acquired the lock.
-#
-# CLAUDE_CODE_SESSION_ID can change under a session that is already running -
-# moving a session into a daemon-hosted background job forks it with a new id -
-# and the acquisition-time sidecar then names a session that no longer presents
-# that token while the recorded lock pid is still alive. Both self-recognition
-# branches fail at once, so the session can neither recognize nor re-take its
-# own lock, and every Stop hook declines silently and permanently (the
-# 2026-09-15 nine-hour supervision outage).
-#
-# Refreshing on every PROVEN ownership gives two properties:
-#   1. the recorded token follows the live session id, so an id change while
-#      ancestry still holds never strands the home; and
-#   2. the sidecar's mtime becomes a liveness beacon for the lock-owning
-#      SESSION rather than merely for its pid, which is what lets
-#      fm_session_lock_identity_state tell a genuinely live competing session
-#      (refreshed every turn end) from a diverged one (never refreshed again).
-#
-# Silent and best-effort, exactly like the writer it delegates to: a refresh
-# failure must never fail the caller.
-fm_session_lock_sidecar_sync() {  # <state-dir>
-  local state=$1 lock_pid
-  # The sidecar exists only for a stable Claude session token, so answer the
-  # cheap question first and never pay for an ancestry walk on every turn end of
-  # every other harness.
-  fm_claude_session_token >/dev/null || return 0
-  fm_session_lock_owned_by_self "$state" || return 0
+# True when state dir $1 records a live verified harness outside this process's
+# contiguous harness ancestry that was not recorded by this same trusted Claude
+# session. Sets FM_SESSION_LOCK_FOREIGN_OWNER_PID for a diagnostic caller.
+# Malformed, missing, dead, and ancestry-uncertain locks are not foreign-owner
+# evidence.
+# shellcheck disable=SC2034 # Output global, read by the sourcing guard caller.
+FM_SESSION_LOCK_FOREIGN_OWNER_PID=
+fm_session_lock_foreign_owner_live() {
+  local state=$1 lock_pid pids pid
+  FM_SESSION_LOCK_FOREIGN_OWNER_PID=
+  [ -f "$state/.lock" ] && [ ! -L "$state/.lock" ] || return 1
   lock_pid=$(cat "$state/.lock" 2>/dev/null || true)
   case "$lock_pid" in
-    ''|*[!0-9]*) return 0 ;;
+    ''|*[!0-9]*) return 1 ;;
   esac
-  fm_session_lock_write_sidecar "$lock_pid" "$state"
-}
-
-# ONE owner of "may this process act as this home's session, and if not, why
-# not?". Prints exactly one word:
-#
-#   self         this process runs inside the lock-owning session.
-#   free         no lock file, or a malformed one: nothing to reconcile.
-#   stale-owner  the recorded pid is not a live harness process.
-#   diverged     the recorded pid IS a live harness process, but the sidecar
-#                proves the lock was taken by a Claude session that has not
-#                proven ownership for the divergence grace, while THIS process
-#                is a Claude session carrying a different well-formed token.
-#                That is the session-id-changed-under-a-running-session shape:
-#                recoverable, because a session that is still running this
-#                home's hooks refreshes the sidecar at every turn end.
-#   competing    any other live owner: refuse, exactly as before.
-#
-# Every uncertainty classifies as competing, so the protection the identity
-# gate exists for can never widen by accident.
-fm_session_lock_identity_state() {  # <state-dir> [divergence-grace]
-  local state=$1 grace=${2:-${FM_SESSION_LOCK_DIVERGENCE_GRACE:-$FM_SESSION_LOCK_DIVERGENCE_GRACE_DEFAULT}}
-  local lock_pid token side_pid side_token
-  case "$grace" in
-    ''|*[!0-9]*) grace=$FM_SESSION_LOCK_DIVERGENCE_GRACE_DEFAULT ;;
-  esac
-  if fm_session_lock_owned_by_self "$state"; then
-    printf 'self\n'
-    return 0
-  fi
-  lock_pid=$(cat "$state/.lock" 2>/dev/null || true)
-  case "$lock_pid" in
-    ''|*[!0-9]*) printf 'free\n'; return 0 ;;
-  esac
-  if ! fm_harness_pid_alive "$lock_pid"; then
-    printf 'stale-owner\n'
-    return 0
-  fi
-  # A live recorded owner. Only the complete divergence signature may downgrade
-  # it, and every missing piece of that signature keeps the refusal.
-  token=$(fm_claude_session_token) || { printf 'competing\n'; return 0; }
-  { [ -f "$state/.lock.session" ] && [ ! -L "$state/.lock.session" ]; } \
-    || { printf 'competing\n'; return 0; }
-  { IFS= read -r side_pid && IFS= read -r side_token; } < "$state/.lock.session" 2>/dev/null \
-    || { printf 'competing\n'; return 0; }
-  [ -n "$side_pid" ] && [ -n "$side_token" ] || { printf 'competing\n'; return 0; }
-  # The sidecar must describe the CURRENT lock holder, and must name a session
-  # other than this one - otherwise there is no divergence to recover from.
-  [ "$side_pid" = "$lock_pid" ] || { printf 'competing\n'; return 0; }
-  [ "$side_token" != "$token" ] || { printf 'competing\n'; return 0; }
-  [ "$(_fm_session_lock_path_age "$state/.lock.session")" -ge "$grace" ] \
-    || { printf 'competing\n'; return 0; }
-  printf 'diverged\n'
+  fm_harness_pid_alive "$lock_pid" || return 1
+  pids=$(fm_harness_ancestry_pids) || return 1
+  while IFS= read -r pid; do
+    [ "$pid" = "$lock_pid" ] && return 1
+  done <<EOF
+$pids
+EOF
+  fm_session_lock_same_session "$state" "$pids" && return 1
+  # shellcheck disable=SC2034 # Output global, read by the sourcing guard caller.
+  FM_SESSION_LOCK_FOREIGN_OWNER_PID=$lock_pid
+  return 0
 }

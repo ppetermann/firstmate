@@ -1293,62 +1293,6 @@ test_positive_regime_claims_a_generation_and_leaves_a_watcher_running() {
   pass "auto-arm: the positive regime claims a generation and leaves a live watcher behind"
 }
 
-# The 2026-09-15 defect, end to end: the lock is acquired under session token X
-# and the session id then changes to Y under the same running session - moving a
-# session into a daemon-hosted background job does exactly this. The recorded pid
-# stays alive, so before the fix BOTH self-recognition branches failed and every
-# later firing declined silently and permanently at the identity gate. It must
-# instead be recognized as a recoverable mismatch and reconciled.
-test_session_token_change_is_reconciled_not_silently_declined() {
-  local dir predecessor out status owner_after expected_owner
-  dir=$(make_primary_dir "$TMP_ROOT/token-change")
-  : > "$dir/state/task.meta"
-  write_arm_fixture "$dir" actionable
-
-  # The session's own predecessor process: still alive, still harness-shaped,
-  # recorded as the lock owner together with the token it held at acquisition.
-  # The trailing no-op keeps the fake harness process alive instead of allowing
-  # bash to exec the final sleep into a non-harness process.
-  "$FAKE_CLAUDE" -c 'sleep 60; :' &
-  predecessor=$!
-  printf '%s\n' "$predecessor" > "$dir/state/.lock"
-  printf '%s\nsess-before-the-move\n' "$predecessor" > "$dir/state/.lock.session"
-
-  # While that record is still fresh it is indistinguishable from a genuinely
-  # live competing session, and the refusal must hold.
-  out=$(printf '%s\n' '{"session_id":"sess-after-the-move"}' \
-    | FM_HOME="$dir" CLAUDE_CODE_SESSION_ID=sess-after-the-move \
-      "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"' 2>&1); status=$?
-  owner_after=$(cat "$dir/state/.lock")
-  if [ "$status" -ne 0 ] || [ "$owner_after" != "$predecessor" ] || [ -e "$dir/state/arm-ran" ]; then
-    kill "$predecessor" 2>/dev/null || true
-    fail "a freshly proven owner was not protected: rc=$status owner=$owner_after"
-  fi
-
-  # Once that record has proven nothing for the divergence grace, the recorded
-  # owner is demonstrably no longer the session running this home's hooks.
-  touch -t 200001010000 "$dir/state/.lock.session"
-  out=$(printf '%s\n' '{"session_id":"sess-after-the-move"}' \
-    | FM_HOME="$dir" CLAUDE_CODE_SESSION_ID=sess-after-the-move \
-      "$FAKE_CLAUDE" -c '
-        printf "%s\n" "$$" > "$FM_HOME/state/expected-owner"
-        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
-      ' 2>&1); status=$?
-  owner_after=$(cat "$dir/state/.lock")
-  expected_owner=$(cat "$dir/state/expected-owner")
-  kill "$predecessor" 2>/dev/null || true
-  wait "$predecessor" 2>/dev/null || true
-
-  expect_code 2 "$status" "a changed session id must be reconciled and armed, not silently declined forever"
-  [ "$owner_after" = "$expected_owner" ] \
-    || fail "the session did not re-take its own lock from its predecessor: expected $expected_owner, got $owner_after"
-  [ "$(cat "$dir/state/.lock.session")" = "$(printf '%s\nsess-after-the-move' "$expected_owner")" ] \
-    || fail "the session-identity record was not rebound to the live session token"
-  [ -e "$dir/state/arm-ran" ] || fail "supervision never armed after reconciling the changed session id"
-  [ "$(epoch_outcome "$dir")" = rewake ] || fail "no generation was claimed after reconciliation"
-  pass "auto-arm: a session id that changes under a running session is reconciled instead of declining silently forever"
-}
-
 test_fm_lock_status_still_works_with_shared_lib() {
   local out
   out=$(FM_HOME="$TMP_ROOT/lock-status-home" bash "$ROOT/bin/fm-lock.sh" status 2>&1)
@@ -1398,5 +1342,4 @@ test_afk_mid_cycle_suppresses_rewake
 test_active_in_marked_secondmate_home
 test_long_poll_grace_reaches_arm_wrapper
 test_positive_regime_claims_a_generation_and_leaves_a_watcher_running
-test_session_token_change_is_reconciled_not_silently_declined
 test_fm_lock_status_still_works_with_shared_lib

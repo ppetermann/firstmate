@@ -66,7 +66,11 @@
 # auto-arm (bin/fm-claude-stop-autoarm.sh), which fires on the same Stop event:
 #   1. a live identity-matched watcher with a fresh beacon - or, in away mode, a
 #      live identity-matched daemon with a fresh beacon - allows immediately;
-#   2. otherwise wait briefly (FM_CLAUDE_AUTOARM_SYNC_WAIT_MS, default 800ms)
+#   2. an unhealthy session with a verified live session-lock owner it does not
+#      own under the shared ancestry-or-trusted-id verdict exits with a read-only
+#      diagnostic instead of blocking a session that cannot repair supervision
+#      without stealing ownership;
+#   3. otherwise wait briefly (FM_CLAUDE_AUTOARM_SYNC_WAIT_MS, default 800ms)
 #      for the auto-arm to claim this home (a live OPEN generation claim in the
 #      state/.claude-autoarm-epoch ledger - fm_autoarm_claim_open - or a legacy
 #      build's lock-holding claim under the legacy abandonment proof) or to
@@ -75,7 +79,7 @@
 #      without consuming a continuation, so one event epoch yields exactly one recovery turn;
 #      the first fresh exhausted-failure epoch preserves the bounded progression,
 #      while later fresh failed epochs consume it instead of resetting it;
-#   3. only when neither materializes is the auto-arm genuinely absent: re-block
+#   4. only when neither materializes is the auto-arm genuinely absent: re-block
 #      with the repair banner, bounded to FM_CLAUDE_TURNEND_BLOCK_BUDGET
 #      (default 3) consecutive blocks per session - safely below Claude Code's
 #      hard 8-consecutive-block override - then allow one loud attended
@@ -117,8 +121,6 @@ done
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
 # shellcheck source=bin/fm-hook-host-lib.sh
 . "$SCRIPT_DIR/fm-hook-host-lib.sh"
-# shellcheck source=bin/fm-session-lock-lib.sh
-. "$SCRIPT_DIR/fm-session-lock-lib.sh"
 
 # Read the whole turn-end hook payload once; never block on unreadable/absent
 # stdin.
@@ -166,19 +168,13 @@ fi
 # so this exempts them while guarding every real secondmate home.
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
-# --- keep this session's identity record alive -------------------------------
-# This hook fires on every turn end of every primary session, which makes it the
-# one place that can refresh the session-identity sidecar for as long as the
-# session lives. That refresh is what stops a later session-id change from
-# stranding the home, and its mtime is what lets a diverged identity be told
-# apart from a genuinely live competing session (fm_session_lock_sidecar_sync in
-# bin/fm-session-lock-lib.sh owns the contract). Silent no-op for every session
-# that is not the lock owner and for every harness with no stable session token.
-fm_session_lock_sidecar_sync "$STATE"
-
 # --- the actual predicate ----------------------------------------------------
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+if [ "$CLAUDE_MODE" -eq 1 ]; then
+  # shellcheck source=bin/fm-session-lock-lib.sh
+  . "$SCRIPT_DIR/fm-session-lock-lib.sh"
+fi
 
 BUDGET_FILE="$STATE/.turnend-claude-blocks"
 BUDGET_LOCK="$STATE/.turnend-claude-blocks.lock"
@@ -228,57 +224,6 @@ if [ "$(fm_path_age "$STATE/.last-watcher-beat")" -lt "$AFK_GRACE" ] \
   allow_supervised_stop
 fi
 
-# The identity classification is read at most once per invocation: it costs a
-# few ps calls, and both the blind-turn banner and the terminal decision below
-# ask the same question. bin/fm-session-lock-lib.sh owns the classification
-# itself; this is only its memo.
-IDENTITY_STATE_CACHED=
-identity_state() {
-  [ -n "$IDENTITY_STATE_CACHED" ] || IDENTITY_STATE_CACHED=$(fm_session_lock_identity_state "$STATE")
-  printf '%s' "$IDENTITY_STATE_CACHED"
-}
-
-# True when the Stop-owned auto-arm is STRUCTURALLY inert in this session: it
-# declines at its own identity gate before it can ever try, so it never fails,
-# never writes a failed outcome, and never creates the failure notice that
-# failure_episode_verified below would otherwise require. Nothing in that state
-# ever ends on its own, and it is indistinguishable from healthy
-# competing-session inertness unless it is said out loud - which is how the
-# 2026-09-15 outage ran for nine hours while this guard printed the same
-# blind-turn banner on every turn. It is therefore its own verified terminal
-# condition, reported once through the SAME attended alarm as an exhausted
-# auto-arm failure rather than through a second channel.
-#
-# "diverged" is included deliberately: the auto-arm reclaims that state at its
-# next firing, so a home still diverged by the time the block budget is spent is
-# one where that recovery did not take.
-identity_inert_verified() {
-  [ "$CLAUDE_MODE" -eq 1 ] || return 1
-  [ ! -e "$STATE/.afk" ] || return 1
-  case "$(identity_state)" in
-    competing|diverged) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-# One sentence naming what this session is locked out by, for the banner and the
-# attended alarm.
-identity_inert_detail() {
-  local lock_pid
-  lock_pid=$(cat "$STATE/.lock" 2>/dev/null || true)
-  case "$lock_pid" in
-    ''|*[!0-9]*) lock_pid='unknown' ;;
-  esac
-  case "$(identity_state)" in
-    diverged)
-      printf 'the recorded owner pid %s is alive but its session identity diverged from this session, and reclaiming it did not take' "$lock_pid"
-      ;;
-    *)
-      printf 'another live session holds it (pid %s)' "$lock_pid"
-      ;;
-  esac
-}
-
 block_stop() {
   local afk x_mode reason rule
   afk=0
@@ -302,16 +247,24 @@ block_stop() {
     fi
     if [ "$CLAUDE_MODE" -eq 1 ]; then
       printf '●  The Stop-owned auto-arm did not claim this home either, so recovery is NOT already under way.\n'
-      if identity_inert_verified; then
-        printf '●  It CANNOT claim it: this session does not hold this home session lock - %s.\n' "$(identity_inert_detail)"
-        printf '●  The automatic recovery mechanism is inert here and will not restart supervision by itself; reconcile the home session lock (bin/fm-lock.sh status, then bin/fm-lock.sh).\n'
-      fi
     fi
     printf '●  %s\n' "$reason"
     printf '●%s\n' "$rule"
   } >&2
   exit 2
 }
+
+# Another verified live session owns the home lock under the shared
+# ancestry-or-trusted-id verdict. This session is read-only and cannot arm or
+# repair supervision without
+# stealing ownership, so blocking its Stop would create an impossible loop.
+# Report the ownership conflict as a diagnostic and let this turn end safely;
+# the owning session remains responsible for restoring the watcher.
+if [ "$CLAUDE_MODE" -eq 1 ] && fm_session_lock_foreign_owner_live "$STATE"; then
+  printf '{"systemMessage":"FIRSTMATE SUPERVISION IS OWNED BY ANOTHER LIVE SESSION: this read-only session cannot and should not arm or repair the watcher (lock owner pid %s). Allowing this turn to end safely; the owning session must restore supervision."}\n' \
+    "$FM_SESSION_LOCK_FOREIGN_OWNER_PID"
+  exit 0
+fi
 
 if [ "$CLAUDE_MODE" -eq 0 ]; then
   block_stop
@@ -525,7 +478,6 @@ terminal_fail_open() {
 failure_episode_verified() {
   local outcome
   [ ! -e "$STATE/.afk" ] || return 1
-  identity_inert_verified && return 0
   [ -e "$FAILURE_NOTICE" ] || return 1
   outcome=$(sed -n '1s/^.*outcome=\([a-z][a-z-]*\) .*$/\1/p' "$STATE/.claude-autoarm-epoch" 2>/dev/null || true)
   case "$outcome" in
@@ -567,11 +519,7 @@ if [ "$terminal_status" -eq 0 ]; then
   else
     NEED_DESC="X-mode relay polling active"
   fi
-  if identity_inert_verified; then
-    printf '{"systemMessage":"FIRSTMATE SUPERVISION IS GENUINELY DOWN AND CANNOT RECOVER ITSELF: %s, and this session does not hold this home session lock - %s. The Stop-owned auto-arm declines at its identity gate on every turn, so it never even attempts a recovery. Reconcile the home session lock (bin/fm-lock.sh status, then bin/fm-lock.sh) before relying on unattended supervision."}\n' "$NEED_DESC" "$(identity_inert_detail)"
-  else
-    printf '{"systemMessage":"FIRSTMATE SUPERVISION IS GENUINELY DOWN: %s, the Stop-owned auto-arm exhausted its bounded retries and one failure notice, no watcher or automatic continuation exists, and the block budget is exhausted. Keep this session attended and diagnose the automatic Stop-hook and watcher startup before relying on unattended supervision."}\n' "$NEED_DESC"
-  fi
+  printf '{"systemMessage":"FIRSTMATE SUPERVISION IS GENUINELY DOWN: %s, the Stop-owned auto-arm exhausted its bounded retries and one failure notice, no watcher or automatic continuation exists, and the block budget is exhausted. Keep this session attended and diagnose the automatic Stop-hook and watcher startup before relying on unattended supervision."}\n' "$NEED_DESC"
   exit 0
 fi
 [ "$terminal_status" -eq 2 ] && exit 0

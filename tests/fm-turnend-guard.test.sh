@@ -194,8 +194,6 @@ install_guard_scripts() {
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
   cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
   cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
-  cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"
-  chmod +x "$dir/bin/fm-lock.sh"
   mkdir -p "$dir/docs"
   cp -R "$ROOT/docs/supervision-protocols" "$dir/docs/supervision-protocols"
   chmod +x "$dir/bin/fm-turnend-guard.sh" "$dir/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-operational-input.sh" "$dir/bin/fm-supervision-instructions.sh" "$dir/bin/fm-harness.sh"
@@ -1214,7 +1212,10 @@ install_integrated_autoarm() {
   cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
-  chmod +x "$dir/bin/fm-claude-stop-autoarm.sh"
+  cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
+  cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
+  cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"
+  chmod +x "$dir/bin/fm-claude-stop-autoarm.sh" "$dir/bin/fm-lock.sh"
   ln -s /bin/bash "$dir/fake-claude"
 }
 
@@ -1635,25 +1636,13 @@ test_hook_claude_mode_integrated_monotonic_fail_open() {
 }
 
 # The auto-arm's ledger epoch advances only when the hook reaches its
-# generation claim. A live harness-named process outside the hook's ancestry
-# holding state/.lock keeps the hook inert by its identity contract, so the
+# generation claim. An unowned hook with no session lock stays inert, so the
 # ledger stays at the exhausted-failure epoch the hook wrote before it went
 # quiet. The block budget used to advance only on an epoch change, so this
 # shape re-blocked without limit and the attended fail-open never fired: the
 # budget must count consecutive re-blocks against an unchanged epoch instead.
-hold_session_lock_from_foreign_harness() {  # sets FOREIGN_LOCK_HOLDER
-  local dir=$1
-  # `bash -c` execs a single command in place, which would rename the process
-  # to sleep; the trailing no-op keeps the harness-named shell as the holder.
-  # Started in this shell, not a command substitution, so the caller can reap
-  # it and no inherited pipe keeps a substitution waiting on the sleeper.
-  "$dir/fake-claude" -c 'sleep 60; true' >/dev/null 2>&1 &
-  FOREIGN_LOCK_HOLDER=$!
-  printf '%s\n' "$FOREIGN_LOCK_HOLDER" > "$dir/state/.lock"
-}
-
 test_hook_claude_mode_frozen_epoch_reaches_bounded_fail_open() {
-  local dir out status guard_out guard_status holder i pid identity count epoch_line
+  local dir out status guard_out guard_status i pid identity count epoch_line
   dir=$(make_primary_dir "$TMP_ROOT/hook-claude-frozen-epoch")
   : > "$dir/state/task1.meta"
   install_integrated_autoarm "$dir"
@@ -1665,8 +1654,9 @@ test_hook_claude_mode_frozen_epoch_reaches_bounded_fail_open() {
   expect_code 0 "$guard_status" "the first failed epoch must own its Stop handoff"
   epoch_line=$(sed -n '1p' "$dir/state/.claude-autoarm-epoch")
 
-  hold_session_lock_from_foreign_harness "$dir"
-  holder=$FOREIGN_LOCK_HOLDER
+  # Remove the dead lock left by the fixture arm so this case isolates the
+  # frozen-ledger accounting path rather than the live foreign-owner escape.
+  rm -f "$dir/state/.lock"
   for i in 1 2 3 4; do
     out=$(run_integrated_autoarm_unowned "$dir"); status=$?
     expect_code 0 "$status" "an auto-arm outside the lock owner's ancestry must stay inert at stop $i"
@@ -1697,8 +1687,6 @@ test_hook_claude_mode_frozen_epoch_reaches_bounded_fail_open() {
   identity=$(watcher_identity "$dir" "$pid") || {
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
-    kill "$holder" 2>/dev/null || true
-    wait "$holder" 2>/dev/null || true
     fail "could not identify the frozen-epoch recovery watcher"
   }
   record_watcher_lock "$dir" "$pid" "$identity"
@@ -1706,8 +1694,6 @@ test_hook_claude_mode_frozen_epoch_reaches_bounded_fail_open() {
   guard_out=$(run_hook_claude "$dir" true); guard_status=$?
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
-  kill "$holder" 2>/dev/null || true
-  wait "$holder" 2>/dev/null || true
   rm -rf "$dir/state/.watch.lock"
   expect_code 0 "$guard_status" "a healthy watcher must still allow the stop after a frozen-epoch alarm"
   [ -z "$guard_out" ] || fail "healthy allow after the frozen-epoch alarm produced output: $guard_out"
@@ -1741,100 +1727,6 @@ test_hook_claude_mode_frozen_epoch_without_verified_failure_spends_budget_and_ke
   [ "$count" -gt 3 ] 2>/dev/null || fail "the block budget must run out against a frozen epoch, but the recorded count is ${count:-absent}"
   assert_absent "$dir/state/.claude-autoarm-failure-alarmed" "an unverified frozen epoch recorded an attended alarm"
   pass "fm-turnend-guard --claude: a frozen unverified epoch spends the budget yet still blocks"
-}
-
-# The 2026-09-15 outage shape, and the announcement it was missing. The
-# auto-arm is STRUCTURALLY inert - it declines at its identity gate before it
-# can ever try - so it never fails, never writes a failed outcome, and never
-# creates the failure notice the episode gate used to require. Before this,
-# that state was indistinguishable from healthy competing-session inertness:
-# the guard printed the same blind-turn banner on every turn for nine hours and
-# the one attended alarm was structurally unreachable. It must now say what is
-# wrong and reach that same single alarm.
-test_hook_claude_mode_identity_locked_out_names_the_cause_and_reaches_the_alarm() {
-  local dir holder out status i seen_alarm
-  dir=$(make_primary_dir "$TMP_ROOT/hook-claude-identity-inert")
-  : > "$dir/state/task1.meta"
-  install_integrated_autoarm "$dir"
-  # A frozen ledger with a NON-failure outcome: exactly what an auto-arm that
-  # declines before it can try leaves behind.
-  printf 'epoch=11 owner_pid=999 outcome=rewake updated_at=1\n' > "$dir/state/.claude-autoarm-epoch"
-  touch -t 202001010000 "$dir/state/.claude-autoarm-epoch"
-  hold_session_lock_from_foreign_harness "$dir"
-  holder=$FOREIGN_LOCK_HOLDER
-
-  seen_alarm=0
-  for i in 1 2 3 4; do
-    out=$(FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=100 run_hook_claude "$dir" false); status=$?
-    assert_absent "$dir/state/.claude-autoarm-failure-notified" \
-      "stop $i invented a failure notice an identity-inert auto-arm can never write"
-    if [ "$i" -lt 4 ]; then
-      expect_code 2 "$status" "identity-locked-out stop $i must still block within the budget"
-      assert_contains "$out" "TURN WOULD END BLIND" "identity-locked-out block $i lost the blind-turn banner"
-      assert_contains "$out" "does not hold this home session lock" \
-        "identity-locked-out block $i never said WHY recovery cannot happen"
-      assert_contains "$out" "another live session holds it (pid $holder)" \
-        "identity-locked-out block $i did not name the process locking this session out"
-    else
-      expect_code 0 "$status" "a permanently inert auto-arm must reach the attended alarm instead of blocking forever"
-      assert_contains "$out" 'FIRSTMATE SUPERVISION IS GENUINELY DOWN AND CANNOT RECOVER ITSELF' \
-        "the structural-inertness alarm never fired"
-      assert_contains "$out" 'does not hold this home session lock' \
-        "the structural-inertness alarm did not name the session lock as the cause"
-      assert_present "$dir/state/.claude-autoarm-failure-alarmed" "the alarm did not consume its episode marker"
-      seen_alarm=1
-    fi
-  done
-  [ "$seen_alarm" -eq 1 ] || fail "the alarm assertion never ran"
-
-  # One alarm per episode, exactly as for an exhausted failure.
-  out=$(FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=100 run_hook_claude "$dir" false); status=$?
-  kill "$holder" 2>/dev/null || true
-  wait "$holder" 2>/dev/null || true
-  expect_code 2 "$status" "a later locked-out stop must stay attended"
-  assert_not_contains "$out" 'FIRSTMATE SUPERVISION IS GENUINELY DOWN' \
-    "the attended alarm repeated while the same lock-out episode was unresolved"
-  pass "fm-turnend-guard --claude: a structurally inert auto-arm names the session lock that blocks it and reaches one attended alarm"
-}
-
-# The loose end from the 2026-09-15 recovery: state/.turnend-claude-blocks was
-# still readable afterwards, recorded against the OLD session id. Positive
-# watcher recovery must clear the budget, the notice and the alarm together, and
-# a session change must not mask that reset.
-test_hook_claude_mode_positive_recovery_clears_a_foreign_session_episode() {
-  local dir pid identity out status
-  dir=$(make_primary_dir "$TMP_ROOT/hook-claude-foreign-session-reset")
-  : > "$dir/state/task1.meta"
-  # An episode recorded by a session that no longer exists, in full: budget,
-  # notice and alarm.
-  printf 'session=sess-before-the-move\ncount=67\nepoch=2713\n' > "$dir/state/.turnend-claude-blocks"
-  : > "$dir/state/.claude-autoarm-failure-notified"
-  : > "$dir/state/.claude-autoarm-failure-alarmed"
-  printf 'epoch=2713 owner_pid=999 outcome=rewake updated_at=1\n' > "$dir/state/.claude-autoarm-epoch"
-  touch -t 202001010000 "$dir/state/.claude-autoarm-epoch"
-
-  sleep 60 &
-  pid=$!
-  identity=$(watcher_identity "$dir" "$pid") || {
-    kill "$pid" 2>/dev/null || true
-    fail "could not identify the recovery watcher"
-  }
-  record_watcher_lock "$dir" "$pid" "$identity"
-  touch "$dir/state/.last-watcher-beat"
-
-  # run_hook_claude always reports session id sess-claude-mode, so this stop is
-  # a different session from the one that recorded the episode above.
-  out=$(run_hook_claude "$dir" true); status=$?
-  kill "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
-  rm -rf "$dir/state/.watch.lock"
-  expect_code 0 "$status" "a healthy watcher must allow the stop"
-  [ -z "$out" ] || fail "a healthy allow produced output: $out"
-  assert_absent "$dir/state/.turnend-claude-blocks" \
-    "positive recovery left a block budget recorded against the previous session"
-  assert_absent "$dir/state/.claude-autoarm-failure-notified" "positive recovery left the failure notice"
-  assert_absent "$dir/state/.claude-autoarm-failure-alarmed" "positive recovery left the attended alarm"
-  pass "fm-turnend-guard --claude: positive watcher recovery clears budget, notice and alarm together even when the session id changed"
 }
 
 test_hook_claude_mode_recovery_contention_is_not_ordinary_allow() {
@@ -2362,8 +2254,6 @@ test_hook_claude_mode_preserves_fresh_failed_progression
 test_hook_claude_mode_integrated_monotonic_fail_open
 test_hook_claude_mode_frozen_epoch_reaches_bounded_fail_open
 test_hook_claude_mode_frozen_epoch_without_verified_failure_spends_budget_and_keeps_blocking
-test_hook_claude_mode_identity_locked_out_names_the_cause_and_reaches_the_alarm
-test_hook_claude_mode_positive_recovery_clears_a_foreign_session_episode
 test_hook_claude_mode_recovery_contention_is_not_ordinary_allow
 test_hook_claude_mode_concurrent_recovery_resets_are_idempotent
 test_hook_claude_mode_stale_rewake_epoch_blocks
