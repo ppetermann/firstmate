@@ -726,6 +726,35 @@ test_rejected_metacharacter_bytes_are_inert() {
   pass "rejected metacharacter bytes remain inert at generation and watcher time"
 }
 
+test_rejected_check_notice_survives_a_later_waking_check() {
+  local dir rc
+  dir=$(make_case rejected-notice-durability)
+
+  # aaa-bad sorts before every other check in this sweep; it exists on disk
+  # but was never registered/trusted, so the watcher classifies it as an
+  # unauthenticated state check and rejects it without running it.
+  printf '#!/usr/bin/env bash\nprintf "should-not-run\\n"\n' > "$dir/home/state/aaa-bad.check.sh"
+  chmod 0700 "$dir/home/state/aaa-bad.check.sh"
+
+  # zzz-noise sorts after aaa-bad and is a properly registered custom check
+  # that produces output, so the sweep's ordinary wake()+exit fires on it -
+  # exactly the later-sorting check that used to discard the rejection.
+  printf '#!/usr/bin/env bash\nprintf "noise\\n"\n' > "$dir/home/state/zzz-noise.check.sh"
+  chmod 0700 "$dir/home/state/zzz-noise.check.sh"
+  FM_HOME="$dir/home" "$REGISTER" zzz-noise >/dev/null \
+    || fail "could not register the noise custom check"
+
+  set +e
+  run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "bounded watcher failed: $(cat "$dir/watch.err")"
+
+  assert_grep 'unauthenticated-state-checks' "$dir/home/state/.wake-queue" \
+    "the rejected check's durable row was lost to the later-sorting noisy check"
+  pass "a rejected check's durable notice survives a later-sorting check waking the same sweep"
+}
+
 make_poll_fixture() {
   local dir=$1
   cp "$POLL" "$dir/home/state/task-a.check.sh"
@@ -2869,6 +2898,7 @@ test_invalid_entrypoints_have_zero_side_effects
 test_valid_recording_and_merge_derivation
 test_task_worker_arming_is_refused
 test_rejected_metacharacter_bytes_are_inert
+test_rejected_check_notice_survives_a_later_waking_check
 test_static_poll_contract
 test_atomic_interruption_leaves_no_partial_artifact
 test_concurrent_watcher_sees_only_complete_publication

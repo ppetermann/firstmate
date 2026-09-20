@@ -2429,6 +2429,8 @@ while :; do
           out=$FM_CHECK_RESULT
         else
           rejected_checks="$rejected_checks $c"
+          fm_wake_append check unauthenticated-state-checks \
+            "check: rejected unauthenticated state check: $c" || exit 1
           continue
         fi
       elif [ "$(basename "$c")" = x-watch.check.sh ]; then
@@ -2438,6 +2440,8 @@ while :; do
           out=$FM_CHECK_RESULT
         else
           rejected_checks="$rejected_checks $c"
+          fm_wake_append check unauthenticated-state-checks \
+            "check: rejected unauthenticated state check: $c" || exit 1
           continue
         fi
       else
@@ -2469,6 +2473,8 @@ while :; do
         else
           fm_custom_check_snapshot_cleanup
           rejected_checks="$rejected_checks $c"
+          fm_wake_append check unauthenticated-state-checks \
+            "check: rejected unauthenticated state check: $c" || exit 1
           continue
         fi
       fi
@@ -2536,8 +2542,11 @@ EOF
       pr_poll_control_release || exit 1
     done
     if [ -n "$rejected_checks" ]; then
+      # The durable row for each rejection was already appended in the loop
+      # above, at the moment it was found - not here - because wake() exits
+      # the process, and a later-sorting check that produces output would
+      # otherwise discard this whole block before it ever runs.
       reason="check: rejected unauthenticated state checks:$rejected_checks"
-      fm_wake_append check unauthenticated-state-checks "$reason" || exit 1
       touch "$STATE/.last-check"
       wake "$reason"
     fi

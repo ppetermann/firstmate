@@ -25,6 +25,8 @@ set -u
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-trace-context-lib.sh"
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-pr-lib.sh"
 
 CONTROL="$ROOT/bin/fm-control.sh"
 SPAWN="$ROOT/bin/fm-spawn.sh"
@@ -218,6 +220,41 @@ meta_field() {  # <case-dir> <id> <key>
 
 journal_field() {  # <case-dir> <id> <key>
   grep "^$3=" "$1/home/state/$2.control-relaunch" | tail -1 | cut -d= -f2-
+}
+
+# A minimal gh stub for the PR arm/poll path: only the "--json state -q
+# .state" lookup fm-pr-poll.sh depends on is answered; the optional
+# headRefOid/title/body lookups fm-pr-check.sh makes at arm time fall through
+# silently, exactly as they do when gh cannot supply them.
+write_pr_poll_gh_stub() {  # <case-dir>
+  fm_fakebin_write "$1/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *" state "*) printf '%s\n' "${FM_TEST_GH_STATE:-OPEN}" ;;
+esac
+exit 0
+SH
+  chmod +x "$1/fakebin/gh"
+}
+
+# run_watcher_relaunch_case <case-dir>: one bounded fm-watch.sh cycle against
+# the case's own fakebin/home, stopped deterministically by a z-stop custom
+# check that sorts after any ordinary task id.
+run_watcher_relaunch_case() {  # <case-dir>
+  local dir=$1 state="$1/home/state" rc=0
+  printf '#!/usr/bin/env bash\nprintf "stop-cycle\\n"\n' > "$state/z-stop.check.sh"
+  chmod 0700 "$state/z-stop.check.sh"
+  FM_HOME="$dir/home" "$ROOT/bin/fm-check-register.sh" z-stop >/dev/null \
+    || fail "could not register the stop-cycle custom check"
+  # This file runs under set -u only, never set -e (see the note near
+  # test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
+  # below), so rc is captured directly with no errexit toggle around it.
+  perl -e 'my $pid=fork; die unless defined $pid; if (!$pid) { exec @ARGV } local $SIG{ALRM}=sub { kill "TERM", $pid; waitpid $pid, 0; exit 124 }; alarm 10; waitpid $pid, 0; alarm 0; exit($? >> 8)' \
+    env FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_CHECK_INTERVAL=0 FM_CHECK_TIMEOUT=1 \
+      FM_POLL=0.02 FM_HEARTBEAT=999999 FM_SIGNAL_GRACE=0 FM_TEST_GH_STATE=MERGED \
+      PATH="$dir/fakebin:$PATH" "$ROOT/bin/fm-watch.sh" > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "post-relaunch watcher cycle failed: $(cat "$dir/watch.err")"
 }
 
 make_git_failure_stub() {  # <case-dir>
@@ -416,24 +453,62 @@ test_relaunch_preserves_durable_task_metadata() {
   local dir out rc
   dir=$(new_case durable-meta rl19)
   add_ship_task "$dir" rl19 claude
+  # decisions_reviewed and x_request land before pr=/pr_head= here because
+  # that is the order a real arm produces (bin/fm-pr-check.sh always
+  # re-appends pr=/pr_head= last); the poll's authentication gate refuses
+  # any unrecognised line after pr=, so a record ending in anything else
+  # is not a shape relaunch should ever have to preserve.
   {
-    printf '%s\n' 'pr=https://github.com/example/repo/pull/19'
-    printf '%s\n' 'pr_head=feature/relaunch'
-    printf '%s\n' 'x_request=request-19'
     printf '%s\n' 'decisions_reviewed=1'
+    printf '%s\n' 'x_request=request-19'
+    printf '%s\n' 'pr=https://github.com/example/repo/pull/19'
+    printf '%s\n' 'pr_head=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
   } >> "$dir/home/state/rl19.meta"
 
   out=$(run_control "$dir" rl19 relaunch --note "continuing review work"); rc=$?
   expect_code 0 "$rc" "relaunch should preserve durable metadata"$'\n'"$out"
   [ "$(meta_field "$dir" rl19 pr)" = "https://github.com/example/repo/pull/19" ] \
     || fail "the task PR must survive relaunch"
-  [ "$(meta_field "$dir" rl19 pr_head)" = "feature/relaunch" ] \
+  [ "$(meta_field "$dir" rl19 pr_head)" = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" ] \
     || fail "the task PR head must survive relaunch"
   [ "$(meta_field "$dir" rl19 x_request)" = "request-19" ] \
     || fail "the task X request must survive relaunch"
   [ "$(meta_field "$dir" rl19 decisions_reviewed)" = 1 ] \
     || fail "the task decision state must survive relaunch"
+  fm_pr_metadata_identity_parse "$dir/home/state/rl19.meta" \
+    || fail "relaunch left the merge poll's authentication gate unable to parse the record"
   pass "fm-control relaunch: durable task metadata survives replacement launch publication"
+}
+
+test_relaunch_does_not_disarm_an_armed_merge_poll() {
+  local dir state url out rc
+  dir=$(new_case relaunch-merge-poll rl77)
+  add_ship_task "$dir" rl77 claude
+  state="$dir/home/state"
+  url=https://github.com/example/repo/pull/77
+  write_pr_poll_gh_stub "$dir"
+
+  env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-pr-check.sh" rl77 "$url" > "$dir/arm.out" 2> "$dir/arm.err" \
+    || fail "could not arm the merge poll: $(cat "$dir/arm.err")"
+  fm_pr_metadata_identity_parse "$state/rl77.meta" \
+    || fail "arming the poll left an unauthenticated record"
+  # The contribution observer fm-pr-check.sh also arms is a separate concern
+  # from the merge poll under test here and this fixture's minimal gh stub
+  # does not answer it; drop it so its own (unrelated) diagnostics cannot
+  # starve the merge poll's turn in the sweep.
+  rm -f "$state/contributions.check.sh"
+
+  out=$(run_control "$dir" rl77 relaunch --note "continuing review work"); rc=$?
+  expect_code 0 "$rc" "relaunch of a task with an armed merge poll should succeed"$'\n'"$out"
+  fm_pr_metadata_identity_parse "$state/rl77.meta" \
+    || fail "relaunch disarmed the merge poll's authentication gate"
+
+  run_watcher_relaunch_case "$dir"
+  awk -F'\t' -v prefix="check: merge landed: rl77 $url" \
+    'index($5, prefix) == 1 { found=1 } END { exit !found }' "$state/.wake-queue" \
+    || fail "post-relaunch watcher did not detect the merge within one cycle"
+  pass "fm-control relaunch: an armed merge poll still authenticates and detects the merge after relaunch"
 }
 
 test_relaunch_serializes_concurrent_durable_metadata_publication() {
@@ -1852,6 +1927,7 @@ test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
 test_relaunch_from_linked_home_preserves_recorded_worktree
 test_relaunch_preserves_durable_task_metadata
+test_relaunch_does_not_disarm_an_armed_merge_poll
 test_relaunch_serializes_concurrent_durable_metadata_publication
 test_disabled_relaunch_clears_prior_trace_context
 test_relaunch_appends_the_progress_note_to_the_instructions
