@@ -1,0 +1,64 @@
+# Corpus for bin/fm-lint.sh's fixture-write purity check, read by
+# tests/fm-lint.test.sh.
+#
+# It lives here rather than inline in that suite for the reason the check
+# itself demonstrates: the check scans tests/*.sh, so a bypass spelling written
+# as a literal in the suite IS a bypass site as far as the scanner can tell,
+# and the suite would fail on its own test data. tests/assets/ is outside the
+# scanned set, so the corpus can state each spelling exactly as a real suite
+# would write it.
+#
+# Record format: <verdict> <TAB> <shell body>. A body may span several lines;
+# \n in the body is expanded to a newline by the reader, so heredoc cases can
+# state the opener, the body and the terminator that make them what they are.
+# reject = the check must report this file and fm-lint.sh must exit non-zero.
+# accept = the check must stay silent and fm-lint.sh must exit 0.
+
+# --- the spellings the tree actually uses -----------------------------------
+reject	cat > "$fakebin/jq" </dev/null
+reject	cat >> "$fakebin/jq" </dev/null
+reject	cat >"$fakebin/jq" </dev/null
+reject	cat > "$FAKEBIN/jq" </dev/null
+reject	cat > "$dir/fakebin/jq" </dev/null
+reject	cat > "$case_dir/fakebin/jq" </dev/null
+reject	printf x > "$fakebin/jq"
+reject	printf x >> "$fakebin/jq"
+reject	: > "$fakebin/jq"
+reject	echo x > "$fakebin/jq"
+
+# --- a fixture bin/, where the tree symlinks the live repository's own bin/ --
+reject	printf x > "$repo/bin/fm-guard.sh"
+reject	cat > "$root/bin/fm-spawn.sh" </dev/null
+reject	printf x > "$home/.local/bin/treehouse"
+
+# --- a variable naming a PATH shim directory that holds one tool -------------
+reject	printf x > "$CASE_BIN/uname"
+reject	printf x > "$tmpbin/fm-mail.sh"
+reject	printf x > "$fake_bin/git"
+reject	cat > "$DOCTOR_BIN/herdr" </dev/null
+
+# --- other file descriptors reach the same file through the same symlink -----
+reject	printf x 2> "$fakebin/jq"
+reject	printf x >& "$fakebin/jq"
+reject	printf x &> "$fakebin/jq"
+reject	exec 3> "$fakebin/jq"
+
+# --- the carrier's own forms, which is what the migration produced -----------
+accept	fm_fakebin_write "$fakebin/jq" </dev/null
+accept	fm_fakebin_write --append "$fakebin/jq" </dev/null
+accept	fm_fakebin_write "$fakebin/jq" < <(printf x)
+accept	fm_fakebin_write "$repo/bin/fm-guard.sh" < /dev/null
+accept	printf x | fm_fakebin_write "$fakebin/jq"
+
+# --- a stub BODY is data the fixture writes, not a write the suite performs --
+accept	fm_fakebin_write "$fakebin/jq" <<'EOF'\ncat > "$fakebin/written-by-the-stub"\nEOF
+accept	fm_fakebin_write "$fakebin/jq" <<EOF\ncat > "\$fakebin/written-by-the-stub"\nEOF
+accept	fm_fakebin_write "$fakebin/jq" <<-'EOF'\n\tcat > "$fakebin/written-by-the-stub"\n\tEOF
+
+# --- and the rule must not reach past a fixture tool directory ---------------
+accept	# cat > "$fakebin/jq"
+accept	printf x > "$dir/plain.log"
+accept	printf x > "$dir/notbin/jq"
+accept	printf x > "$dir/binaries/jq"
+accept	cmd >&2
+accept	cmd 2>&1

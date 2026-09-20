@@ -12,7 +12,7 @@
 # can still reach it; that file's header owns its contract. What makes the
 # carrier MANDATORY rather than merely available is bin/fm-lint.sh's
 # fixture-write purity check, pinned by tests/fm-lint.test.sh against the
-# corpus in tests/assets/fixture-write-purity-corpus.txt.
+# corpus in tests/assets/fixture-write-purity-corpus.tsv.
 #
 # It is also the fixture Git-config isolation regression, with host signing
 # armed on a scratch config file: it drives every entry point that must reach

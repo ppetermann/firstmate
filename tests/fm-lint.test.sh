@@ -33,7 +33,7 @@ SHELLCHECK_SHA_DARWIN_AARCH64=56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30a
 # fm_install_stub_uname <fakebin>: uname -s / uname -m from FM_TEST_UNAME_S/M.
 fm_install_stub_uname() {
   local fakebin=$1
-  cat > "$fakebin/uname" <<'SH'
+  fm_fakebin_write "$fakebin/uname" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   -s) printf '%s\n' "${FM_TEST_UNAME_S:-Linux}" ;;
@@ -49,7 +49,7 @@ SH
 # updates when invoked.
 fm_install_stub_curl() {
   local fakebin=$1
-  cat > "$fakebin/curl" <<'SH'
+  fm_fakebin_write "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 count=0
 [ ! -f "${CURL_COUNT:-}" ] || count=$(cat "$CURL_COUNT")
@@ -85,7 +85,7 @@ SH
 # SHA256_STUB_HASH and records the invocation on HASHER_LOG. shasum requires -a 256.
 fm_install_stub_hasher() {
   local fakebin=$1 name=$2
-  cat > "$fakebin/$name" <<'SH'
+  fm_fakebin_write "$fakebin/$name" <<'SH'
 #!/usr/bin/env bash
 self=${0##*/}
 if [ -n "${HASHER_LOG:-}" ]; then
@@ -116,7 +116,7 @@ SH
 
 fm_install_stub_tar_shellcheck() {
   local fakebin=$1
-  cat > "$fakebin/tar" <<'SH'
+  fm_fakebin_write "$fakebin/tar" <<'SH'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-C" ]; then
@@ -137,7 +137,7 @@ SH
 
 fm_install_stub_sleep() {
   local fakebin=$1
-  cat > "$fakebin/sleep" <<'SH'
+  fm_fakebin_write "$fakebin/sleep" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -233,7 +233,7 @@ test_canonical_partitions_preserve_full_lint() {
 #   FM_TEST_GIT_DIFF_FILE        path to a file of NUL-separated changed paths
 fm_lint_stub_git() {
   local fakebin=$1
-  cat > "$fakebin/git" <<'SH'
+  fm_fakebin_write "$fakebin/git" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   "rev-parse --is-inside-work-tree")
@@ -291,7 +291,7 @@ fm_lint_write_diff_file() {
 fm_lint_stub_shellcheck() {
   local fakebin=$1 log=$2
   : > "$log"
-  cat > "$fakebin/shellcheck" <<SH
+  fm_fakebin_write "$fakebin/shellcheck" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = --version ]; then
   printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'
@@ -1011,7 +1011,7 @@ test_rejects_wrong_shellcheck_version() {
   local tmp fakebin out rc
   tmp=$(fm_test_tmproot fm-lint-ver)
   fakebin=$(fm_fakebin "$tmp")
-  cat > "$fakebin/shellcheck" <<'SH'
+  fm_fakebin_write "$fakebin/shellcheck" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = "--version" ]; then
   printf 'ShellCheck - shell script analysis tool\nversion: 0.9.9\nlicense: x\nwebsite: y\n'
@@ -1059,6 +1059,108 @@ SH
   pass "fm-lint.sh catches a real lint defect the old no-op gate passed"
 }
 
+# The fixture-write purity check is what makes tests/fakebin-write.sh's rule
+# mandatory rather than merely available. It is the enforcement half of the
+# 2026-09-15 real-/usr/bin/jq-overwrite incident: the carrier can stay perfect
+# while a new suite quietly writes its own stub with a plain redirect, and
+# nothing else in the tree notices. These are the named rows any new bypass
+# site fails - the reject rows prove the rule bites across the spellings the
+# tree actually uses, and the accept rows prove it has neither gone vacuous nor
+# grown past a fixture tool directory.
+#
+# The corpus lives in tests/assets/ because the check scans tests/*.sh: a
+# bypass spelling written as a literal HERE would be a bypass site as far as
+# the scanner can tell, and this suite would fail on its own test data. That
+# file's header owns the record format.
+FIXTURE_WRITE_CORPUS="$ROOT/tests/assets/fixture-write-purity-corpus.tsv"
+
+fm_lint_fixture_repo() {  # <tmp>: a minimal repo the real lint can run in
+  local tmp=$1
+  mkdir -p "$tmp/repo/bin/backends" "$tmp/repo/tests"
+  cp "$LINT" "$tmp/repo/bin/fm-lint.sh"
+  fm_fakebin_write "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$tmp/repo/bin/fm-lint.sh" "$tmp/repo/bin/fm-lint-workflows.sh"
+}
+
+# fm_lint_plant_case <repo> <body>: write the corpus body as a suite file,
+# expanding the corpus's \n and \t escapes into real characters.
+fm_lint_plant_case() {
+  local repo=$1 body=$2
+  {
+    printf '#!/usr/bin/env bash\n# shellcheck disable=SC2154,SC2016,SC2034\n'
+    printf '%b\n' "$body"
+  } | fm_fakebin_write "$repo/tests/case.test.sh"
+}
+
+test_fixture_write_purity_judges_every_corpus_case() {
+  local tmp fakebin log verdict body out rc rejected=0 accepted=0
+  tmp=$(fm_test_tmproot fm-lint-fixture-write-purity)
+  fakebin=$(fm_fakebin "$tmp")
+  log="$tmp/shellcheck.log"
+  fm_lint_fixture_repo "$tmp"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+
+  while IFS=$'\t' read -r verdict body; do
+    case $verdict in ''|'#'*) continue ;; esac
+    fm_lint_plant_case "$tmp/repo" "$body"
+    rc=0
+    out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" ./bin/fm-lint.sh 2>&1) || rc=$?
+    case $verdict in
+      reject)
+        rejected=$((rejected + 1))
+        [ "$rc" -ne 0 ] || fail "lint accepted a fixture-write bypass: $body"
+        assert_contains "$out" 'plain redirect into a fixture tool directory bypasses fm_fakebin_write' \
+          "lint did not report the fixture-write bypass: $body"
+        ;;
+      accept)
+        accepted=$((accepted + 1))
+        [ "$rc" -eq 0 ] || fail "lint rejected a legitimate fixture write: $body ($out)"
+        ;;
+      *) fail "unknown corpus verdict '$verdict' for: $body" ;;
+    esac
+  done < "$FIXTURE_WRITE_CORPUS"
+
+  # A corpus that silently lost its reject or accept half would pass vacuously.
+  [ "$rejected" -ge 15 ] || fail "corpus carried only $rejected bypass spellings"
+  [ "$accepted" -ge 10 ] || fail "corpus carried only $accepted legitimate spellings"
+  pass "fm-lint.sh judges all $((rejected + accepted)) fixture-write corpus cases ($rejected rejected, $accepted accepted)"
+}
+
+test_fixture_write_purity_covers_an_explicit_tests_path() {
+  local tmp fakebin log out rc spelling body
+  tmp=$(fm_test_tmproot fm-lint-fixture-write-explicit)
+  fakebin=$(fm_fakebin "$tmp")
+  log="$tmp/shellcheck.log"
+  fm_lint_fixture_repo "$tmp"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+  # Taken from the corpus rather than written here, for the same reason the
+  # corpus exists at all: a literal bypass in this file IS a bypass site.
+  body=$(awk -F'\t' '$1 == "reject" { print $2; exit }' "$FIXTURE_WRITE_CORPUS")
+  [ -n "$body" ] || fail "the fixture-write corpus carries no bypass case"
+  fm_lint_plant_case "$tmp/repo" "$body"
+
+  for spelling in tests/case.test.sh tests/../tests/case.test.sh; do
+    rc=0
+    out=$(cd "$tmp/repo" && PATH="$fakebin:$PATH" ./bin/fm-lint.sh "$spelling" 2>&1) || rc=$?
+    [ "$rc" -ne 0 ] || fail "explicit tests path bypassed fixture-write purity lint: $spelling"
+    assert_contains "$out" 'plain redirect into a fixture tool directory bypasses fm_fakebin_write' \
+      "explicit tests path did not report the fixture-write bypass: $spelling"
+  done
+  pass "fm-lint.sh enforces fixture-write purity for explicit tests paths"
+}
+
+# The carrier itself is the one file in tests/ that writes through a plain
+# redirect, because it IS the redirect every other write is routed to.
+test_fixture_write_purity_exempts_the_carrier_itself() {
+  local out rc=0
+  out=$(CI=true "$LINT" "$ROOT/tests/fakebin-write.sh" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "lint rejected the write carrier it routes every fixture write to: $out"
+  pass "fm-lint.sh exempts tests/fakebin-write.sh from its own fixture-write rule"
+}
+
 test_rejects_direct_beads_cli_invocations() {
   local tmp fakebin log lint_copy invocation out rc
   tmp=$(fm_test_tmproot fm-lint-backend-purity)
@@ -1067,7 +1169,7 @@ test_rejects_direct_beads_cli_invocations() {
   mkdir -p "$tmp/repo/bin/backends" "$tmp/repo/tests"
   lint_copy="$tmp/repo/bin/fm-lint.sh"
   cp "$LINT" "$lint_copy"
-  cat > "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
+  fm_fakebin_write "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -1100,7 +1202,7 @@ SH
     "\$'\\142\\144' close fm-example" \
     "b\$'\\x64' close fm-example"
   do
-    printf '#!/usr/bin/env bash\n%s\n' "$invocation" > "$tmp/repo/bin/direct-beads.sh"
+    fm_fakebin_write "$tmp/repo/bin/direct-beads.sh" < <(printf '#!/usr/bin/env bash\n%s\n' "$invocation")
     rc=0
     out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" "$lint_copy" 2>&1) || rc=$?
     [ "$rc" -ne 0 ] || fail "lint accepted a direct Beads CLI invocation: $invocation"
@@ -1268,7 +1370,7 @@ test_worker_trees_stop_on_signal() {
 #!/usr/bin/env bash
 printf '%s\n' "${1:-ok}"
 SH
-  cat > "$fakebin/shellcheck" <<'SH'
+  fm_fakebin_write "$fakebin/shellcheck" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then
   printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'
@@ -1423,6 +1525,9 @@ test_rejects_wrong_shellcheck_version
 test_catches_a_real_lint_defect
 test_rejects_direct_beads_cli_invocations
 test_rejects_direct_beads_cli_in_explicit_core_path
+test_fixture_write_purity_judges_every_corpus_case
+test_fixture_write_purity_covers_an_explicit_tests_path
+test_fixture_write_purity_exempts_the_carrier_itself
 test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
 test_jobs_are_deterministic_and_complete

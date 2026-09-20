@@ -33,13 +33,18 @@
 #     `gh`). That local pass drops --external-sources and excludes SC1091,
 #     SC2034, SC2153, and SC2329. A branch with zero matching changed files
 #     skips ShellCheck and prints a "no changed lint targets" note, then
-#     still runs the backend-purity check and validates workflows.
+#     still runs both purity checks and validates workflows.
 # Explicit paths always bypass this file-set selection and lint exactly the
 # given paths, matching the same config, without the workflow YAML check.
 # Explicit core bin/ and bin/backends/ scripts still receive the
-# backend-purity check. The backend-purity check rejects direct Beads CLI
-# invocations in the core bin/ and bin/backends/ scripts so every configured
-# backlog backend follows the same tasks-axi lifecycle path.
+# backend-purity check, and explicit tests/ scripts the fixture-write purity
+# check. The backend-purity check rejects direct Beads CLI invocations in the
+# core bin/ and bin/backends/ scripts so every configured backlog backend
+# follows the same tasks-axi lifecycle path. The fixture-write purity check
+# rejects a plain write redirect into a fixture tool directory anywhere in
+# tests/, so every fixture stub write goes through tests/fakebin-write.sh
+# instead of following a symlink onto a real host tool or repository script;
+# that file's header owns the contract and the incident behind it.
 #
 # Lint defaults to two bounded workers over two stable logical shards.
 # Diagnostics replay in stable shard/root order. FM_LINT_JOBS=1 changes
@@ -49,7 +54,7 @@
 # disjoint, and byte-weight balanced; --list-files exposes their actual roots.
 # Partition mode is always full source-aware analysis, never changed-only or
 # --fast, and does not accept explicit paths. Each partition also runs workflow
-# lint and backend-purity checks, keeping either invocation independently useful.
+# lint and both purity checks, keeping either invocation independently useful.
 #
 # Optional quiet telemetry writes one bounded TSV snapshot of content and source
 # graph identity, wall/CPU/RSS, shard load, and competing ShellCheck processes.
@@ -156,6 +161,105 @@ fm_lint_usage() {
     /^#/ { sub(/^# ?/, ""); print; next }
     { exit }
   ' "$SELF"
+}
+
+# Fixture stub writes belong behind tests/fakebin-write.sh. A plain `cat > X`
+# redirect follows a symlink, so a suite that writes its own stub over a
+# fixture entry symlinked to a real tool - or into a fixture bin/ symlinked to
+# the live repository's own bin/ - silently replaces that real file. The
+# carrier's header owns the incident, the two symlink shapes, and what this
+# check does not reach; this check is what keeps every write in tests/ routed
+# through it. It reads the redirect target as written, so an indirect target or
+# an eval is outside it - deliberately, because no shell check can intercept a
+# redirect, and the carrier being the tree's only spelling is what makes such a
+# write read as an anomaly.
+fm_lint_run_fixture_write_purity() {
+  local findings path canonical
+  local -a fixture_roots
+  fixture_roots=()
+  if [ "$EXPLICIT_PATHS" -eq 0 ]; then
+    for path in tests/*.sh; do
+      [ "$path" != tests/fakebin-write.sh ] || continue
+      [ -f "$path" ] && fixture_roots+=("$path")
+    done
+  else
+    for path in "${ROOTS[@]}"; do
+      [ -f "$path" ] || continue
+      # shellcheck disable=SC2016 # Perl, not the shell, expands $ARGV.
+      canonical=$("$PERL_BIN" -MCwd=realpath -e '
+        my $resolved = realpath($ARGV[0]);
+        exit 1 unless defined $resolved;
+        print $resolved;
+      ' "$path" 2>/dev/null) || continue
+      [ "$canonical" != "$ROOT/tests/fakebin-write.sh" ] || continue
+      case "$canonical" in
+        "$ROOT"/tests/*.sh) fixture_roots+=("$canonical") ;;
+      esac
+    done
+  fi
+  [ "${#fixture_roots[@]}" -gt 0 ] || return 0
+  findings=$(LC_ALL=C awk '
+    BEGIN {
+      quote = sprintf("%c", 39)
+      heredoc_open = "<<-?([\"]?[A-Za-z_][A-Za-z0-9_]*[\"]?|" quote "[A-Za-z_][A-Za-z0-9_]*" quote ")"
+      strip_quotes = "[\"" quote "]"
+      redirect = "(>>?|&>|>&)[[:space:]]*[\"]?(\\$\\{?[^\"[:space:];&|)<]+)"
+    }
+    # A heredoc BODY is data the fixture writes, not a write this suite
+    # performs, so its redirects are skipped along with the terminator.
+    function pop_heredoc(    i) {
+      if (queued > 0) {
+        term = queue_term[1]; tabs = queue_tabs[1]
+        for (i = 1; i < queued; i++) { queue_term[i] = queue_term[i+1]; queue_tabs[i] = queue_tabs[i+1] }
+        queued--
+        in_body = 1
+      } else in_body = 0
+    }
+    FNR == 1 { in_body = 0; queued = 0 }
+    in_body {
+      probe = $0
+      if (tabs) sub(/^\t+/, "", probe)
+      if (probe == term) pop_heredoc()
+      next
+    }
+    {
+      # Collect the heredoc openers on this line before judging its redirects,
+      # because `cat > X <<TAG` both writes and opens a body.
+      rest = $0; queued = 0
+      while (match(rest, heredoc_open)) {
+        opener = substr(rest, RSTART, RLENGTH)
+        rest = substr(rest, RSTART + RLENGTH)
+        dash = (opener ~ /^<<-/)
+        sub(/^<<-?/, "", opener)
+        gsub(strip_quotes, "", opener)
+        queued++; queue_term[queued] = opener; queue_tabs[queued] = dash
+      }
+      if ($0 !~ /^[[:space:]]*#/) {
+        probe = $0
+        while (match(probe, redirect)) {
+          piece = substr(probe, RSTART, RLENGTH)
+          probe = substr(probe, RSTART + RLENGTH)
+          target = piece
+          sub(/^(>>?|&>|>&)[[:space:]]*["]?/, "", target)
+          # A fixture TOOL directory: a fakebin sandbox, any fixture bin/, or a
+          # variable naming a PATH shim directory that holds one tool. A file
+          # descriptor duplication never names a variable path, so requiring a
+          # $-rooted target is what tells the two apart.
+          if (target ~ /[Ff][Aa][Kk][Ee][Bb][Ii][Nn]/) ;
+          else if (target ~ /\/bin\/[^\/]+$/) ;
+          else if (target ~ /^\$\{?[A-Za-z_][A-Za-z0-9_]*[Bb][Ii][Nn]\}?\/[^\/]+$/) ;
+          else continue
+          print FILENAME ":" FNR ": plain redirect into a fixture tool directory bypasses fm_fakebin_write (tests/fakebin-write.sh)"
+          break
+        }
+      }
+      if (queued > 0) pop_heredoc()
+    }
+  ' "${fixture_roots[@]}")
+  [ -z "$findings" ] || {
+    printf '%s\n' "$findings" >&2
+    return 1
+  }
 }
 
 # Default no-args lint also validates GitHub workflows. Explicit paths stay a
@@ -627,6 +731,7 @@ if [ "$CHANGED_MODE" -eq 1 ] && [ "$ROOT_COUNT" -eq 0 ]; then
   printf 'fm-lint.sh: no changed lint targets\n'
   overall_rc=0
   fm_lint_run_backend_purity || overall_rc=$?
+  fm_lint_run_fixture_write_purity || overall_rc=$?
   fm_lint_run_workflows || overall_rc=$?
   exit "$overall_rc"
 fi
@@ -924,6 +1029,7 @@ fi
 
 purity_rc=0
 fm_lint_run_backend_purity || purity_rc=$?
+fm_lint_run_fixture_write_purity || purity_rc=$?
 if [ "$overall_rc" -eq 0 ] && [ "$purity_rc" -ne 0 ]; then
   overall_rc=$purity_rc
 fi
