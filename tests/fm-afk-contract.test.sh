@@ -339,7 +339,7 @@ test_failed_final_replacement_rolls_back_the_superseded_archive() {
   before=$(cat "$home/state/.afk-contract")
   contract "$home" propose --words 'replacement posture' >/dev/null || fail "replacement propose failed"
   mkdir -p "$home/fakebin"
-  cat > "$home/fakebin/mv" <<'SH'
+  fm_fakebin_write "$home/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}:${2:-}" in
   *.afk-contract.confirming.*:*/.afk-contract) exit 1 ;;

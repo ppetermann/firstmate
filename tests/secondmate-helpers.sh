@@ -131,7 +131,7 @@ make_firstmate_git_root() {
   local home=$1
   mkdir -p "$home/bin"
   printf '# Firstmate\n' > "$home/AGENTS.md"
-  cat > "$home/bin/fm-guard.sh" <<'SH'
+  fm_fakebin_write "$home/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH

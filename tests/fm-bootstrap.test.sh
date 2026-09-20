@@ -45,7 +45,7 @@ make_fake_toolchain() {
   fakebin=$(fm_fakebin "$dir")
   fm_fake_exit0 "$fakebin" tmux node chrome-devtools-axi
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.46
-  cat > "$fakebin/gh-axi" <<'SH'
+  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' "${FM_FAKE_GH_AXI_VERSION:-0.1.29}"
@@ -54,7 +54,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh-axi"
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
   exit 0
@@ -62,7 +62,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh"
-  cat > "$fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
   if [ "${FM_FAKE_TREEHOUSE_LEASE_HELP:-}" = 1 ]; then
@@ -82,7 +82,7 @@ SH
 
 add_quota_axi() {
   local fakebin=$1
-  cat > "$fakebin/quota-axi" <<'SH'
+  fm_fakebin_write "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' "${FM_FAKE_QUOTA_AXI_VERSION:-0.1.29}"
@@ -99,7 +99,7 @@ add_tasks_axi() {
   [ "$archive_body" = yes ] && archive_line='  --archive-body'
   mv_usage='usage: tasks-axi mv <id> [<id>...] --to <path-or-dir>'
   [ "$multi_id" = yes ] || mv_usage='usage: tasks-axi mv <id> --to <path-or-dir>'
-  cat > "$fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = --version ]; then
   printf '%s\n' '$version'
@@ -123,7 +123,7 @@ SH
 add_real_jq() {
   local fakebin=$1 real_jq
   real_jq=$(command -v jq 2>/dev/null) || fail "jq is required for dispatch profile validation tests"
-  cat > "$fakebin/jq" <<SH
+  fm_fakebin_write "$fakebin/jq" <<SH
 #!/usr/bin/env bash
 if [ -n "\${FM_TEST_CHILD_ENV_LOG:-}" ]; then
   if [ -n "\${TYPESAFE_API_KEY+x}" ] || [ -n "\${TYPESAFE_API_KEY_PRIVATE+x}" ] \
@@ -142,7 +142,7 @@ make_fake_fleet_sync_root() {
   local dir=$1 fake_root
   fake_root="$dir/fake-root"
   mkdir -p "$fake_root/bin"
-  cat > "$fake_root/bin/fm-fleet-sync.sh" <<'SH'
+  fm_fakebin_write "$fake_root/bin/fm-fleet-sync.sh" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FM_FAKE_FLEET_SYNC_STARTED_MARKER:-}" ] || : > "$FM_FAKE_FLEET_SYNC_STARTED_MARKER"
 printf '%s\n' 'alpha: synced'
@@ -809,7 +809,7 @@ make_routine_bootstrap_fixture() {
   } > "$root/.gitignore"
   printf '%s\n' 'instructions' > "$root/AGENTS.md"
   mkdir -p "$root/bin" "$root/.agents/skills"
-  printf '%s\n' 'echo ok' > "$root/bin/fm-spawn.sh"
+  fm_fakebin_write "$root/bin/fm-spawn.sh" < <(printf '%s\n' 'echo ok')
   printf '%s\n' 'skill' > "$root/.agents/skills/example.md"
   git -C "$root" add -A
   git -C "$root" commit -qm initial
@@ -824,7 +824,7 @@ make_routine_bootstrap_fixture() {
   } > "$home/state/sm.meta"
   fakebin=$(make_fake_toolchain "$case_dir")
   add_real_jq "$fakebin"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   display-message)
@@ -923,7 +923,7 @@ test_network_phase_partitions_the_run() {
   # Break the two diagnostics that stand for the two halves: a local tool floor
   # and the network GitHub-auth probe.
   rm -f "$fakebin/node"
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -966,7 +966,7 @@ test_network_sweeps_recheck_lock_ownership() {
   fake_root="$case_dir/root"
   marker="$case_dir/fleet-sync.started"
   mkdir -p "$fake_root/bin"
-  cat > "$fake_root/bin/fm-fleet-sync.sh" <<'SH'
+  fm_fakebin_write "$fake_root/bin/fm-fleet-sync.sh" <<'SH'
 #!/usr/bin/env bash
 : > "${FM_FAKE_FLEET_SYNC_STARTED_MARKER:?}"
 SH
@@ -1062,7 +1062,7 @@ test_tasks_axi_verdict_handoff_is_consumed_once() {
   mkdir -p "$case_dir/home/config"
   fakebin=$(make_fake_toolchain "$case_dir")
   log="$case_dir/tasks-axi.log"
-  cat > "$fakebin/tasks-axi" <<'SH'
+  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FM_FAKE_TASKS_AXI_LOG:?}"
 printf '0.0.1\n'

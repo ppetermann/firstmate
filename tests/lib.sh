@@ -85,6 +85,10 @@ pass() {
   printf 'ok - %s\n' "$1"
 }
 
+# Fixture tool-directory write carrier; its header owns the contract.
+# shellcheck source=tests/fakebin-write.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fakebin-write.sh"
+
 # --- self-cleaning temp root ------------------------------------------------
 #
 # fm_test_tmproot <prefix> echoes a fresh temp dir and registers it for removal
@@ -354,60 +358,10 @@ fm_fakebin() {
   printf '%s\n' "$fakebin"
 }
 
-# fm_fakebin_write <path>: the writer the SHARED FIXTURE HELPERS use for the
-# stubs they drop into a fakebin - the helpers in this file, in
-# tests/fixtures.sh, tests/wake-helpers.sh and tests/secondmate-helpers.sh.
-# It is not the only way this tree writes a stub: most suites still write their
-# own with a plain redirect, so the two guarantees below reach exactly the
-# helpers routed through here, and routing a new one is opt-in.
-#
-# A plain `cat > <path>` redirect FOLLOWS a symlink and overwrites whatever it
-# points to. A fixture that symlinks a real host tool into its fakebin - so the
-# fixture has a working copy of it - and then writes a stub under that same name
-# is exactly how a 2026-09-15 incident replaced this box's real /usr/bin/jq with
-# a 27-byte stub for three hours, silently: every dependent check kept passing
-# on empty output rather than failing.
-#
-# Two symlink shapes redirect such a write out of the fixture, and they need
-# opposite answers:
-#
-#   leaf   - <fakebin>/jq is itself a symlink to the real tool. The caller owns
-#            that entry and means to replace it, so unlink first and let the
-#            write land on a fresh regular file.
-#   parent - <fixture>/bin is a symlink to a real directory, and the caller
-#            writes <fixture>/bin/fm-guard.sh. This tree symlinks the live
-#            repository's own bin/ that way in six places. The caller owns
-#            NOTHING at the destination: unlinking would delete a real script
-#            and writing would replace it, so there is no safe write and the
-#            only correct answer is to refuse and say where the path really led.
-#
-# The parent shape is caught by one resolve rather than a walk up the chain: a
-# symlink anywhere in the path's directory components shows up as a resolved
-# parent outside the test temp base, which is the one place a fixture stub may
-# ever land. Both sides are resolved with `pwd -P`, so a host that reaches its
-# temp base through a symlink of its own (macOS resolves /var to /private/var)
-# compares equal instead of refusing every write on that platform.
-fm_fakebin_write() {
-  local path=$1 parent resolved base
-  case $path in
-    */*) parent=${path%/*}; [ -n "$parent" ] || parent=/ ;;
-    *) parent=. ;;
-  esac
-  [ -d "$parent" ] ||
-    fail "fm_fakebin_write: $path: its directory $parent does not exist"
-  resolved=$(cd -P -- "$parent" && pwd -P) ||
-    fail "fm_fakebin_write: $path: cannot resolve its directory $parent"
-  base=$(cd -P -- "${TMPDIR:-/tmp}" && pwd -P) ||
-    fail "fm_fakebin_write: cannot resolve the test temp base ${TMPDIR:-/tmp}"
-  case "$resolved/" in
-    "$base"/*) ;;
-    *)
-      fail "fm_fakebin_write: refusing to write $path: a directory in that path is a symlink out of the fixture, so the write would land on $resolved/${path##*/}, outside the test temp base $base"
-      ;;
-  esac
-  rm -f -- "$path"
-  cat > "$path"
-}
+# fm_fakebin_write is the carrier every fixture tool-directory write goes
+# through; tests/fakebin-write.sh owns its contract, the incident it answers,
+# and the two symlink shapes it has to tell apart. It is sourced at the top of
+# this library so every suite reaching tests/lib.sh already has it in scope.
 
 fm_fake_exit0() {
   local fakebin=$1 tool

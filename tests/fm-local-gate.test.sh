@@ -33,7 +33,7 @@ make_fixture() {  # <name>
   git -C "$dir/wt" -c init.defaultBranch=main init -q
   git -C "$dir/wt" -c user.email=gate@test -c user.name=gate commit -q \
     --allow-empty -m init
-  cat > "$dir/fakebin/cargo" <<'SH'
+  fm_fakebin_write "$dir/fakebin/cargo" <<'SH'
 #!/usr/bin/env bash
 [ $# -ge 1 ] || exit 0
 printf 'cargo %s\n' "$*" >> "${FM_TEST_CARGO_LOG:?}"
@@ -46,7 +46,7 @@ case "$1" in
 esac
 exit 0
 SH
-  cat > "$dir/fakebin/npm" <<'SH'
+  fm_fakebin_write "$dir/fakebin/npm" <<'SH'
 #!/usr/bin/env bash
 [ $# -ge 1 ] || exit 0
 if [ "$1" = ci ] && [ "${2:-}" = --help ]; then
@@ -265,7 +265,7 @@ test_dev_sh_delegation() {
   dir=$(make_fixture dev-sh)
   printf '%s\n' '[package]' > "$dir/wt/Cargo.toml"
   mkdir -p "$dir/wt/bin"
-  cat > "$dir/wt/bin/dev.sh" <<SH
+  fm_fakebin_write "$dir/wt/bin/dev.sh" <<SH
 #!/usr/bin/env bash
 printf 'dev.sh %s\n' "\$*" >> "\$FM_TEST_DEV_LOG"
 case "\$1" in
@@ -304,7 +304,7 @@ SH
   dir=$(make_fixture dev-sh-noexec)
   printf '%s\n' '[package]' > "$dir/wt/Cargo.toml"
   mkdir -p "$dir/wt/bin"
-  cat > "$dir/wt/bin/dev.sh" <<SH
+  fm_fakebin_write "$dir/wt/bin/dev.sh" <<SH
 #!/usr/bin/env bash
 printf 'dev.sh %s\n' "\$*" >> "\$FM_TEST_DEV_LOG"
 exit 0

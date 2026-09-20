@@ -95,7 +95,7 @@ run_cell() {  # <native|legacy> <exact-binary>
   ln -s "$AUTH" "$lab/grok-home/auth.json"
   printf '%s\n' "$lab/dedicated.sock" > "$lab/tmux.socket-identity"
 
-  cat > "$lab/bin/tmux" <<EOF
+  fm_fakebin_write "$lab/bin/tmux" <<EOF
 #!/usr/bin/env bash
 set -eu
 expected='$lab/dedicated.sock'
@@ -109,7 +109,7 @@ printf '\n' >> '$lab/tmux-wrapper.log'
 cd '$lab'
 exec '$REAL_TMUX' -S dedicated.sock "\$@"
 EOF
-  cat > "$lab/bin/grok" <<'EOF'
+  fm_fakebin_write "$lab/bin/grok" <<'EOF'
 #!/usr/bin/env bash
 printf 'active=%s' "${GROK_TURNEND_GUARD_ACTIVE:-}" >> "${FM_GROK_E2E_ROOT:?}/resume-invocations.log"
 printf ' <%s>' "$@" >> "${FM_GROK_E2E_ROOT:?}/resume-invocations.log"

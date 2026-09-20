@@ -70,7 +70,7 @@ orca_case() {  # <name> -> sets CASE_DIR LOG RESP FB
 neutral_fm_root() {  # <dir> -> echoes a minimal root with a quiet guard
   local root="$1/root"
   mkdir -p "$root/bin"
-  cat > "$root/bin/fm-guard.sh" <<'SH'
+  fm_fakebin_write "$root/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH

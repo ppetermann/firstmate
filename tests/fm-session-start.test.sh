@@ -73,7 +73,7 @@ make_fake_toolchain() {
   local fakebin=$1
   fm_fake_exit0 "$fakebin" tmux node chrome-devtools-axi
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.46
-  cat > "$fakebin/gh-axi" <<'SH'
+  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.29'
@@ -82,12 +82,12 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh-axi"
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$fakebin/gh"
-  cat > "$fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
   printf '%s\n' 'Usage: treehouse get [--lease]'
@@ -96,7 +96,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/treehouse"
-  cat > "$fakebin/no-mistakes" <<'SH'
+  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' 'no-mistakes version v1.46.0 (fake) 2026-06-27T00:02:18Z'
@@ -105,7 +105,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/no-mistakes"
-  printf '%s\n' manual > "${fakebin%/*}/home-placeholder" 2>/dev/null || true
+  fm_fakebin_write "${fakebin%/*}/home-placeholder" < <(printf '%s\n' manual) 2>/dev/null || true
 }
 
 # make_fake_tasks_axi_compact <fakebin>: a tasks-axi boundary that answers the
@@ -116,7 +116,7 @@ SH
 # can be driven past its limit.
 make_fake_tasks_axi_compact() {
   local fakebin=$1
-  cat > "$fakebin/tasks-axi" <<'SH'
+  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 set -u
 log=${FM_FAKE_TASKS_AXI_LOG:-}
@@ -215,7 +215,7 @@ make_fake_ps_claude() {
 
 make_fake_ps_harness() {
   local fakebin=$1 harness=$2
-  cat > "$fakebin/ps" <<SH
+  fm_fakebin_write "$fakebin/ps" <<SH
 #!/usr/bin/env bash
 set -u
 # The ancestry this stub reports defaults to the harness the fixture was built
@@ -223,7 +223,7 @@ set -u
 # without having to repeat it per run; FM_FAKE_HARNESS still overrides it.
 harness=\${FM_FAKE_HARNESS:-$harness}
 SH
-  cat >> "$fakebin/ps" <<'SH'
+  fm_fakebin_write --append "$fakebin/ps" <<'SH'
 pid=
 previous=
 for argument in "$@"; do
@@ -257,12 +257,12 @@ esac
 exit 1
 SH
   chmod +x "$fakebin/ps"
-  printf '%s\n' "$harness" > "$fakebin/.harness-name"
+  fm_fakebin_write "$fakebin/.harness-name" < <(printf '%s\n' "$harness")
 }
 
 make_fake_ps_pi_holder() {
   local fakebin=$1 holder_pid=$2 harness=${3:-pi}
-  cat > "$fakebin/ps" <<SH
+  fm_fakebin_write "$fakebin/ps" <<SH
 #!/usr/bin/env bash
 set -u
 pid=""
@@ -300,7 +300,7 @@ SH
 # fm_backend_target_exists uses for a tmux endpoint liveness read.
 make_fake_tmux() {
   local fakebin=$1 live=$2
-  cat > "$fakebin/tmux" <<SH
+  fm_fakebin_write "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
 case "\${1:-}" in
@@ -326,7 +326,7 @@ SH
 # reproduces real tmux's active-window fallback while inventory omits the mate.
 make_fake_tmux_secondmate_recovery() {
   local fakebin=$1
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 mode=${FM_FAKE_TMUX_MODE:?}
@@ -414,7 +414,7 @@ make_fake_herdr_secondmate_recovery() {
   # The recovery kill now requires the shared named-session lock and an exact
   # focus snapshot. Keep a focused sibling tab so this test's husk close is
   # provably non-workspace-emptying and never needs to signal a fake shell pid.
-  cat > "$fakebin/herdr" <<'SH'
+  fm_fakebin_write "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
 log=${FM_FAKE_HERDR_LOG:?}
@@ -494,7 +494,7 @@ SH
 # liveness check must never auto-start a server (fm-backend.sh's contract).
 make_fake_herdr() {
   local fakebin=$1 live=$2
-  cat > "$fakebin/herdr" <<SH
+  fm_fakebin_write "$fakebin/herdr" <<SH
 #!/usr/bin/env bash
 set -u
 if [ "\${1:-}" = pane ] && [ "\${2:-}" = get ]; then
@@ -895,7 +895,7 @@ EOF
   winners="$home/winners"
   mkdir -p "$ready" "$completed"
   : > "$winners"
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 pid=
@@ -1472,7 +1472,7 @@ EOF
 # waits on the network, the digest cannot finish before this does.
 install_slow_gh() {
   local fakebin=$1 seconds=$2 finished_marker=${3:-}
-  cat > "$fakebin/gh" <<SH
+  fm_fakebin_write "$fakebin/gh" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = auth ]; then
   sleep $seconds
@@ -1509,7 +1509,7 @@ EOF
 
   release_gate="$world/slow-state-read.release"
   read_finished="$world/slow-state-read.finished"
-  cat > "$fakebin/no-mistakes" <<'SH'
+  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = --version ]; then
@@ -1646,7 +1646,7 @@ EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
   printf '999999\n' > "$home/state/.lock"
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "$*" in
@@ -1894,7 +1894,7 @@ EOF
 # bootstrap runs it inside its own command substitution.
 make_hanging_tool() {
   local fakebin=$1 name=$2
-  cat > "$fakebin/$name" <<'SH'
+  fm_fakebin_write "$fakebin/$name" <<'SH'
 #!/usr/bin/env bash
 trap '' TERM
 sleep 600
@@ -1904,7 +1904,7 @@ SH
 
 make_term_escalating_timeout() {
   local fakebin=$1
-  cat > "$fakebin/timeout" <<'SH'
+  fm_fakebin_write "$fakebin/timeout" <<'SH'
 #!/usr/bin/env perl
 use strict;
 use warnings;
@@ -2047,7 +2047,7 @@ EOF
   # fm-session-lock-lib.sh walks a BOUNDED sixteen parents to find it, and the
   # runtime bound spends some of that budget on its own wrapper processes, so
   # this pins that the budget still reaches a realistically deep session.
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 pid=
@@ -2301,8 +2301,8 @@ EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_harness "$fakebin" pi
   printf '%s\n' 'AGENTS_SHA_TEST=original' > "$root/AGENTS.md"
-  printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/shasum"
-  printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/sha256sum"
+  fm_fakebin_write "$fakebin/shasum" < <(printf '#!/usr/bin/env bash\nexit 1\n')
+  fm_fakebin_write "$fakebin/sha256sum" < <(printf '#!/usr/bin/env bash\nexit 1\n')
   chmod +x "$fakebin/shasum" "$fakebin/sha256sum"
 
   FM_FAKE_HARNESS=pi run_pi_session_start "$home" "$root" "$fakebin:$BASE_PATH" --source startup >/dev/null
@@ -2314,7 +2314,7 @@ EOF
     "a missing SHA-256 baseline did not conservatively refresh a supported rebuild"
 
   rm -f "$fakebin/shasum" "$fakebin/sha256sum" "$home/state/.session-start-complete"
-  cat > "$fakebin/mv" <<SH
+  fm_fakebin_write "$fakebin/mv" <<SH
 #!/usr/bin/env bash
 case "\${*: -1}" in
   "$home/state/.session-start-complete") exit 1 ;;

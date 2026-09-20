@@ -244,7 +244,7 @@ test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once() {
     "$sub" > "$state/mate.meta"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
-  cat > "$fakebin/date" <<SH
+  fm_fakebin_write "$fakebin/date" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = +%s ]; then
   cat "\${FM_FAKE_NOW_FILE:?}"
@@ -344,7 +344,7 @@ test_secondmate_declared_pause_rows_do_not_feed_stall_escalation() {
   printf 'window=firstmate:fm-mate\nkind=secondmate\nhome=%s\n' "$sub" > "$state/mate.meta"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
-  cat > "$fakebin/date" <<SH
+  fm_fakebin_write "$fakebin/date" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = +%s ]; then
   cat "\${FM_FAKE_NOW_FILE:?}"
@@ -393,7 +393,7 @@ test_secondmate_reprovisioned_queue_starts_a_fresh_interval() {
     "$sub" > "$state/mate.meta"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
-  cat > "$fakebin/date" <<SH
+  fm_fakebin_write "$fakebin/date" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = +%s ]; then
   cat "\${FM_FAKE_NOW_FILE:?}"
@@ -456,7 +456,7 @@ test_secondmate_active_turn_defers_stall_until_the_turn_ends() {
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$(( $(date +%s) - 10 ))" \
     > "$sub/state/.wake-queue"
   fakebin="$dir/fakebin"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) printf '%s\n' 'firstmate:fm-mate' ;;
@@ -523,7 +523,7 @@ test_secondmate_long_lived_mate_mid_turn_is_not_a_stall() {
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$(( $(date +%s) - 10 ))" \
     > "$sub/state/.wake-queue"
   fakebin="$dir/fakebin"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) printf '%s\n' 'firstmate:fm-mate' ;;
@@ -580,7 +580,7 @@ test_secondmate_stall_marker_rejects_symlink() {
   printf '%s\t%s-7\n' "$(( $(date +%s) - 2 ))" "$epoch" > "$state/.secondmate-wake-progress-mate"
   ln -s "$outside" "$marker"
   fakebin="$dir/fakebin"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) printf '%s\n' 'firstmate:fm-mate' ;;
@@ -725,7 +725,7 @@ test_structural_signal_enrichment_preserves_raw_rows() {
   printf 'must-not-be-read\n' > "$outside"
   ln -s "$outside" "$state/escape.status"
   perl_bin=$(command -v perl) || fail "perl is required for safe status reads"
-  cat > "$dir/fakebin/perl" <<'SH'
+  fm_fakebin_write "$dir/fakebin/perl" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -MFcntl=:DEFAULT ]; then
   for arg in "$@"; do
@@ -1031,7 +1031,7 @@ test_uncountable_queue_still_raises_the_pending_alarm() {
   # An awk that still runs its END rule after failing to open its input: it
   # prints a 0 count and exits non-zero. Every other invocation is the real awk.
   real_awk=$(command -v awk) || fail "no awk on PATH"
-  cat > "$awkbin/awk" <<SH
+  fm_fakebin_write "$awkbin/awk" <<SH
 #!/usr/bin/env bash
 set -u
 for _arg in "\$@"; do _last=\$_arg; done
@@ -1221,7 +1221,7 @@ test_wake_publish_requires_atomic_recovery_evidence() {
   fakebin="$dir/fakebin"
   real_mv=$(command -v mv) || fail "could not locate mv for recovery publication fixture"
   printf 'pending:handling:existing\n' > "$state/.watcher-down"
-  cat > "$fakebin/mv" <<'SH'
+  fm_fakebin_write "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "${FM_TEST_PUBLISH_MARKER:-}" ]; then
@@ -1478,7 +1478,7 @@ test_recovery_ack_failure_is_reported() {
     || fail "initial recovery drain failed"
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through 0 --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$dir/initial.err")
   [ -n "$generation" ] || fail "initial recovery drain omitted its generation"
-  cat > "$fakebin/mv" <<'SH'
+  fm_fakebin_write "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "${FM_TEST_ACK_MARKER:-}" ]; then
@@ -1697,7 +1697,7 @@ test_bounded_lock_handoff_after_contention() {
   lock="$state/.fixture.lock"
   sleep_log="$dir/waiter-sleeps"
   real_sleep=$(command -v sleep) || fail "sleep is unavailable for the handoff fixture"
-  cat > "$dir/fakebin/sleep" <<'SH'
+  fm_fakebin_write "$dir/fakebin/sleep" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$1" >> "$FM_HANDOFF_SLEEP_LOG"
 exec "$FM_HANDOFF_REAL_SLEEP" "$@"

@@ -55,7 +55,7 @@ trap cleanup EXIT
   cd "$ROOT" || exit
   tar --exclude=.git --exclude=.no-mistakes --exclude=data --exclude=state --exclude=config -cf - .
 ) | (cd "$REMOTE_ROOT" && tar -xf -)
-cat > "$REMOTE_ROOT/bin/tmux" <<SH
+fm_fakebin_write "$REMOTE_ROOT/bin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
 log='$TMUX_LOG'
@@ -129,7 +129,7 @@ printf 'codex\n' > "$PARENT/config/secondmate-harness"
 printf 'tmux\n' > "$PARENT/config/backend"
 printf 'primary harness defaults\n' > "$PARENT/config/crew-harness"
 
-cat > "$FAKEBIN/fake-ssh" <<'SH'
+fm_fakebin_write "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 count=$(cat "$FM_FAKE_SSH_COUNT" 2>/dev/null || echo 0)
 printf '%s\n' "$((count + 1))" > "$FM_FAKE_SSH_COUNT"
@@ -316,7 +316,7 @@ seed_env() {
 }
 
 REAL_GIT=$(command -v git)
-cat > "$FAKEBIN/git" <<SH
+fm_fakebin_write "$FAKEBIN/git" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = clone ] && [ "\${!#}" = "$TMP_ROOT/concurrent-home" ]; then
   printf 'clone\n' >> "$TMP_ROOT/provision-clones"
@@ -592,7 +592,7 @@ forge_project ghe-app 'https://git.example.com/org/ghe-app.git'
 forge_project gitlab-app 'ssh://git@gitlab.self.hosted:2222/group/subgroup/gitlab-app.git'
 forge_project scp-app 'git@host.internal:group/scp-app.git'
 
-cat > "$REMOTE_ROOT/bin/git" <<SH
+fm_fakebin_write "$REMOTE_ROOT/bin/git" <<SH
 #!/usr/bin/env bash
 # Fixture origin resolver for the remote side: record the clone source exactly as
 # the production code hands it to git, then serve any recorded URL from a local

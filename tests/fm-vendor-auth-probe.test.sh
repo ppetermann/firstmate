@@ -39,14 +39,14 @@ STDIN_SENTINEL='SENTINEL-STDIN-MUST-NOT-REACH-VENDOR-CLI'
 make_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/quota-axi" <<'SH'
+  fm_fakebin_write "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_QUOTA_LOG"
 exit 0
 SH
   chmod +x "$fakebin/quota-axi"
 
-  cat > "$fakebin/grok" <<'SH'
+  fm_fakebin_write "$fakebin/grok" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_GROK_LOG"
 # Record whatever is readable on stdin. With stdin correctly closed by the

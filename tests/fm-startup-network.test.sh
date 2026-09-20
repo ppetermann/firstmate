@@ -43,7 +43,7 @@ new_world() {
     ln -s "$f" "$root/bin/$(basename "$f")"
   done
   rm -f "$root/bin/fm-bootstrap.sh"
-  cat > "$root/bin/fm-bootstrap.sh" <<'SH'
+  fm_fakebin_write "$root/bin/fm-bootstrap.sh" <<'SH'
 #!/usr/bin/env bash
 # Scriptable stand-in: records how it was invoked, then behaves as the test asks.
 set -u
@@ -65,7 +65,7 @@ fi
 exit "${FM_FAKE_BOOTSTRAP_RC:-0}"
 SH
   chmod +x "$root/bin/fm-bootstrap.sh"
-  cat > "$root/bin/ps" <<'SH'
+  fm_fakebin_write "$root/bin/ps" <<'SH'
 #!/usr/bin/env bash
 pid=
 previous=

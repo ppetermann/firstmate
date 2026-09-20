@@ -366,7 +366,7 @@ test_pi_startup_classifies_cli_continuations() {
   cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$fixture/.pi/extensions/"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" \
     "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$fixture/.pi/extensions/lib/"
-  cat > "$fixture/bin/fm-sessionstart-run.sh" <<'SH'
+  fm_fakebin_write "$fixture/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
 source_name=
 while [ $# -gt 0 ]; do
@@ -377,7 +377,7 @@ while [ $# -gt 0 ]; do
 done
 printf '%s\n' "$source_name" >> "${FM_HOME:?}/state/sources"
 SH
-  cat > "$fixture/bin/fm-turnend-guard.sh" <<'SH'
+  fm_fakebin_write "$fixture/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -465,11 +465,11 @@ test_pi_sessionstart_generation_prerequisite() {
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" \
     "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$fixture/.pi/extensions/lib/"
   cp "$ROOT/bin/fm-operational-input.sh" "$fixture/bin/"
-  cat > "$fixture/bin/fm-turnend-guard.sh" <<'SH'
+  fm_fakebin_write "$fixture/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-  cat > "$fixture/bin/fm-sessionstart-run.sh" <<'SH'
+  fm_fakebin_write "$fixture/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
 state=${FM_HOME:?}/state
@@ -791,11 +791,11 @@ test_pi_reload_releases_sessionstart_exit_listener() {
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" \
     "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$fixture/.pi/extensions/lib/"
   cp "$ROOT/bin/fm-operational-input.sh" "$fixture/bin/"
-  cat > "$fixture/bin/fm-turnend-guard.sh" <<'SH'
+  fm_fakebin_write "$fixture/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-  cat > "$fixture/bin/fm-sessionstart-run.sh" <<'SH'
+  fm_fakebin_write "$fixture/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
 state=${FM_HOME:?}/state
@@ -928,7 +928,7 @@ test_pi_large_sessionstart_digest_is_delivered_loudly() {
     "$ROOT/bin/fm-primary-scope-lib.sh" "$ROOT/bin/fm-gate-refuse-lib.sh" \
     "$ROOT/bin/fm-hook-host-lib.sh" \
     "$ROOT/bin/fm-operational-input.sh" "$fixture/bin/"
-  cat > "$fixture/bin/fm-session-start.sh" <<'SH'
+  fm_fakebin_write "$fixture/bin/fm-session-start.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'PI_LARGE_DIGEST_PREFIX\n'
 i=0

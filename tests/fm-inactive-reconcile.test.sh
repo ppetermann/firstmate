@@ -223,7 +223,7 @@ test_secondmate_multiline_terminal_outcome_is_delivered_once() {
         printf '%s: validation finished\nSee the report for details.\n\n' "$terminal" >> "$MATE/state/child.status"
         age "$MATE/state/child.status"
       else
-        cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+        fm_fakebin_write "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s: validation finished\nSee the report for details.\n\n' "$FM_FAKE_CREW_STATE" >> "$FM_STATE_OVERRIDE/$1.status"
 printf 'state: %s · source: fake\n' "$FM_FAKE_CREW_STATE"
@@ -368,7 +368,7 @@ test_pr_field_requires_recorded_pr_or_ready_signal_line() {
 test_terminal_line_during_state_read_yields_to_ledger_delivery() {
   make_world state-ledger-race; bind_secondmate local
   write_child "$MATE" child 'working: finishing now'
-  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+  fm_fakebin_write "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'done: completed during state read\n' >> "$FM_STATE_OVERRIDE/$1.status"
 printf 'state: done · source: fake\n'
@@ -652,7 +652,7 @@ test_relaunch_cannot_replace_metadata_during_state_snapshot() {
   local recon_pid update_pid record i
   make_world relaunch-race; bind_secondmate remote
   write_child "$MATE" child 'working: quiet since' spawn-old
-  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+  fm_fakebin_write "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
 : > "${FM_RACE_WORLD:?}/state-started"
 while [ ! -e "$FM_RACE_WORLD/state-release" ]; do sleep 0.05; done
@@ -803,7 +803,7 @@ test_stalled_state_read_is_bounded_and_scan_progresses() {
   local started elapsed
   make_world bounded
   write_child "$MAIN" a 'working: state read will stall'
-  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+  fm_fakebin_write "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = a ]; then
   sleep 30
@@ -909,7 +909,7 @@ test_reconciliation_never_calls_forge() {
 
 test_reconciliation_sets_no_forge_mode_for_state_read() {
   make_world no-forge-env; write_child "$MAIN" child 'working: quiet since'
-  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+  fm_fakebin_write "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${FM_CREW_STATE_NO_FORGE:-}" > "${FM_NO_FORGE_LOG:?}"
 printf 'state: done · source: fake\n'

@@ -375,7 +375,7 @@ inbox_env+=(FM_HOME="$CONFIG_HOME" FM_STATE_OVERRIDE="$CONFIG_HOME/state"
 # leaves evidence and exits non-zero.
 INBOX_FAKEBIN=$(fm_fakebin "$TMP_ROOT/inbox-fake")
 AWS_CALLED="$TMP_ROOT/aws-was-called"
-cat > "$INBOX_FAKEBIN/aws" <<SH
+fm_fakebin_write "$INBOX_FAKEBIN/aws" <<SH
 #!/usr/bin/env bash
 printf 'aws %s\n' "\$*" >> "$AWS_CALLED"
 exit 9
@@ -3187,7 +3187,7 @@ pass "the client runs from a laptop holding only the two files the guide names"
 # refusal must come before it, so nothing is opened and nothing is spent.
 OPENMIC_FAKEBIN=$(fm_fakebin "$TMP_ROOT/openmic-fake")
 SSH_CALLED="$TMP_ROOT/ssh-was-called"
-cat > "$OPENMIC_FAKEBIN/ssh" <<SH
+fm_fakebin_write "$OPENMIC_FAKEBIN/ssh" <<SH
 #!/usr/bin/env bash
 printf 'ssh %s\n' "\$*" >> "$SSH_CALLED"
 exit 9
@@ -4131,7 +4131,7 @@ PY
 
 # What the desktop side of the connection has, and the laptop side does not. The
 # AWS credential is here and nowhere else, which is the whole point of the shape.
-cat > "$E2E/bin/desktop.env" <<EOF
+fm_fakebin_write "$E2E/bin/desktop.env" <<EOF
 PATH=$PATH
 HOME=$E2E/desktop-home
 PYTHONPATH=$E2E/fakesdk
@@ -4150,7 +4150,7 @@ EOF
 # Stands in for ssh, so the client takes its real `ssh -T <host> <relay>` path
 # and the desktop's environment is a boundary rather than an assertion: the relay
 # starts from env -i and desktop.env, so nothing the laptop holds can reach it.
-cat > "$E2E/bin/ssh" <<'SH'
+fm_fakebin_write "$E2E/bin/ssh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -4385,8 +4385,8 @@ mkdir -p "$SURVIVE/bin"
 
 # The same desktop, with its own turn script and its own record of what the model
 # was asked, so neither run can read the other's sessions.
-grep -v '^FM_FAKE_' "$E2E/bin/desktop.env" > "$SURVIVE/bin/desktop.env"
-cat >> "$SURVIVE/bin/desktop.env" <<EOF
+fm_fakebin_write "$SURVIVE/bin/desktop.env" < <(grep -v '^FM_FAKE_' "$E2E/bin/desktop.env")
+fm_fakebin_write --append "$SURVIVE/bin/desktop.env" <<EOF
 FM_FAKE_STATE=$SURVIVE/turn-counter
 FM_FAKE_LOG=$SURVIVE/model-sessions.jsonl
 FM_FAKE_THINK=0.4

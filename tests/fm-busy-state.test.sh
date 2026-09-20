@@ -127,7 +127,7 @@ test_stale_lock_broken_under_gnu_stat() {
   real_uname=$(command -v uname)
 
   # GNU coreutils semantics, self-contained so no real stat is consulted.
-  cat > "$fakebin/stat" <<'SH'
+  fm_fakebin_write "$fakebin/stat" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -c ] && [ "${2:-}" = %Y ]; then
   printf '%s\n' 1000000000   # long-abandoned lock
@@ -142,7 +142,7 @@ fi
 exit 1
 SH
   chmod +x "$fakebin/stat"
-  cat > "$fakebin/uname" <<SH
+  fm_fakebin_write "$fakebin/uname" <<SH
 #!/usr/bin/env bash
 if [ \$# -eq 0 ]; then printf 'Linux\n'; exit 0; fi
 exec "$real_uname" "\$@"

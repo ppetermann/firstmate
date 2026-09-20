@@ -290,7 +290,7 @@ test_post_enqueue_bookkeeping_failure_is_not_retryable() {
   local dir err rc rec body
   dir=$(setup_case bookkeeping-failure); err="$dir/send.err"
   fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
-  cat > "$dir/fakebin/mv" <<'SH'
+  fm_fakebin_write "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 set -u
 source_arg=${@: -2:1}

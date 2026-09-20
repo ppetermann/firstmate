@@ -615,12 +615,12 @@ test_worktree_write_probe_is_wall_clock_bounded() {
   # Both stand-ins report the same hit; only one of them takes longer than the bound
   # to do it, so the prompt one shows what a positive outcome looks like and the
   # bounded assertion below cannot pass merely because the fake failed.
-  cat > "$fastbin/find" <<'SH'
+  fm_fakebin_write "$fastbin/find" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$1/hit"
 SH
-  cat > "$slowbin/find" <<'SH'
+  fm_fakebin_write "$slowbin/find" <<'SH'
 #!/usr/bin/env bash
 set -u
 sleep 30
@@ -4706,7 +4706,7 @@ test_afk_busy_declared_pause_ticking_pane_hands_off_once() {
   dir=$(make_case afk-busy-declared-pause-ticking); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; drain_out="$dir/drain.out"; window="test:fm-afk-ticking-scout"
   statusf="$state/afk-ticking-scout.status"; ticks="$dir/ticks"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -5157,7 +5157,7 @@ test_triage_log_size_cap_accepts_spaced_wc_counts() {
     printf 'old line %04d\n' "$i" >> "$state/.watch-triage.log"
     i=$((i + 1))
   done
-  cat > "$fakebin/wc" <<'SH'
+  fm_fakebin_write "$fakebin/wc" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = "-c" ]; then
@@ -5444,7 +5444,7 @@ install_marker_mv_fault() {  # <dir>
   local dir=$1
   REAL_MV=$(command -v mv)
   export REAL_MV
-  cat > "$dir/fakebin/mv" <<'SH'
+  fm_fakebin_write "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 dest=${!#}
 case "$dest" in

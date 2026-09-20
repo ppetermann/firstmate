@@ -60,7 +60,7 @@ lab() { env PATH="$ORIGINAL_PATH" "$LAB_HELPER" run "$LAB_SESSION" "$@"; }
 # session flag the helper will re-append, refuses any caller-supplied one, and
 # optionally performs one real focus change at the requested product boundary
 # before forwarding the call.
-cat > "$FAKEBIN/herdr" <<'SH'
+fm_fakebin_write "$FAKEBIN/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
 args=("$@")

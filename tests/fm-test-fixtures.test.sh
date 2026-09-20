@@ -7,6 +7,13 @@
 # fm_test_run_spawn through the real fm-spawn.sh; this file pins the shared
 # primitives and stubs those suites use.
 #
+# The fm_fakebin_write cases below pin the fixture write carrier, which now
+# lives in tests/fakebin-write.sh so the suites that cannot source tests/lib.sh
+# can still reach it; that file's header owns its contract. What makes the
+# carrier MANDATORY rather than merely available is bin/fm-lint.sh's
+# fixture-write purity check, pinned by tests/fm-lint.test.sh against the
+# corpus in tests/assets/fixture-write-purity-corpus.txt.
+#
 # It is also the fixture Git-config isolation regression, with host signing
 # armed on a scratch config file: it drives every entry point that must reach
 # tests/git-config-helpers.sh - the shared helpers, bin/fm-test-run.sh's
@@ -29,7 +36,7 @@ test_git_config_isolation() (
   cp "$ROOT/tests/git-config-helpers.sh" "$dir/runner/tests/"
   fakebin=$(fm_fakebin "$dir/standalone")
   fm_fake_exit0 "$fakebin" pi
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -eu
 while [ "$#" -gt 0 ]; do
@@ -331,8 +338,10 @@ test_fakebin_write_refuses_symlinked_parent_directory() {
 #
 # The table is a hand-kept inventory of the routed writes, not a discovered one:
 # it catches a helper that STOPS routing, and a new helper has to be added here
-# to be covered at all. Row format: <label>|<library>|<entry it writes>|
-# <snippet>. The snippet runs in a child shell with that library sourced and
+# to be covered at all. What catches a helper, or any other suite, that never
+# routed in the first place is bin/fm-lint.sh's fixture-write purity check.
+# Row format: <label>|<library>|<entry it writes>|<snippet>. The entry may name
+# a subdirectory when the helper writes into one, as a fixture home's bin/ is. The snippet runs in a child shell with that library sourced and
 # DIR, FAKEBIN, TMP_ROOT and NAME pointing at the planted fixture, so each
 # helper is driven through its own public signature, never through its source
 # text.
@@ -358,6 +367,7 @@ FM_ROUTED_FAKEBIN_HELPERS=(
   'make_bordered_case|wake-helpers.sh|tmux|make_bordered_case "$NAME"'
   'make_fake_tmux_tmux|secondmate-helpers.sh|tmux|make_fake_tmux "$DIR"'
   'make_fake_tmux_treehouse|secondmate-helpers.sh|treehouse|make_fake_tmux "$DIR"'
+  'make_firstmate_git_root|secondmate-helpers.sh|bin/fm-guard.sh|make_firstmate_git_root "$FAKEBIN"'
 )
 
 assert_routed_helper_protects_real_tool() {  # <label> <library> <entry> <snippet>
@@ -365,7 +375,12 @@ assert_routed_helper_protects_real_tool() {  # <label> <library> <entry> <snippe
   local dir="$TMP_ROOT/routing/$label" real before after rc=0
 
   rm -rf "$dir"
-  mkdir -p "$dir/fakebin" "$dir/outside"
+  # A routed helper may write into a subdirectory of the fixture (a fixture
+  # home's bin/, say), so plant the entry at whatever depth it names.
+  case $entry in
+    */*) mkdir -p "$dir/fakebin/${entry%/*}" "$dir/outside/${entry%/*}" ;;
+    *) mkdir -p "$dir/fakebin" "$dir/outside" ;;
+  esac
   real="$dir/outside/$entry"
   printf '#!/usr/bin/env bash\necho real %s\n' "$entry" > "$real"
   chmod +x "$real"
@@ -400,6 +415,154 @@ test_shared_fixture_helpers_route_their_stub_writes() {
   pass "all ${#FM_ROUTED_FAKEBIN_HELPERS[@]} inventoried fixture-helper stub writes still go through fm_fakebin_write"
 }
 
+# --append is the shape the migration needed that the carrier did not yet have:
+# a handful of fixtures extend a stub they already wrote rather than replacing
+# it. It keeps the parent guarantee and adds one of its own, because appending
+# through a leaf symlink has no "the caller owns this entry" reading the way
+# replacing it does - it can only mean the caller believed it owned bytes that
+# actually live in the real tool.
+test_fakebin_write_append_extends_an_entry_it_owns() {
+  local dir="$TMP_ROOT/append" fakebin body
+  fakebin=$(fm_fakebin "$dir")
+  fm_fakebin_write "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+printf first\n
+SH
+  fm_fakebin_write --append "$fakebin/ps" <<'SH'
+printf second\n
+SH
+  body=$(cat "$fakebin/ps")
+  case $body in
+    *first*second*) ;;
+    *) fail "fm_fakebin_write --append did not extend the entry, got: $body" ;;
+  esac
+  [ -f "$fakebin/ps" ] || fail "appended fakebin entry should be a regular file"
+  pass "fm_fakebin_write --append extends a fixture entry it already wrote"
+}
+
+test_fakebin_write_append_refuses_a_symlinked_entry() {
+  local dir="$TMP_ROOT/append-symlink" fakebin outside real_tool before after err rc=0
+  fakebin=$(fm_fakebin "$dir")
+  outside="$dir/outside-host-tools"
+  mkdir -p "$outside"
+  real_tool="$outside/jq"
+  printf '#!/usr/bin/env bash\necho real jq output\n' > "$real_tool"
+  chmod +x "$real_tool"
+  before=$(cat "$real_tool")
+  ln -s "$real_tool" "$fakebin/jq"
+
+  err=$(printf 'appended\n' | fm_fakebin_write --append "$fakebin/jq" 2>&1) || rc=$?
+
+  [ "$rc" -ne 0 ] || fail "fm_fakebin_write --append wrote through a symlinked entry instead of refusing"
+  after=$(cat "$real_tool")
+  [ "$before" = "$after" ] || fail "fm_fakebin_write --append altered the real tool its fixture entry pointed at"
+  case $err in
+    *"$real_tool"*) ;;
+    *) fail "the refusal did not name the real file the append would have reached: $err" ;;
+  esac
+  pass "fm_fakebin_write --append refuses a symlinked fixture entry instead of appending to the real tool"
+}
+
+test_fakebin_write_append_refuses_a_symlinked_parent_directory() {
+  local dir="$TMP_ROOT/append-parent" real before after err rc=0
+  mkdir -p "$dir/outside/bin" "$dir/fixture" "$dir/tempbase"
+  real="$dir/outside/bin/fm-guard.sh"
+  printf '#!/usr/bin/env bash\n# a real repository script\n' > "$real"
+  before=$(cat "$real")
+  ln -s "$dir/outside/bin" "$dir/fixture/bin"
+
+  err=$(printf 'appended\n' |
+    TMPDIR="$dir/tempbase" fm_fakebin_write --append "$dir/fixture/bin/fm-guard.sh" 2>&1) || rc=$?
+
+  [ "$rc" -ne 0 ] || fail "fm_fakebin_write --append wrote through a symlinked parent directory instead of refusing"
+  after=$(cat "$real")
+  [ "$before" = "$after" ] || fail "fm_fakebin_write --append altered the real file its symlinked parent pointed at"
+  case $err in
+    *"$dir/outside/bin/fm-guard.sh"*) ;;
+    *) fail "the refusal did not name where the append would really have landed: $err" ;;
+  esac
+  pass "fm_fakebin_write --append refuses a write whose directory is a symlink out of the fixture"
+}
+
+# The carrier is reachable without tests/lib.sh, which is the whole reason it
+# moved into its own file: seven suites drive real Herdr or real quota tooling
+# and cannot take the library's traps, umask and Git isolation, but still write
+# stubs into a fixture tool directory. Source it the way they do - in a child
+# shell with no library at all - and drive it against a planted symlink.
+test_fakebin_write_is_reachable_without_the_test_library() {
+  local dir="$TMP_ROOT/standalone-carrier" real before after rc=0
+  mkdir -p "$dir/fakebin" "$dir/outside"
+  real="$dir/outside/jq"
+  printf '#!/usr/bin/env bash\necho real jq\n' > "$real"
+  chmod +x "$real"
+  before=$(cat "$real")
+  ln -s "$real" "$dir/fakebin/jq"
+
+  bash -c '
+    set -u
+    [ -z "${FM_TEST_LIB_SOURCED:-}" ] || { echo "the test library leaked into the child shell" >&2; exit 2; }
+    . "$1"
+    printf "stub\n" | fm_fakebin_write "$2/fakebin/jq"
+  ' _ "$ROOT/tests/fakebin-write.sh" "$dir" || rc=$?
+
+  [ "$rc" -eq 0 ] || fail "sourcing tests/fakebin-write.sh alone did not provide a working carrier (rc=$rc)"
+  [ -e "$real" ] || fail "the standalone carrier deleted the real tool its fixture entry pointed at"
+  after=$(cat "$real")
+  [ "$before" = "$after" ] || fail "the standalone carrier wrote through the symlink and altered the real tool"
+  [ ! -L "$dir/fakebin/jq" ] || fail "the standalone carrier left the entry a symlink"
+  assert_grep stub "$dir/fakebin/jq" "the standalone carrier did not write the stub"
+  pass "tests/fakebin-write.sh provides the carrier on its own, with no tests/lib.sh"
+}
+
+# Unlinking is what makes the leaf answer safe, and it is also what nearly broke
+# the migration onto this carrier: fixtures write a stub once with a chmod +x
+# and then rewrite it per case with no chmod at all, which a plain `cat >`
+# truncation kept executable and a naive unlink-then-write did not. Replacing an
+# entry must therefore leave its mode exactly where the redirect would have.
+test_fakebin_write_preserves_the_replaced_entrys_mode() {
+  local dir="$TMP_ROOT/mode" fakebin outside real_tool before after
+  fakebin=$(fm_fakebin "$dir")
+
+  fm_fakebin_write "$fakebin/tool" <<'SH'
+#!/usr/bin/env bash
+echo first
+SH
+  chmod +x "$fakebin/tool"
+  before=$(stat -Lc %a "$fakebin/tool" 2>/dev/null || stat -Lf %Lp "$fakebin/tool")
+  fm_fakebin_write "$fakebin/tool" <<'SH'
+#!/usr/bin/env bash
+echo second
+SH
+  after=$(stat -Lc %a "$fakebin/tool" 2>/dev/null || stat -Lf %Lp "$fakebin/tool")
+  [ "$before" = "$after" ] \
+    || fail "rewriting a fixture entry changed its mode from $before to $after"
+  [ -x "$fakebin/tool" ] || fail "rewriting an executable fixture entry left it non-executable"
+  [ "$("$fakebin/tool")" = second ] || fail "the rewritten entry did not run the new stub"
+
+  # Replacing a symlinked real tool should leave a stub as runnable as the tool.
+  outside="$dir/outside"
+  mkdir -p "$outside"
+  real_tool="$outside/jq"
+  printf '#!/usr/bin/env bash\necho real jq\n' > "$real_tool"
+  chmod +x "$real_tool"
+  ln -s "$real_tool" "$fakebin/jq"
+  fm_fakebin_write "$fakebin/jq" <<'SH'
+#!/usr/bin/env bash
+echo stub jq
+SH
+  [ -x "$fakebin/jq" ] || fail "replacing a symlinked real tool left the stub non-executable"
+  [ "$("$fakebin/jq")" = 'stub jq' ] || fail "the replacement stub did not run"
+  [ "$(cat "$real_tool")" = "$(printf '#!/usr/bin/env bash\necho real jq')" ] \
+    || fail "replacing the symlinked entry altered the real tool"
+
+  # A path that did not exist takes the umask default, as the redirect would.
+  fm_fakebin_write "$fakebin/fresh" <<'SH'
+new
+SH
+  [ ! -x "$fakebin/fresh" ] || fail "a newly created fixture entry should not be executable by itself"
+  pass "fm_fakebin_write keeps the mode of the entry it replaces and defaults a new one"
+}
+
 test_git_config_isolation || fail "Git fixture config isolation"
 test_touch_epoch_preserves_repeated_dst_hour
 test_no_mistakes_version_constant
@@ -410,3 +573,8 @@ test_spawn_home_layout
 test_fakebin_write_replaces_symlinked_entry
 test_fakebin_write_refuses_symlinked_parent_directory
 test_shared_fixture_helpers_route_their_stub_writes
+test_fakebin_write_preserves_the_replaced_entrys_mode
+test_fakebin_write_append_extends_an_entry_it_owns
+test_fakebin_write_append_refuses_a_symlinked_entry
+test_fakebin_write_append_refuses_a_symlinked_parent_directory
+test_fakebin_write_is_reachable_without_the_test_library

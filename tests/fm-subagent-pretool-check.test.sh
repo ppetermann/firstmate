@@ -147,7 +147,7 @@ test_guard_never_classifies_mcp_tools() {
 
 test_deny_message_defers_to_intake_classification() {
   local actual
-  printf '#!/usr/bin/env bash\n' > "$PRIMARY/bin/fm-scout.sh"
+  fm_fakebin_write "$PRIMARY/bin/fm-scout.sh" < <(printf '#!/usr/bin/env bash\n')
   run_tool Agent && fail "scout-present case must still deny"
   actual=$(jq -r '.systemMessage' "$ERR")
   case "$actual" in

@@ -34,7 +34,7 @@ TMP_ROOT=$(fm_test_tmproot fm-spawn-worktree-settle)
 make_settle_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "$*" in

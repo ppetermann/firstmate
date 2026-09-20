@@ -1481,7 +1481,7 @@ test_branch_default_on_heartbeat_afk_and_fallback() {
   cp "$ROOT/bin/fm-branch-outcome.sh" "$ROOT/bin/fm-classify-lib.sh" \
     "$ROOT/bin/fm-lease.sh" "$ROOT/bin/fm-lease-lib.sh" "$ROOT/bin/fm-timeout-lib.sh" \
     "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-wake-grant.sh" "$broken/bin/"
-  cat > "$broken/bin/fm-branch-prompt.sh" <<'SH'
+  fm_fakebin_write "$broken/bin/fm-branch-prompt.sh" <<'SH'
 #!/usr/bin/env bash
 echo "synthetic generator failure" >&2
 exit 1
@@ -3814,7 +3814,7 @@ test_replacement_activation_cleans_leases_and_retries_failure() {
   real_bash=$(command -v bash)
   mkdir -p "$home/state" "$home/config" "$fakebin"
   install_pi_branch_extension_fixture "$repo"
-  cat > "$fakebin/bash" <<'SH'
+  fm_fakebin_write "$fakebin/bash" <<'SH'
 #!/bin/sh
 if [ "$1" = "$FM_TEST_LEASE_SCRIPT" ] && [ ! -e "$FM_TEST_FAIL_MARKER" ]; then
   : > "$FM_TEST_FAIL_MARKER"
@@ -4861,7 +4861,7 @@ test_session_replacement_during_delivery_neither_loses_nor_duplicates() {
   real_ps=$(command -v ps)
   mkdir -p "$home/state" "$home/config" "$fakebin"
   install_pi_branch_extension_fixture "$repo"
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/bin/sh
 if [ -f "$FM_TEST_PS_ARM" ]; then
   rm -f "$FM_TEST_PS_ARM"
@@ -4978,7 +4978,7 @@ test_store_failure_during_delivery_neither_loses_nor_duplicates() {
   # delivery meets a real failing script rather than a stubbed return value.
   # The driver arms it through that file because the extension snapshots its
   # child environment when it loads.
-  cat > "$fakebin/bash" <<'SH'
+  fm_fakebin_write "$fakebin/bash" <<'SH'
 #!/bin/sh
 armed=$(cat "$FM_TEST_FAIL_ARM" 2>/dev/null || printf '')
 if [ -n "$armed" ] && [ "$1" = "$FM_TEST_OUTCOME_SCRIPT" ] && [ "$2" = "$armed" ]; then
@@ -5073,7 +5073,7 @@ test_mark_read_failure_keeps_routine_redelivery_and_captain_deduplication() {
   real_bash=$(command -v bash)
   mkdir -p "$home/state" "$home/config" "$fakebin"
   install_pi_branch_extension_fixture "$repo"
-  cat > "$fakebin/bash" <<'SH'
+  fm_fakebin_write "$fakebin/bash" <<'SH'
 #!/bin/sh
 armed=$(cat "$FM_TEST_FAIL_ARM" 2>/dev/null || printf '')
 if [ -n "$armed" ] && [ "$1" = "$FM_TEST_OUTCOME_SCRIPT" ] && [ "$2" = "$armed" ]; then

@@ -458,19 +458,19 @@ test_turnend_guard_extension_compels_one_continuation() {
   repo="$TMP_ROOT/guard/repo"; home="$TMP_ROOT/guard/home"
   install_omp_extension_fixture "$repo"
   mkdir -p "$home/state"
-  cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 payload=$(cat); printf '%s\n' "$payload" >> "${FM_GUARD_LOG:?}"
 case "$payload" in *'"stop_hook_active":true'*) exit 0 ;; esac
 printf 'guard says: repair with fm_watch_arm_omp\n' >&2; exit 2
 SH
-  cat > "$repo/bin/fm-arm-pretool-check.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-arm-pretool-check.sh" <<'SH'
 #!/usr/bin/env bash
 case "$*" in *fm-watch-arm.sh*'&'*) printf 'fm watcher-arm seatbelt: blocked\n' >&2; exit 2 ;; esac; exit 0
 SH
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/bin/fm-cd-pretool-check.sh"
+  fm_fakebin_write "$repo/bin/fm-cd-pretool-check.sh" < <(printf '#!/usr/bin/env bash\nexit 0\n')
   # shellcheck disable=SC2016 # $2 expands in the generated script
-  printf '#!/usr/bin/env bash\nprintf "OMP DIGEST source=%%s\\n" "$2"\n' > "$repo/bin/fm-sessionstart-run.sh"
+  fm_fakebin_write "$repo/bin/fm-sessionstart-run.sh" < <(printf '#!/usr/bin/env bash\nprintf "OMP DIGEST source=%%s\\n" "$2"\n')
   chmod +x "$repo/bin/"*.sh
   out=$(FM_GUARD_LOG="$TMP_ROOT/guard/guard.log" FM_HOME="$home" EXT="$repo/.omp/extensions/fm-primary-turnend-guard.ts" node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
@@ -521,7 +521,7 @@ test_watch_extension_arms_and_delivers() {
   mkdir -p "$home/state"
   # The first arm child closes with one actionable reason; every successor
   # stays up, so exactly one wake exists to consume.
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'watcher: started pid=%s (beacon 0s) recovery-generation=gen-1\n' "$$"
 if [ ! -e "${FM_HOME:?}/state/.e2e-fired" ]; then

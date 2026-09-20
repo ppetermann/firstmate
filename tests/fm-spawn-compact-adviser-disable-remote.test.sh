@@ -49,7 +49,7 @@ CONTRARY=0
 # The remote host's own non-second-mate tooling only has to stay resolvable;
 # the second mate itself always launches on Herdr, whose fixture logs every
 # invocation verbatim.
-cat > "$REMOTE_ROOT/bin/tmux" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -62,7 +62,7 @@ git -C "$REMOTE_ROOT" config user.name Test
 git -C "$REMOTE_ROOT" add .
 git -C "$REMOTE_ROOT" commit -qm 'remote fixture root'
 
-cat > "$FAKEBIN/fake-ssh" <<'SH'
+fm_fakebin_write "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   case "$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac
@@ -86,7 +86,7 @@ chmod +x "$FAKEBIN/fake-ssh"
 
 # The harness the remote pane would have started, replaced by a probe that
 # reports the one environment fact under test.
-cat > "$PROBEBIN/codex" <<'SH'
+fm_fakebin_write "$PROBEBIN/codex" <<'SH'
 #!/bin/sh
 printf '%s\n' "${COMPACT_ADVISER_DISABLE-unset}"
 SH

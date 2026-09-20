@@ -31,7 +31,7 @@ trap cleanup_kimi_harness EXIT
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
@@ -1081,7 +1081,7 @@ test_kimi_detection_uses_ancestry_after_markers() {
   fakebin=$(fm_fakebin "$dir")
   cfg="$dir/config"
   mkdir -p "$cfg"
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field=
@@ -1120,7 +1120,7 @@ test_kimi_session_lock_identity() {
   home="$TMP_ROOT/session-lock-home"
   fakebin=$(fm_fakebin "$TMP_ROOT/session-lock-fake")
   mkdir -p "$home/state"
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' '/opt/kimi/bin/kimi'; exit 0 ;;

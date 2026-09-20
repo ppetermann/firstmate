@@ -19,7 +19,7 @@ BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 # A fake ssh standing in for the whole remote transport. It decodes fm-on.sh's
 # NUL argv stream so each remote leg can answer as its own command, and its mode
 # selects a reachable host, an unreachable one, or one that never answers.
-cat > "$FAKEBIN/fake-ssh" <<'SH'
+fm_fakebin_write "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 set -u
 while [ "$#" -gt 0 ]; do
@@ -52,7 +52,7 @@ chmod +x "$FAKEBIN/fake-ssh"
 
 # A tmux whose pane reports a running agent, so the local endpoint probe has a
 # real backend read to classify rather than a stubbed verdict.
-cat > "$FAKEBIN/tmux" <<'SH'
+fm_fakebin_write "$FAKEBIN/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "$*" in

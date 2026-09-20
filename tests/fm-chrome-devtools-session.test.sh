@@ -41,7 +41,7 @@ TMP_ROOT=$(fm_test_tmproot fm-chrome-devtools-session)
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "$*" in
@@ -276,12 +276,12 @@ make_teardown_fake_root() {
   ln -s "$ROOT/bin/fm-transition-lib.sh" "$fake/bin/fm-transition-lib.sh"
   ln -s "$ROOT/bin/fm-session-lock-lib.sh" "$fake/bin/fm-session-lock-lib.sh"
   ln -s "$ROOT/bin/fm-backend-hometag-lib.sh" "$fake/bin/fm-backend-hometag-lib.sh"
-  cat > "$fake/bin/fm-guard.sh" <<'SH'
+  fm_fakebin_write "$fake/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$fake/bin/fm-guard.sh"
-  cat > "$fake/bin/fm-fleet-sync.sh" <<'SH'
+  fm_fakebin_write "$fake/bin/fm-fleet-sync.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -303,7 +303,7 @@ META
 # and optionally exits non-zero on stop to exercise the failure-tolerant path.
 write_fake_chrome_devtools_axi() {
   local fakebin=$1
-  cat > "$fakebin/chrome-devtools-axi" <<'SH'
+  fm_fakebin_write "$fakebin/chrome-devtools-axi" <<'SH'
 #!/usr/bin/env bash
 session="${CHROME_DEVTOOLS_AXI_SESSION:-}"
 subcmd="${1:-}"

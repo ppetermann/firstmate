@@ -221,7 +221,7 @@ journal_field() {  # <case-dir> <id> <key>
 }
 
 make_git_failure_stub() {  # <case-dir>
-  cat > "$1/fakebin/git" <<'SH'
+  fm_fakebin_write "$1/fakebin/git" <<'SH'
 #!/usr/bin/env bash
 case "${FM_FAKE_GIT_FAILURE:-}:$*" in
   head:*' rev-parse --verify HEAD'|head:*' symbolic-ref -q HEAD') exit 128 ;;
@@ -233,7 +233,7 @@ SH
 }
 
 make_mv_failure_stub() {  # <case-dir>
-  cat > "$1/fakebin/mv" <<'SH'
+  fm_fakebin_write "$1/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FM_FAKE_COMPLETE_JOURNAL_MV_FAIL:-}" ]; then
   for path in "$@"; do
@@ -265,7 +265,7 @@ SH
 }
 
 make_rm_failure_stub() {  # <case-dir>
-  cat > "$1/fakebin/rm" <<'SH'
+  fm_fakebin_write "$1/fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   if [ -n "${FM_FAKE_RM_FAIL_PATH:-}" ] && [ "$arg" = "$FM_FAKE_RM_FAIL_PATH" ]; then
@@ -298,7 +298,7 @@ backlog_state() {  # <case-dir> <id>
 break_tasks_axi_start() {  # <case-dir>
   local dir=$1 real
   real=$(command -v tasks-axi)
-  cat > "$dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = start ]; then
   echo 'error: "start refused"' >&2
@@ -743,7 +743,7 @@ test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop() {
   add_ship_task "$dir" "$id" pi
   printf pi > "$dir/fake/command"
   printf pi > "$dir/fake/becomes"
-  printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n' > "$dir/fakebin/pi"
+  fm_fakebin_write "$dir/fakebin/pi" < <(printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n')
   chmod +x "$dir/fakebin/pi"
   sed 's|^model=default$|model=codex-native/gpt-6-astra|; s/^effort=default$/effort=ultra/' \
     "$dir/home/state/$id.meta" > "$dir/home/state/$id.meta.tmp"
@@ -1576,7 +1576,7 @@ test_secondmate_checkpoint_refuses_unreadable_child_state() {
   assert_contains "$out" "not a readable regular file" "the refusal should name the unreadable child record"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "child record failure must not stop the secondmate"
   rmdir "$dir/smhome/state/bad.meta"
-  cat > "$dir/fakebin/find" <<'SH'
+  fm_fakebin_write "$dir/fakebin/find" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -1698,7 +1698,7 @@ test_spawn_relaunch_refuses_a_symlinked_task_record_before_inspection() {
   mv "$meta" "$target"
   ln -s "$target" "$meta"
   mv "$dir/fakebin/tmux" "$dir/fakebin/tmux-real"
-  cat > "$dir/fakebin/tmux" <<SH
+  fm_fakebin_write "$dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 : > "$dir/relaunch-endpoint-inspected"
 exec "$dir/fakebin/tmux-real" "\$@"
@@ -1723,7 +1723,7 @@ test_spawn_relaunch_keeps_its_early_meta_lock_continuous() {
   printf 'zsh' > "$dir/fake/command"
   lock="$dir/home/state/.meta-rl38.lock"
   mv "$dir/fakebin/tmux" "$dir/fakebin/tmux-real"
-  cat > "$dir/fakebin/tmux" <<SH
+  fm_fakebin_write "$dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 if [ -d "$lock" ]; then
   if [ ! -e "$dir/lock-observation-started" ]; then

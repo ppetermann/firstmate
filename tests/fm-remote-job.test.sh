@@ -39,7 +39,7 @@ trap cleanup_remote_job_fixture EXIT
 cp "$ROOT/bin/fm-remote-job-lib.sh" "$ROOT/bin/fm-remote-job-worker.sh" \
   "$ROOT/bin/fm-remote-delta-read.sh" "$REMOTE_ROOT/bin/"
 printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
-cat > "$REMOTE_ROOT/bin/fm-probe-job.sh" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/fm-probe-job.sh" <<'SH'
 #!/bin/bash
 set -u
 printf 'home=%s\nroot=%s\nactive=%s\npath=%s\n' "$FM_HOME" "$FM_ROOT_OVERRIDE" "${FM_REMOTE_JOB_ACTIVE:-}" "$PATH"
@@ -50,27 +50,27 @@ if [ -n "${TOP_SECRET:-}" ]; then printf 'secret=leaked\n'; else printf 'secret=
 while IFS= read -r line || [ -n "$line" ]; do printf 'stdin=%s\n' "$line"; done
 exit "${FM_PROBE_EXIT:-0}"
 SH
-cat > "$REMOTE_ROOT/bin/fm-timeout-job.sh" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/fm-timeout-job.sh" <<'SH'
 #!/bin/bash
 sleep 3
 SH
-cat > "$REMOTE_ROOT/bin/fm-delay-job.sh" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/fm-delay-job.sh" <<'SH'
 #!/bin/bash
 sleep "$1"
 printf 'ran\n' > "$2"
 SH
-cat > "$REMOTE_ROOT/bin/fm-touch-job.sh" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/fm-touch-job.sh" <<'SH'
 #!/bin/bash
 printf 'ran\n' > "$1"
 SH
-cat > "$REMOTE_ROOT/bin/fm-shutdown-job.sh" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/fm-shutdown-job.sh" <<'SH'
 #!/bin/bash
 trap '' HUP INT TERM
 printf 'started\n' > "$1"
 sleep 3
 printf 'ran\n' > "$2"
 SH
-cat > "$REMOTE_ROOT/bin/fm-output-job.sh" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/fm-output-job.sh" <<'SH'
 #!/bin/bash
 set -e
 head -c 1200000 < /dev/zero
@@ -78,7 +78,7 @@ head -c 1200000 < /dev/zero >&2
 exit 23
 SH
 chmod +x "$REMOTE_ROOT/bin"/*.sh
-cat > "$RUNTIME_BIN/perl" <<'SH'
+fm_fakebin_write "$RUNTIME_BIN/perl" <<'SH'
 #!/bin/bash
 printf 'invoked\n' >> "$FM_FAKE_PERL_LOG"
 exit 127
@@ -258,7 +258,7 @@ fm_remote_job_reap "$ACCOUNT_HOME" "$JOB_ID" || fail "the active readiness job c
 pass "active jobs keep the worker ready for concurrent requests"
 
 OLD_WORKER_PID=$(cat "$STATE_ROOT/worker.pid")
-printf '\n' >> "$REMOTE_ROOT/bin/fm-remote-job-worker.sh"
+fm_fakebin_write --append "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" < <(printf '\n')
 fm_remote_job_ensure_worker "$REMOTE_ROOT" "$ACCOUNT_HOME" \
   || fail "$FM_REMOTE_JOB_ERROR"
 NEW_WORKER_PID=$(cat "$STATE_ROOT/worker.pid")
@@ -504,7 +504,7 @@ pass "Linux supervision recovers crashes and stops orphaned commands"
 mkdir -p "$ACCOUNT_HOME/.local/bin"
 PREEXEC_STARTED="$TMP_ROOT/preexecution-started"
 PREEXEC_FINISHED="$TMP_ROOT/preexecution-finished"
-cat > "$ACCOUNT_HOME/.local/bin/git" <<SH
+fm_fakebin_write "$ACCOUNT_HOME/.local/bin/git" <<SH
 #!/bin/bash
 if [ "\${3:-}" = ls-files ]; then
   printf 'started\n' > "$PREEXEC_STARTED"
@@ -729,7 +729,7 @@ mkdir -p "$RESTART_ROOT/bin" "$RESTART_HOME"
 cp "$ROOT/bin/fm-remote-job-lib.sh" "$RESTART_ROOT/bin/"
 cp "$ROOT/bin/fm-remote-job-worker.sh" "$RESTART_ROOT/bin/fm-remote-job-supervisor-under-test.sh"
 printf 'fixture\n' > "$RESTART_ROOT/AGENTS.md"
-cat > "$RESTART_ROOT/bin/fm-remote-job-worker.sh" <<'SH'
+fm_fakebin_write "$RESTART_ROOT/bin/fm-remote-job-worker.sh" <<'SH'
 #!/bin/bash
 set -u
 [ "${1:-}" = --serve ] || exit 2

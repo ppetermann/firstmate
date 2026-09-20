@@ -38,7 +38,7 @@ write_remote_registry_line() { # <file> <id> <host> <root> <home>
 
 install_fake_ssh() {
   local fakebin=$1
-  cat > "$fakebin/fake-ssh" <<'SH'
+  fm_fakebin_write "$fakebin/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 log=${FM_FAKE_SSH_LOG:?}
@@ -133,7 +133,7 @@ SH
 
 install_slow_git() {
   local fakebin=$1 real_git=$2 log=$3
-  cat > "$fakebin/git" <<SH
+  fm_fakebin_write "$fakebin/git" <<SH
 #!/usr/bin/env bash
 set -eu
 slow=0
@@ -193,7 +193,7 @@ test_remote_probe_scheduling_keeps_per_mate_lines() { # <parallel|fallback>
   install_fake_ssh "$fakebin"
   install_slow_git "$fakebin" "$REAL_GIT" "$log"
   if [ "$mode" = fallback ]; then
-    cat > "$fakebin/mktemp" <<SH
+    fm_fakebin_write "$fakebin/mktemp" <<SH
 #!/usr/bin/env bash
 case "\$*" in *fm-bootstrap-par.XXXXXX*) exit 1 ;; esac
 exec '$REAL_MKTEMP' "\$@"

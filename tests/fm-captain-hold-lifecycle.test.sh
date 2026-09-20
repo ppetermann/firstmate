@@ -102,7 +102,7 @@ request_reconciles() {  # <home> <source-id> <task-id>...
 
 configure_merged_github() {  # <home>
   local home=$1
-  cat > "$home/fakebin/gh" <<'SH'
+  fm_fakebin_write "$home/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
@@ -120,7 +120,7 @@ case "${1:-} ${2:-}" in
     ;;
 esac
 SH
-  cat > "$home/fakebin/gh-axi" <<'SH'
+  fm_fakebin_write "$home/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
 case "${1:-} ${2:-}" in
@@ -154,7 +154,7 @@ wait_for_test_file() {  # <path> <pid>
 
 install_reused_task_barriers() {  # <home>
   local home=$1
-  cat > "$home/fakebin/perl" <<'SH'
+  fm_fakebin_write "$home/fakebin/perl" <<'SH'
 #!/usr/bin/env bash
 if [ "${FM_TEST_REUSE_TEARDOWN:-}" = 1 ] \
     && [ ! -e "${FM_TEST_REUSE_TEARDOWN_ONCE:-}" ]; then
@@ -166,7 +166,7 @@ if [ "${FM_TEST_REUSE_TEARDOWN:-}" = 1 ] \
 fi
 exec "$FM_TEST_REAL_PERL" "$@"
 SH
-  cat > "$home/fakebin/sleep" <<'SH'
+  fm_fakebin_write "$home/fakebin/sleep" <<'SH'
 #!/usr/bin/env bash
 if [ "${FM_TEST_REUSE_MERGE:-}" = 1 ] && [ "${1:-}" = 0.1 ] \
     && [ ! -e "${FM_TEST_REUSE_MERGE_ONCE:-}" ]; then
@@ -972,7 +972,7 @@ test_hold_stamp_precedes_hold_visibility() {
 
 ## Done
 EOF
-  cat > "$home/fakebin/tasks-axi" <<'EOF'
+  fm_fakebin_write "$home/fakebin/tasks-axi" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = update ] && [ "${2:-}" = sample-stamp-failure ]; then
   exit 92
@@ -1022,7 +1022,7 @@ EOF
     || fail "could not hold the interrupted-answer fixture"
   printf 'Not urgent in the historical answer.\n' > "$home/interrupted-answer.txt"
   mkdir -p "$home/at-close"
-  cat > "$home/fakebin/tasks-axi" <<'EOF'
+  fm_fakebin_write "$home/fakebin/tasks-axi" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = done ] && [ "${2:-}" = sample-interrupted-call ] \
   && [ ! -e "$FM_HOME/close-failed-once" ]; then
@@ -1630,7 +1630,7 @@ EOF
     || fail "current or legacy selections lost or invented a reconcile task id: $out"
 
   mkdir -p "$home/adapter-root/bin"
-  cat > "$home/adapter-root/bin/fm-procevent-fixturechan.sh" <<SH
+  fm_fakebin_write "$home/adapter-root/bin/fm-procevent-fixturechan.sh" <<SH
 #!/usr/bin/env bash
 # Fixture channel: reports keyed captain answers and nothing else.
 case "\${1-}" in
@@ -1954,7 +1954,7 @@ test_reconcile_outcomes_retry_partial_failures_once() {
   printf 'Verified retirement retry.\n' > "$home/retry-retire-note.txt"
   printf 'Verified close retirement.\n' > "$home/close-retire-evidence.txt"
   printf 'Captain answered despite retirement failure.\n' > "$home/answer-retire.txt"
-  cat > "$home/fakebin/tasks-axi" <<'SH'
+  fm_fakebin_write "$home/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = done ] && [ "${2:-}" = sample-reconcile-close-retry ] \
   && [ ! -e "$FM_HOME/reconcile-close-failed" ]; then
@@ -2914,7 +2914,7 @@ test_interrupted_cleanup_keeps_the_captain_call_recoverable() {
     || fail "could not hold the cleanup-failure fixture"
   run_captain "$home" complete "$id" "$id" >/dev/null \
     || fail "completion gate failed for the cleanup-failure fixture"
-  cat > "$home/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$home/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -2973,7 +2973,7 @@ test_answer_before_cleanup_replay_preserves_the_retained_report() {
     >/dev/null || fail "could not hold the answer-before-replay fixture"
   run_captain "$home" complete "$id" "$id" >/dev/null \
     || fail "completion gate failed for the answer-before-replay fixture"
-  cat > "$home/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$home/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -3027,7 +3027,7 @@ test_unusable_pending_close_record_names_its_reason() {
     >/dev/null || fail "could not hold the unusable pending-close fixture"
   run_captain "$home" complete "$id" "$id" >/dev/null \
     || fail "completion gate failed for the unusable pending-close fixture"
-  cat > "$home/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$home/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -3091,7 +3091,7 @@ EOF
     FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$home/config" \
     "$ROOT/bin/fm-captain-hold.sh" complete "$id" "$id" >/dev/null \
     || fail "completion gate failed for the relocated answer-before-replay fixture"
-  cat > "$home/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$home/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -3670,7 +3670,7 @@ test_merge_entrypoints_serialize_forced_teardown_before_task_reads() {
   real_grep=$(command -v grep)
   ready="$home/pr-metadata-read-ready"
   release="$home/pr-metadata-read-release"
-  cat > "$home/fakebin/grep" <<'SH'
+  fm_fakebin_write "$home/fakebin/grep" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -qxF ] && [ "${2:-}" = "pr=${FM_TEST_RACE_PR_URL:-}" ] \
     && [ "${3:-}" = "${FM_TEST_RACE_PR_META:-}" ]; then
@@ -3749,7 +3749,7 @@ SH
   real_git=$(command -v git)
   local_ready="$local_home/local-validation-ready"
   local_release="$local_home/local-validation-release"
-  cat > "$local_home/fakebin/git" <<'SH'
+  fm_fakebin_write "$local_home/fakebin/git" <<'SH'
 #!/usr/bin/env bash
 if [ "$*" = "-C ${FM_TEST_RACE_REPO:-} rev-parse --short main" ]; then
   output=$("$FM_TEST_REAL_GIT" "$@") || exit $?
@@ -3867,7 +3867,7 @@ test_teardown_refuses_a_ship_when_the_captain_hold_cannot_be_read() {
   printf 'done: PR https://github.com/sample/sample/pull/7\n' > "$home/state/$id.status"
   run_captain "$home" hold "$id" --reason "captain must approve the sample change" >/dev/null \
     || fail "could not hold the ship fixture for the captain"
-  cat > "$home/fakebin/tasks-axi" <<'SH'
+  fm_fakebin_write "$home/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = show ] && [ "${2:-}" = "${TASKS_AXI_FAIL_SHOW_ID:-}" ]; then
   printf 'error: temporary backlog read failure\n' >&2

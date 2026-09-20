@@ -48,7 +48,7 @@ TMP_ROOT=$(fm_test_tmproot fm-secondmate-liveness)
 make_probe_tmux() {
   local dir=$1 comm=$2 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<SH
+  fm_fakebin_write "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
 case "\${1:-}" in
@@ -69,7 +69,7 @@ SH
 make_failed_probe_tmux() {
   local dir=$1 inventory=$2 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<SH
+  fm_fakebin_write "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
 case "\${1:-}" in
@@ -140,7 +140,7 @@ test_tmux_agent_state_rejects_malformed_targets_before_probe() {
   local fakebin marker target out
   fakebin=$(fm_fakebin "$TMP_ROOT/tmux-malformed")
   marker="$TMP_ROOT/tmux-malformed-called"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 printf 'called\n' > "$FM_TEST_TMUX_MARKER"
 printf 'bash\n'
@@ -213,7 +213,7 @@ make_toolchain() {
   fakebin=$(fm_fakebin "$dir")
   fm_fake_exit0 "$fakebin" node chrome-devtools-axi pi-signed
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.46
-  cat > "$fakebin/gh-axi" <<'SH'
+  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.29'
@@ -222,12 +222,12 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh-axi"
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$fakebin/gh"
-  cat > "$fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
   printf '%s\n' 'Usage: treehouse get [--lease]'
@@ -235,7 +235,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/treehouse"
-  cat > "$fakebin/no-mistakes" <<'SH'
+  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' 'no-mistakes version v1.46.0 (fake)'
@@ -244,7 +244,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/no-mistakes"
-  cat > "$fakebin/tasks-axi" <<'SH'
+  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "--version ") printf '%s\n' '0.2.4' ;;
@@ -254,7 +254,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tasks-axi"
-  cat > "$fakebin/quota-axi" <<'SH'
+  fm_fakebin_write "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.29'
@@ -272,7 +272,7 @@ SH
 make_liveness_tmux() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 mode=${FM_TEST_PANE_CMD:-zsh}

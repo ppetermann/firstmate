@@ -720,7 +720,7 @@ test_concurrent_stale_lease_claims_have_one_winner() {
   printf '%s\n' "$$" > "$home/state/.lock"
   printf 'branch\t999999\t123\n' > "$home/state/.lease-task-race"
   real_mv=$(command -v mv)
-  cat > "$fakebin/mv" <<'SH'
+  fm_fakebin_write "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "$FM_TEST_LEASE_PATH" ] && mkdir "$FM_TEST_GATE.once" 2>/dev/null; then
@@ -758,7 +758,7 @@ test_guard_stale_clear_cannot_delete_a_new_claim() {
   printf '%s\n' "$$" > "$home/state/.lock"
   printf 'main\t999999\t123\n' > "$home/state/.lease-task-race"
   real_rm=$(command -v rm)
-  cat > "$fakebin/rm" <<'SH'
+  fm_fakebin_write "$fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "$FM_TEST_STALE_PATH" ] && mkdir "$FM_TEST_GATE.once" 2>/dev/null; then
@@ -974,7 +974,7 @@ test_away_record_relocates_main_owned_actions_to_the_branch() {
     ln -s "$f" "$root/bin/${f##*/}"
   done
   rm -f "$root/bin/fm-afk-contract.sh"
-  cat > "$root/bin/fm-afk-contract.sh" <<WRAPPER
+  fm_fakebin_write "$root/bin/fm-afk-contract.sh" <<WRAPPER
 #!/usr/bin/env bash
 set -eu
 REAL="$ROOT/bin/fm-afk-contract.sh"
@@ -1069,7 +1069,7 @@ EOF
     ln -s "$f" "$root/bin/${f##*/}"
   done
   rm -f "$root/bin/fm-afk-contract.sh"
-  cat > "$root/bin/fm-afk-contract.sh" <<WRAPPER
+  fm_fakebin_write "$root/bin/fm-afk-contract.sh" <<WRAPPER
 #!/usr/bin/env bash
 set -eu
 REAL="$ROOT/bin/fm-afk-contract.sh"
@@ -1110,7 +1110,7 @@ test_away_spend_cap_is_rechecked_under_the_task_set_lock() {
     ln -s "$f" "$root/bin/${f##*/}"
   done
   rm -f "$root/bin/fm-afk-contract.sh"
-  cat > "$root/bin/fm-afk-contract.sh" <<WRAPPER
+  fm_fakebin_write "$root/bin/fm-afk-contract.sh" <<WRAPPER
 #!/usr/bin/env bash
 set -eu
 REAL="$ROOT/bin/fm-afk-contract.sh"

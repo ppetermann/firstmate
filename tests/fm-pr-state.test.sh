@@ -21,7 +21,7 @@ make_case() {  # <name>
   local name=$1 dir
   dir="$TMP_ROOT/$name"
   mkdir -p "$dir/fakebin" "$dir/home/state"
-  cat > "$dir/fakebin/gh" <<'SH'
+  fm_fakebin_write "$dir/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 set -u
 case " $* " in
@@ -33,7 +33,7 @@ case " $* " in
 esac
 exit 1
 SH
-  cat > "$dir/fakebin/glab" <<'SH'
+  fm_fakebin_write "$dir/fakebin/glab" <<'SH'
 #!/usr/bin/env bash
 set -u
 case " $* " in

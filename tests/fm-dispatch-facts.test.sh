@@ -21,7 +21,7 @@ make_case() {  # <name>
   local name=$1 dir
   dir="$TMP_ROOT/$name"
   mkdir -p "$dir/fakebin" "$dir/config" "$dir/home"
-  cat > "$dir/fakebin/quota-axi" <<'SH'
+  fm_fakebin_write "$dir/fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = --version ]; then

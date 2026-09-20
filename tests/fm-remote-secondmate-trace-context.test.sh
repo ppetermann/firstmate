@@ -49,7 +49,7 @@ trap 'FM_HOME="$PARENT" FM_PROCEVENT_CLAIM_ROOT="$CLAIMS" "$ROOT/bin/fm-proceven
 # literal's FM_TRACE_CONTEXT prefix are both observable exactly as the pane
 # received them. The tmux fixture below only keeps the remote home's own
 # non-second-mate tooling resolvable.
-cat > "$REMOTE_ROOT/bin/tmux" <<SH
+fm_fakebin_write "$REMOTE_ROOT/bin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
 log='$TMUX_LOG'
@@ -99,7 +99,7 @@ git -C "$REMOTE_ROOT" config user.name Test
 git -C "$REMOTE_ROOT" add .
 git -C "$REMOTE_ROOT" commit -qm 'remote fixture root'
 
-cat > "$FAKEBIN/fake-ssh" <<'SH'
+fm_fakebin_write "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   case "$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac

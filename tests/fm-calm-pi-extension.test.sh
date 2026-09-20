@@ -3452,7 +3452,7 @@ test_interactive_terminal_e2e() {
   # about what session start reports. A stub keeps the run tier's real routing
   # and the extension's real encoding in the path without dragging a whole
   # fleet home into a rendering test.
-  cat >"$project/bin/fm-session-start.sh" <<'SH'
+  fm_fakebin_write "$project/bin/fm-session-start.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'CALM_E2E_SESSION_START_DIGEST\n'
 exit 0

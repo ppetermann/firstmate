@@ -11,6 +11,11 @@
 # metadata publication, and the pane environment export.
 set -u
 
+# This suite does not source tests/lib.sh, so it reaches the fixture
+# tool-directory write carrier directly; that file's header owns the contract.
+# shellcheck source=tests/fakebin-write.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fakebin-write.sh"
+
 # This suite does not source tests/lib.sh, so exempt its teardown subprocess from
 # the gate-lifecycle refusal (bin/fm-gate-refuse-lib.sh) the way lib.sh does for
 # the rest of the suite: the no-mistakes gate runs this suite from a gate worktree,
@@ -94,13 +99,13 @@ SH
   ln -s "$ROOT/bin/fm-inactive-reconcile.sh" "$fake/bin/fm-inactive-reconcile.sh"
   ln -s "$ROOT/bin/fm-parent-channel-lib.sh" "$fake/bin/fm-parent-channel-lib.sh"
   # fm-guard.sh: stub (teardown calls it with `|| true`).
-  cat > "$fake/bin/fm-guard.sh" <<'SH'
+  fm_fakebin_write "$fake/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$fake/bin/fm-guard.sh"
   # fm-fleet-sync.sh: stub (called for non-scout/non-local-only teardowns).
-  cat > "$fake/bin/fm-fleet-sync.sh" <<'SH'
+  fm_fakebin_write "$fake/bin/fm-fleet-sync.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -108,7 +113,7 @@ SH
   # fm-tasks-axi-lib.sh: stub (teardown sources it). Report no backend so the
   # fused backlog close is skipped and the follow-up echo takes the plain-message
   # path; there is no tasks-axi and no backlog in this fixture.
-  cat > "$fake/bin/fm-tasks-axi-lib.sh" <<'SH'
+  fm_fakebin_write "$fake/bin/fm-tasks-axi-lib.sh" <<'SH'
 FM_TASKS_AXI_MIN=0.2.4
 fm_tasks_axi_backend() { printf 'markdown\n'; }
 fm_tasks_axi_backend_available() { return 1; }
@@ -191,17 +196,17 @@ SH
   ln -s "$ROOT/bin/fm-operational-input.sh" "$fake/bin/fm-operational-input.sh"
   ln -s "$ROOT/bin/fm-inactive-reconcile.sh" "$fake/bin/fm-inactive-reconcile.sh"
   ln -s "$ROOT/bin/fm-parent-channel-lib.sh" "$fake/bin/fm-parent-channel-lib.sh"
-  cat > "$fake/bin/fm-guard.sh" <<'SH'
+  fm_fakebin_write "$fake/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$fake/bin/fm-guard.sh"
-  cat > "$fake/bin/fm-fleet-sync.sh" <<'SH'
+  fm_fakebin_write "$fake/bin/fm-fleet-sync.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$fake/bin/fm-fleet-sync.sh"
-  cat > "$fake/bin/fm-tasks-axi-lib.sh" <<'SH'
+  fm_fakebin_write "$fake/bin/fm-tasks-axi-lib.sh" <<'SH'
 FM_TASKS_AXI_MIN=0.2.4
 fm_tasks_axi_backend() { printf 'markdown\n'; }
 fm_tasks_axi_backend_available() { return 1; }

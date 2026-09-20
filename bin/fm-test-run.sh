@@ -1662,6 +1662,13 @@ families_for_changed_path() {
       families_for_test_reference git-config-helpers.sh lib.sh herdr-test-safety.sh \
         || printf '%s\n' "__unmapped__:$path"
       ;;
+    tests/fakebin-write.sh)
+      # Same non-transitive reason as git-config-helpers.sh above: the suites
+      # that cannot take tests/lib.sh source this carrier by name, and every
+      # other suite inherits it through that library.
+      families_for_test_reference fakebin-write.sh lib.sh \
+        || printf '%s\n' "__unmapped__:$path"
+      ;;
     tests/fixtures/*/*)
       # A fixture belongs to whichever suite reads its directory, found by the
       # same reference scan used for shared helpers. Keyed on the directory

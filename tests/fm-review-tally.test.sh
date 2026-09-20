@@ -31,7 +31,7 @@ EXPECTED_HEADER='recorded_at	repo	pr	merged_at	regime	bot_rounds	bot_findings	bo
 make_fake_gh() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 fix="${TALLY_FIX:?}"
 if [ -f "$fix/fail" ]; then

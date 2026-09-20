@@ -57,7 +57,7 @@ test_version_named_session_is_identified_on_both_platforms() {
   dir="$TMP_ROOT/version-named"
   fakebin=$(fm_fakebin "$dir")
   mkdir -p "$dir/state"
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -103,7 +103,7 @@ test_harness_at_namespace_pid1_is_examined() {
   dir="$TMP_ROOT/namespace-pid1"
   fakebin=$(fm_fakebin "$dir")
   mkdir -p "$dir/state"
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -145,7 +145,7 @@ test_ordinary_paths_are_never_harness_processes() {
   dir="$TMP_ROOT/ordinary-paths"
   fakebin=$(fm_fakebin "$dir")
   mkdir -p "$dir/state"
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -192,7 +192,7 @@ test_harness_beyond_a_gap_never_owns_the_lock() {
   dir="$TMP_ROOT/gap"
   fakebin=$(fm_fakebin "$dir")
   mkdir -p "$dir/state"
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -237,7 +237,7 @@ test_competing_version_named_session_is_seen_as_live() {
   dir="$TMP_ROOT/competing"
   fakebin=$(fm_fakebin "$dir")
   mkdir -p "$dir/state"
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -441,7 +441,7 @@ install_autoarm_scripts() {
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
   cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"
   chmod +x "$dir/bin/fm-claude-stop-autoarm.sh" "$dir/bin/fm-lock.sh"
-  cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"

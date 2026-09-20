@@ -17,37 +17,37 @@ make_fake_toolchain() {
   fakebin=$(fm_fakebin "$dir")
   fm_fake_exit0 "$fakebin" node chrome-devtools-axi
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.46
-  cat > "$fakebin/gh-axi" <<'SH'
+  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.29'
 fi
 exit 0
 SH
-  cat > "$fakebin/quota-axi" <<'SH'
+  fm_fakebin_write "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' 'quota-axi 0.1.29 (fake)'
 fi
 exit 0
 SH
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-  cat > "$fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
   printf '%s\n' 'Usage: treehouse get [--lease]'
 fi
 SH
-  cat > "$fakebin/no-mistakes" <<'SH'
+  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' 'no-mistakes version v1.46.0 (fake)'
 fi
 SH
-  cat > "$fakebin/tasks-axi" <<'SH'
+  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}:${2:-}" in
   --version:*) printf '%s\n' '0.2.4' ;;
@@ -55,7 +55,7 @@ case "${1:-}:${2:-}" in
   mv:--help) printf '%s\n' 'usage: tasks-axi mv <id> [<id>...]' ;;
 esac
 SH
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FM_FAKE_TMUX_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_TMUX_LOG"
 case "$*" in
@@ -80,7 +80,7 @@ new_bootstrap_world() {
   git init -q -b main "$root"
   printf '%s\n' 'config/' > "$root/.gitignore"
   printf '%s\n' '# Firstmate test root' > "$root/AGENTS.md"
-  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$root/bin/placeholder.sh"
+  fm_fakebin_write "$root/bin/placeholder.sh" < <(printf '%s\n' '#!/usr/bin/env bash' 'exit 0')
   chmod +x "$root/bin/placeholder.sh"
   git -C "$root" add -A
   git -C "$root" -c user.name=fmtest -c user.email=fmtest@example.invalid commit -qm initial
@@ -212,7 +212,7 @@ new_propagation_world() {
   git init -q -b main "$root"
   printf '%s\n' 'config/' > "$root/.gitignore"
   printf '%s\n' '# Firstmate test root' > "$root/AGENTS.md"
-  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$root/bin/placeholder.sh"
+  fm_fakebin_write "$root/bin/placeholder.sh" < <(printf '%s\n' '#!/usr/bin/env bash' 'exit 0')
   chmod +x "$root/bin/placeholder.sh"
   git -C "$root" add -A
   git -C "$root" -c user.name=fmtest -c user.email=fmtest@example.invalid commit -qm initial

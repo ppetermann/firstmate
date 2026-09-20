@@ -69,7 +69,7 @@ write_session_log() {
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "$*" in
@@ -105,7 +105,7 @@ exit 0
 SH
   chmod +x "$fakebin/tmux"
   cp "$(command -v bash)" "$fakebin/muse-bin-test-version"
-  cat > "$fakebin/muse" <<'SH'
+  fm_fakebin_write "$fakebin/muse" <<'SH'
 #!/usr/bin/env bash
 set -u
 [ -n "${FM_FAKE_HARNESS_RESULT:-}" ] || exit 0
@@ -447,7 +447,7 @@ make_send_case() {  # <name> <harness>
   fakebin=$(fm_fakebin "$case_dir/fake")
   id="send-$name"
   mkdir -p "$home/state"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -719,7 +719,7 @@ EOF
     || fail "the initial session did not resolve before caching: got '$verdict'"
 
   fakebin=$(fm_fakebin "$dir/fake")
-  cat > "$fakebin/node" <<'SH'
+  fm_fakebin_write "$fakebin/node" <<'SH'
 #!/usr/bin/env bash
 exit 97
 SH

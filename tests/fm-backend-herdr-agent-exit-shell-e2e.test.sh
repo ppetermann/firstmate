@@ -39,7 +39,7 @@ cleanup() {
 trap cleanup EXIT
 "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
 
-cat > "$FAKEBIN/herdr" <<'SH'
+fm_fakebin_write "$FAKEBIN/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
 args=("$@")

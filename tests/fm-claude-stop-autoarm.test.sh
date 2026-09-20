@@ -84,7 +84,7 @@ write_arm_fixture() {
   local dir=$1 kind=$2
   case "$kind" in
     actionable)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
@@ -95,7 +95,7 @@ exit 0
 SH
       ;;
     failed)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 printf 'watcher: FAILED - no live watcher with a fresh beacon\n'
@@ -103,7 +103,7 @@ exit 1
 SH
       ;;
     clean)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 printf 'watcher: attached pid=%s (beacon 2s)\n' "$$"
@@ -111,7 +111,7 @@ exit 0
 SH
       ;;
     benign-live)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 printf 'watcher: FAILED - cycle ended without an actionable reason\n'
@@ -119,7 +119,7 @@ exit 1
 SH
       ;;
     reset-boundary)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 : > "$FM_HOME/state/arm-waiting"
@@ -129,7 +129,7 @@ exit 1
 SH
       ;;
     slow-actionable)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 sleep 2
@@ -141,7 +141,7 @@ exit 0
 SH
       ;;
     blocking-actionable)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 sleep 6
@@ -153,7 +153,7 @@ exit 0
 SH
       ;;
     supersede-then-fail)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 printf 'epoch=999 owner_pid=1 outcome=arming updated_at=%s\nfixture-superseder-identity\n' "$(date +%s)" \
@@ -163,7 +163,7 @@ exit 1
 SH
       ;;
     meta-vanishes)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 rm -f "$FM_HOME/state/task.meta"
@@ -175,7 +175,7 @@ exit 0
 SH
       ;;
     afk-appears)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 : > "$FM_HOME/state/.afk"
@@ -190,7 +190,7 @@ SH
       # Models the real arm: it forks the watcher as its own tracked child,
       # publishes the watch lock and beacon, and returns the wake reason while
       # that watcher keeps running.
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 bash -c 'printf "%s\n" "$$" > "$FM_HOME/state/watcher-pid"; exec sleep 120' &
@@ -203,7 +203,7 @@ exit 0
 SH
       ;;
     records-grace)
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 printf '%s\n' "${FM_GUARD_GRACE:-unset}" > "$FM_HOME/state/arm-received-grace"

@@ -31,7 +31,7 @@ make_home() {  # <name>
   # regardless of the ambient umask a given machine happens to run tests under.
   chmod 0700 "$home/state"
   fakebin=$(fm_fakebin "$home")
-  cat > "$fakebin/lavish-axi" <<'SH'
+  fm_fakebin_write "$fakebin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 set -u
 state=${LAVISH_FAKE_STATE:?}
@@ -379,7 +379,7 @@ EOF
 
   mkdir -p "$runtime"
   cp -R "$ROOT/bin" "$runtime/bin"
-  cat > "$runtime/bin/fm-procevent-lavish.sh" <<'SH'
+  fm_fakebin_write "$runtime/bin/fm-procevent-lavish.sh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 if [ "${1:-}" = arm ]; then
@@ -392,7 +392,7 @@ fi
 exec "$REAL_LAVISH_ADAPTER" "$@"
 SH
   chmod +x "$runtime/bin/fm-procevent-lavish.sh"
-  cat > "$home/fakebin/lavish-axi" <<'SH'
+  fm_fakebin_write "$home/fakebin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 if [ -z "${1:-}" ]; then
   printf 'sessions[1]{file,status,url,pending_prompts}:\n'
@@ -442,7 +442,7 @@ test_build_does_not_bind_or_arm_when_session_start_fails() {
   home=$(make_home serve-failure)
   data="$home/payload.json"
   write_valid_payload "$data"
-  cat > "$home/fakebin/lavish-axi" <<'SH'
+  fm_fakebin_write "$home/fakebin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -709,7 +709,7 @@ test_build_fails_when_reconcile_cannot_establish_a_listener() {
   write_valid_payload "$data"
   run_board "$home" build "$data" >/dev/null || fail "could not establish the listener fixture"
   sid=$(run_lavish_source_id "$home" "$home/.lavish/bearings-board.html")
-  cat > "$home/fakebin/ps" <<'SH'
+  fm_fakebin_write "$home/fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH

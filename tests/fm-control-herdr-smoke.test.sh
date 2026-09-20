@@ -21,6 +21,11 @@
 # when herdr or jq is missing.
 set -u
 
+# This suite does not source tests/lib.sh, so it reaches the fixture
+# tool-directory write carrier directly; that file's header owns the contract.
+# shellcheck source=tests/fakebin-write.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fakebin-write.sh"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 fail() { printf 'not ok - %s\n' "$1" >&2; cleanup_all; exit 1; }
@@ -156,7 +161,7 @@ pass "real herdr $HERDR_VERSION: a gone session reads recoverable while a live p
 
 FAKEBIN="$SCRATCH/fakebin"
 mkdir -p "$FAKEBIN"
-cat > "$FAKEBIN/codex" <<EOF
+fm_fakebin_write "$FAKEBIN/codex" <<EOF
 #!/usr/bin/env bash
 : > "$SCRATCH/codex-launched"
 EOF

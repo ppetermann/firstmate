@@ -34,7 +34,7 @@ make_home() {  # <name> [<registry-line>...]
   fakebin="$TMP_ROOT/$name/bin"
   mkdir -p "$home/data" "$home/state" "$home/config" "$projects/proj" "$fakebin"
   git -C "$projects/proj" init -q || fail "could not initialize project fixture"
-  printf '#!/bin/sh\nexit 1\n' > "$fakebin/tmux"
+  fm_fakebin_write "$fakebin/tmux" < <(printf '#!/bin/sh\nexit 1\n')
   chmod +x "$fakebin/tmux"
   if [ "$#" -gt 0 ]; then
     printf '%s\n' "$@" > "$home/data/projects.md"
@@ -311,7 +311,7 @@ test_promotion_delivers_the_real_definition_of_done() {
   home="$TMP_ROOT/promote-dod/home"
   sendroot="$TMP_ROOT/promote-dod/sendroot"
   mkdir -p "$home/state" "$sendroot/bin"
-  cat > "$sendroot/bin/fm-send.sh" <<'STUB'
+  fm_fakebin_write "$sendroot/bin/fm-send.sh" <<'STUB'
 #!/usr/bin/env bash
 # Capture the message a promoted worker would receive, instead of steering one.
 printf '%s' "$2" > "$FM_TEST_CAPTURE"

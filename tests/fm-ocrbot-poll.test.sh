@@ -35,7 +35,7 @@ path_mode() {
 make_fake_gh() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 url="" cond=""
 while [ $# -gt 0 ]; do

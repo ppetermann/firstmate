@@ -89,12 +89,12 @@ make_case() {
 
   # Mocks for the post-check teardown steps. Refuse logic exits before these
   # run; the ALLOW cases need them so the script can complete cleanly.
-  cat > "$fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 # `treehouse return --force <wt>`: succeed silently.
 exit 0
 SH
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 # tmux kill-window etc.: succeed silently.
 exit 0
@@ -103,7 +103,7 @@ SH
   # number fails. This keeps the landed-work check hermetic (never reaching the real
   # gh-axi) and represents the common "no GitHub PR" baseline. Tests that need a
   # merged PR or a lookup error override this file with the helpers below.
-  cat > "$fakebin/gh-axi" <<'SH'
+  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "pr list") printf '%s\n' "count: 0 (showing first 0)" "pull_requests[]: []" ; exit 0 ;;
@@ -111,7 +111,7 @@ case "${1:-} ${2:-}" in
 esac
 exit 0
 SH
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "pr view") echo "error: pull request not found" >&2 ; exit 1 ;;
@@ -131,7 +131,7 @@ SH
   # runner's own PATH. Tests exercising the run-abort path override
   # FM_FAKE_AXI_STATUS/FM_FAKE_NM_ABORT_LOG/FM_FAKE_NM_RUNS_LIST before
   # run_teardown.
-  cat > "$fakebin/no-mistakes" <<'SH'
+  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   axi)
@@ -254,7 +254,7 @@ land_on_origin_main() {
 # Override GitHub lookups to report PR 7 as merged with the supplied head.
 add_gh_pr_merged_for_head() {
   local case_dir=$1 head=$2
-  cat > "$case_dir/fakebin/gh-axi" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "pr list")
@@ -264,7 +264,7 @@ case "${1:-} ${2:-}" in
 esac
 exit 0
 SH
-  cat > "$case_dir/fakebin/gh" <<SH
+  fm_fakebin_write "$case_dir/fakebin/gh" <<SH
 #!/usr/bin/env bash
 case "\${1:-} \${2:-}" in
   "pr view")
@@ -403,12 +403,12 @@ land_equivalent_patch_on_origin_branch() {
 # Override gh-axi so every call fails, simulating an API/network error.
 add_gh_axi_error() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/gh-axi" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 echo "error: gh-axi unavailable" >&2
 exit 1
 SH
-  cat > "$case_dir/fakebin/gh" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 echo "error: gh unavailable" >&2
 exit 1
@@ -423,7 +423,7 @@ SH
 # in bin/fm-teardown.sh) rather than hand-simulating that logic in the test.
 add_lock_aware_treehouse() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = return ]; then
   shift
@@ -457,7 +457,7 @@ SH
 # between the failed return and the supervisor's existence check.
 add_transient_lock_treehouse() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = return ]; then
   shift
@@ -502,7 +502,7 @@ SH
 # remains; used to assert exhausted retries still refuse loudly.
 add_persistent_lock_treehouse() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = return ]; then
   shift
@@ -546,7 +546,7 @@ git_index_lock_path() {
 # separate successful empty query.
 add_lsof_no_holder() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/lsof" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
 case " $* " in
   *" -d cwd "*) exit 0 ;;
@@ -560,7 +560,7 @@ SH
 # never judged stale regardless of its age.
 add_lsof_live_holder() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/lsof" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -569,7 +569,7 @@ SH
 
 add_lsof_error() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/lsof" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
 echo "lsof: simulated failure for ${1:-unknown}" >&2
 exit 2
@@ -579,7 +579,7 @@ SH
 
 add_stat_error() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/stat" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/stat" <<'SH'
 #!/usr/bin/env bash
 echo "stat: simulated failure" >&2
 exit 1
@@ -589,7 +589,7 @@ SH
 
 add_git_status_lock_failure() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/git" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/git" <<'SH'
 #!/usr/bin/env bash
 real=${REAL_GIT_FOR_TEST:?}
 dir=
@@ -1380,7 +1380,7 @@ test_content_in_default_fallback_allows() {
   # the same net change has independently landed on origin/main via a squash commit.
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   land_on_origin_main "$case_dir" feature.txt hello
-  cat > "$case_dir/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" > "${FM_TEST_TREEHOUSE_LOG:?}"
 exit 0
@@ -1491,7 +1491,7 @@ legacy_meta_gen_count() {
 # unreadable (a session inventory failure it cannot attribute), never dead.
 add_unreadable_tmux() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/tmux" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) echo "error connecting to fixture: permission denied" >&2 ; exit 1 ;;
@@ -1643,7 +1643,7 @@ test_legacy_record_rolls_the_stamp_back_when_the_marker_write_fails() {
 add_failing_truncate_perl() {
   local case_dir=$1 real
   real=$(command -v perl)
-  cat > "$case_dir/fakebin/perl" <<SH
+  fm_fakebin_write "$case_dir/fakebin/perl" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *truncate*) exit 1 ;;
@@ -2260,7 +2260,7 @@ test_herdr_teardown_clears_escalation_marker() {
     'herdr_pane_id=wG:pQ' >> "$case_dir/state/task-x1.meta"
   # A reachable session whose exact pane is already structurally gone: the
   # locked close is a no-op and the record gate sees a confirmed-gone pane.
-  cat > "$case_dir/fakebin/herdr" <<SH
+  fm_fakebin_write "$case_dir/fakebin/herdr" <<SH
 #!/usr/bin/env bash
 case "\${1:-} \${2:-}" in
   "session list") printf '%s\n' '{"sessions":[{"name":"default","running":true,"socket_path":"$case_dir/herdr.sock"}]}' ;;
@@ -2292,7 +2292,7 @@ configure_flat_herdr_teardown_case() {  # <case-dir>
     'herdr_workspace_id=wG' \
     'herdr_tab_id=wG:tQ' \
     'herdr_pane_id=wG:pQ' >> "$case_dir/state/task-x1.meta"
-  cat > "$case_dir/fakebin/herdr" <<SH
+  fm_fakebin_write "$case_dir/fakebin/herdr" <<SH
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "\$*" >> "\${FM_FAKE_HERDR_LOG:?}"
@@ -2355,7 +2355,7 @@ test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes() {
   # Record every treehouse invocation: the contended-lock refusal must fire
   # BEFORE the isolated copy is returned, so phase 1 may not invoke it at all.
   thlog="$case_dir/treehouse.log"; : > "$thlog"
-  cat > "$case_dir/fakebin/treehouse" <<SH
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$thlog"
 exit 0
@@ -2451,7 +2451,7 @@ assert_herdr_teardown_preflight_refuses_before_changes() {
   : > "$case_dir/state/task-x1.status"
   : > "$case_dir/state/task-x1.turn-ended"
   thlog="$case_dir/treehouse.log"; : > "$thlog"
-  cat > "$case_dir/fakebin/treehouse" <<SH
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$thlog"
 exit 0
@@ -2526,7 +2526,7 @@ configure_secondmate_with_herdr_child() {  # <case-dir>
     "herdr_pane_id=wC:p1"
   : > "$home/state/child-herdr.status"
   : > "$home/state/child-herdr.turn-ended"
-  cat > "$case_dir/fakebin/herdr" <<SH
+  fm_fakebin_write "$case_dir/fakebin/herdr" <<SH
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "\$*" >> "\${FM_FAKE_HERDR_LOG:?}"
@@ -2565,7 +2565,7 @@ test_forced_secondmate_herdr_child_preflight_refuses_before_changes() {
   home="$case_dir/secondmate-home"
   log="$case_dir/herdr.log"; closed="$case_dir/closed"; thlog="$case_dir/treehouse.log"
   : > "$log"; : > "$thlog"
-  cat > "$case_dir/fakebin/treehouse" <<SH
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$thlog"
 exit 0
@@ -2614,12 +2614,12 @@ test_forced_secondmate_teardown_holds_descendant_lifecycle_locks() {
   home="$case_dir/secondmate-home"
   : > "$case_dir/kill.log"
   : > "$case_dir/treehouse.log"
-  cat > "$case_dir/fakebin/tmux" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$case_dir/kill.log"
 exit 0
 SH
-  cat > "$case_dir/fakebin/treehouse" <<SH
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
 exit 0
@@ -2730,7 +2730,7 @@ configure_nested_secondmate_with_herdr_grandchild() {  # <case-dir>
     "herdr_pane_id=wG:p1"
   : > "$nested_home/state/grandchild-herdr.status"
   : > "$nested_home/state/grandchild-herdr.turn-ended"
-  cat > "$case_dir/fakebin/herdr" <<SH
+  fm_fakebin_write "$case_dir/fakebin/herdr" <<SH
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "\$*" >> "\${FM_FAKE_HERDR_LOG:?}"
@@ -2793,7 +2793,7 @@ configure_herdr_projection_teardown_case() {  # <case-dir>
     'version=1' \
     'task_id=task-x1' \
     "projection_id=$token" > "$case_dir/state/task-x1.herdr-presentation"
-  cat > "$case_dir/fakebin/herdr" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >> "${FM_FAKE_HERDR_LOG:?}"
@@ -3489,7 +3489,7 @@ test_parked_own_run_refuses_when_abort_is_unconfirmed() {
   pid=$!
   disown
 
-  cat > "$case_dir/fakebin/treehouse" <<EOF
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<EOF
 #!/usr/bin/env bash
 printf 'return\n' >> "$case_dir/treehouse.log"
 EOF
@@ -3627,7 +3627,7 @@ test_lsof_absent_reaps_tmux_process_group() {
   disown
   sleep 0.3
   kill -0 "$pid" 2>/dev/null || fail "lsof-absent-process-group-reap: setup sleeper did not start"
-  cat > "$case_dir/fakebin/tmux" <<EOF
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = display-message ] && [ "\${*: -1}" = '#{pane_pid}' ]; then
   printf '%s\n' '$pid'
@@ -3655,11 +3655,11 @@ test_lsof_error_refuses_before_removal() {
   case_dir=$(make_case lsof-error-refusal)
   write_meta "$case_dir" direct-PR ship
   land_shippable_commit "$case_dir"
-  cat > "$case_dir/fakebin/lsof" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
-  cat > "$case_dir/fakebin/treehouse" <<EOF
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<EOF
 #!/usr/bin/env bash
 printf 'return\n' >> "$case_dir/treehouse.log"
 EOF
@@ -3687,7 +3687,7 @@ test_reused_pid_identity_is_not_force_killed() {
   pid=$!
   disown
   sleep 0.2
-  cat > "$case_dir/fakebin/lsof" <<EOF
+  fm_fakebin_write "$case_dir/fakebin/lsof" <<EOF
 #!/usr/bin/env bash
 count=0
 [ ! -f '$case_dir/lsof-count' ] || count=\$(cat '$case_dir/lsof-count')
@@ -3695,7 +3695,7 @@ count=\$((count + 1))
 printf '%s\n' "\$count" > '$case_dir/lsof-count'
 if [ "\$count" -le 3 ]; then printf 'p%s\nfcwd\nn%s\n' '$pid' '$case_dir/wt'; fi
 EOF
-  cat > "$case_dir/fakebin/ps" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -p ] && [ "${2:-}" = "${FM_FAKE_REUSED_PID:-}" ] \
    && [ "${3:-}" = -o ] && [ "${4:-}" = lstart= ]; then
@@ -3742,7 +3742,7 @@ test_exec_changed_process_is_still_reaped() {
   pid=$!
   disown
   sleep 0.2
-  cat > "$case_dir/fakebin/ps" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -p ] && [ "${2:-}" = "${FM_FAKE_EXEC_PID:-}" ] \
    && [ "${3:-}" = -o ] && [ "${4:-}" = lstart= ]; then
@@ -3753,7 +3753,7 @@ if [ "${1:-}" = -p ] && [ "${2:-}" = "${FM_FAKE_EXEC_PID:-}" ] \
 fi
 exec "$REAL_PS_FOR_TEST" "$@"
 SH
-  cat > "$case_dir/fakebin/lsof" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
 count=0
 [ ! -f "$FM_FAKE_LSOF_COUNT" ] || count=$(cat "$FM_FAKE_LSOF_COUNT")
@@ -3835,11 +3835,11 @@ test_persistent_scan_refuses_after_bounded_retries() {
   write_meta "$case_dir" direct-PR ship
   land_shippable_commit "$case_dir"
   wt_path=$(cd "$case_dir/wt" && pwd -P)
-  cat > "$case_dir/fakebin/lsof" <<EOF
+  fm_fakebin_write "$case_dir/fakebin/lsof" <<EOF
 #!/usr/bin/env bash
 printf 'p%s\nfcwd\nn%s\n' '$fake_pid' '$wt_path'
 EOF
-  cat > "$case_dir/fakebin/ps" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -p ] && [ "${2:-}" = "${FM_FAKE_PERSISTENT_PID:-}" ] \
    && [ "${3:-}" = -o ] && [ "${4:-}" = lstart= ]; then
@@ -3868,7 +3868,7 @@ test_process_exit_during_identity_lookup_does_not_refuse() {
   write_meta "$case_dir" direct-PR ship
   land_shippable_commit "$case_dir"
   wt_path=$(cd "$case_dir/wt" && pwd -P)
-  cat > "$case_dir/fakebin/lsof" <<EOF
+  fm_fakebin_write "$case_dir/fakebin/lsof" <<EOF
 #!/usr/bin/env bash
 count=0
 [ ! -f "$case_dir/lsof-count" ] || count=\$(cat "$case_dir/lsof-count")
@@ -3878,14 +3878,14 @@ if [ "\$count" -eq 1 ]; then
   printf 'p%s\nfcwd\nn%s\n' '$fake_pid' '$wt_path'
 fi
 EOF
-  cat > "$case_dir/fakebin/ps" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -p ] && [ "${2:-}" = "${FM_FAKE_EXITED_PID:-}" ]; then
   exit 1
 fi
 exec "$REAL_PS_FOR_TEST" "$@"
 SH
-  cat > "$case_dir/fakebin/treehouse" <<EOF
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<EOF
 #!/usr/bin/env bash
 printf 'returned\n' > "$case_dir/treehouse.log"
 EOF
@@ -3921,7 +3921,7 @@ test_run_abort_precedes_process_reap_precedes_worktree_removal() {
   # worktree return runs, whether the run was already aborted and whether the
   # leaked process was already reaped - direct causal proof of ordering from
   # real observed state, not a source-text or line-number correlation.
-  cat > "$case_dir/fakebin/treehouse" <<EOF
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<EOF
 #!/usr/bin/env bash
 if [ -s "$abort_log" ]; then echo "abort-already-happened" >> "$case_dir/order.log"; fi
 if ! kill -0 $pid 2>/dev/null; then echo "reap-already-happened" >> "$case_dir/order.log"; fi

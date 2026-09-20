@@ -34,7 +34,7 @@ make_logging_fakebin() {
   fakebin=$(fm_fakebin "$dir")
   fm_test_fake_tmux_spawn "$fakebin"
   fm_test_fake_sleep_noop "$fakebin"
-  cat > "$fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FM_TREEHOUSE_LOG:-/dev/null}"
 exit 0

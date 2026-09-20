@@ -372,7 +372,7 @@ printf 'lavish\n' > "$HPRIVATE/state/procevent-inbox/private-src.1.adapter"
 chmod 0600 "$HPRIVATE/state/procevent-inbox/private-src.1.result" "$HPRIVATE/state/procevent-inbox/private-src.1.adapter"
 FAIL_CHMOD_BIN="$TMP_ROOT/fail-chmod-bin"
 mkdir -p "$FAIL_CHMOD_BIN"
-cat > "$FAIL_CHMOD_BIN/chmod" <<'SH'
+fm_fakebin_write "$FAIL_CHMOD_BIN/chmod" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -398,7 +398,7 @@ pass "handled acknowledgement creation is private and fails safely"
 # follow the adapter rather than any condition built into the runner.
 ADAPTER_ROOT="$TMP_ROOT/adapter-root"
 mkdir -p "$ADAPTER_ROOT/bin"
-cat > "$ADAPTER_ROOT/bin/fm-procevent-endnow.sh" <<'SH'
+fm_fakebin_write "$ADAPTER_ROOT/bin/fm-procevent-endnow.sh" <<'SH'
 #!/usr/bin/env bash
 # Fixture adapter: every captured result ends this source.
 case "${1-}" in
@@ -406,12 +406,12 @@ case "${1-}" in
 esac
 exit 2
 SH
-cat > "$ADAPTER_ROOT/bin/fm-procevent-openended.sh" <<'SH'
+fm_fakebin_write "$ADAPTER_ROOT/bin/fm-procevent-openended.sh" <<'SH'
 #!/usr/bin/env bash
 # Fixture adapter with no terminal knowledge at all: nothing ever ends it.
 exit 2
 SH
-cat > "$ADAPTER_ROOT/bin/fm-procevent-applying.sh" <<'SH'
+fm_fakebin_write "$ADAPTER_ROOT/bin/fm-procevent-applying.sh" <<'SH'
 #!/usr/bin/env bash
 case "${1-}" in
   autohandle)
@@ -421,7 +421,7 @@ case "${1-}" in
   *) exit 2 ;;
 esac
 SH
-cat > "$ADAPTER_ROOT/bin/fm-procevent-selfann.sh" <<'SH'
+fm_fakebin_write "$ADAPTER_ROOT/bin/fm-procevent-selfann.sh" <<'SH'
 #!/usr/bin/env bash
 # Fixture adapter that declares a durable downstream announcement of its own.
 # FM_HOME/state/selfann-fail makes its application fail so the fallback
@@ -581,7 +581,7 @@ fm_test_track_procevent_home "$HRETFAIL"
 FAIL_RM_BIN=$(fm_fakebin "$TMP_ROOT/retire-fail-bin")
 REAL_RM=$(command -v rm)
 export REAL_RM
-cat > "$FAIL_RM_BIN/rm" <<'SH'
+fm_fakebin_write "$FAIL_RM_BIN/rm" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in */retire-fail-src.source) exit 1 ;; esac
@@ -620,7 +620,7 @@ HLT="$TMP_ROOT/hlt"; new_home "$HLT"
 LAVISH_BIN=$(fm_fakebin "$TMP_ROOT/lavish-stub")
 LAVISH_POLL_COUNT="$TMP_ROOT/lavish-poll-count"
 export LAVISH_POLL_COUNT
-cat > "$LAVISH_BIN/lavish-axi" <<'SH'
+fm_fakebin_write "$LAVISH_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 # Stand-in for `lavish-axi poll <file>` around a human `Send & End`: the final
 # feedback is delivered exactly once carrying session_ended, and every later
@@ -668,7 +668,7 @@ pass "one Send & End yields exactly one captured result, automatic retirement, a
 # capture, the silence verdict, and retirement all run for real.
 HEMPTY="$TMP_ROOT/hempty"; new_home "$HEMPTY"
 EMPTY_BIN=$(fm_fakebin "$TMP_ROOT/lavish-empty-stub")
-cat > "$EMPTY_BIN/lavish-axi" <<'SH'
+fm_fakebin_write "$EMPTY_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 # Stand-in for `lavish-axi poll <file>` when the captain closes a board he said
 # nothing on: an ended session carrying no queued content at all.
@@ -714,7 +714,7 @@ pass "an empty board close is captured and recorded handled without ever waking 
 # adapter, one different response shape.
 HANSWER="$TMP_ROOT/hanswer"; new_home "$HANSWER"
 ANSWER_BIN=$(fm_fakebin "$TMP_ROOT/lavish-answer-stub")
-cat > "$ANSWER_BIN/lavish-axi" <<'SH'
+fm_fakebin_write "$ANSWER_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 # Stand-in for `lavish-axi poll <file>` on a real `Send & End`: the captain's
 # own choice, delivered with session_ended.
@@ -746,7 +746,7 @@ pass "a board close carrying the captain's real answer is still announced"
 # adapter's own arm command and the real runner, so registration, capture, and
 # publication are exercised for real.
 LAVISH_SCRIPTED_BIN=$(fm_fakebin "$TMP_ROOT/lavish-scripted-stub")
-cat > "$LAVISH_SCRIPTED_BIN/lavish-axi" <<'SH'
+fm_fakebin_write "$LAVISH_SCRIPTED_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 # Stand-in for `lavish-axi poll <file>`, scripted per scenario: LAVISH_SCRIPT
 # names the response for each successive poll, one word per poll, and its last
@@ -1848,7 +1848,7 @@ pe "$HL" reconcile >/dev/null
 wait_for "$FM_PROCEVENT_CLAIM_ROOT/identity-src.claim" || fail "identity fixture runner did not claim its source"
 identity_pid=$(sed -n '2p' "$FM_PROCEVENT_CLAIM_ROOT/identity-src.claim")
 IDENTITY_FAKEBIN=$(fm_fakebin "$TMP_ROOT/identity-tools")
-cat > "$IDENTITY_FAKEBIN/ps" <<'SH'
+fm_fakebin_write "$IDENTITY_FAKEBIN/ps" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -2061,7 +2061,7 @@ SH
   FM_PROC_ROOT_OVERRIDE="$TMP_ROOT/no-post-term-proc" pe "$HPOST_TERM" list >/dev/null \
     || fail "the post-TERM fixture never finished its source launch"
   kill -STOP "$POST_TERM_RUNNER" || fail "the post-TERM fixture could not keep its leader alive"
-  cat > "$POST_TERM_BIN/ps" <<SH
+  fm_fakebin_write "$POST_TERM_BIN/ps" <<SH
 #!/usr/bin/env bash
 if [ "\${1-}" = -p ] && [ "\${2-}" = "$POST_TERM_RUNNER" ] \
   && [ "\${3-}" = -o ] && [ "\${4-}" = lstart= ]; then
@@ -2729,7 +2729,7 @@ CLOCK_TRIGGER="$TMP_ROOT/lease-clock.trigger"
 CLOCK_STATE="$TMP_ROOT/lease-clock-state"
 CLOCK_BIN=$(fm_fakebin "$TMP_ROOT/lease-clock-bin")
 REAL_DATE=$(command -v date) || fail "the lease clock fixture requires date"
-cat > "$CLOCK_BIN/date" <<SH
+fm_fakebin_write "$CLOCK_BIN/date" <<SH
 #!/usr/bin/env bash
 if [ "\${1-}" = +%s ]; then
   while ! mkdir "$CLOCK_STATE.lock" 2>/dev/null; do sleep 0.01; done
@@ -2789,7 +2789,7 @@ REUSED_GROUP_MARKER="$TMP_ROOT/reused-runner-group.marker"
 REUSED_GROUP_TRIGGER="$TMP_ROOT/reused-runner-group.trigger"
 REUSED_GROUP_BIN=$(fm_fakebin "$TMP_ROOT/reused-runner-group-bin")
 REAL_PS=$(command -v ps) || fail "the reused-group fixture requires ps"
-cat > "$REUSED_GROUP_BIN/ps" <<SH
+fm_fakebin_write "$REUSED_GROUP_BIN/ps" <<SH
 #!/usr/bin/env bash
 if [ -e "$REUSED_GROUP_MARKER" ] && [ "\${1-}" = -p ] \
   && [ "\${3-}" = -o ] && [ "\${4-}" = lstart= ]; then
@@ -3024,7 +3024,7 @@ fm_test_track_procevent_home "$RETRY_HOME"
 RETRY_STATE="$TMP_ROOT/stop-retry-state"; mkdir -p "$RETRY_STATE"
 RETRY_BIN=$(fm_fakebin "$TMP_ROOT/stop-retry-bin")
 REAL_PS=$(command -v ps) || fail "this host has no ps to build the retry fixture on"
-cat > "$RETRY_BIN/ps" <<SH
+fm_fakebin_write "$RETRY_BIN/ps" <<SH
 #!/usr/bin/env bash
 if [ "\$1" = -o ] && [ "\$2" = "pgid=" ] && [ "\$3" = -p ] \\
   && [ -s "\$STOP_RETRY_STATE/target" ] \\
@@ -3297,7 +3297,7 @@ REAL_PERL=$(command -v perl) || fail "this host has no perl to observe the guard
 # the lease reference - that is the synchronization - and every later one is
 # recorded with the value it read and the interval it spanned, which is the
 # evidence the phase assertion below consumes.
-cat > "$BOUND_BIN/perl" <<SH
+fm_fakebin_write "$BOUND_BIN/perl" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   case \$arg in
@@ -3402,7 +3402,7 @@ pass "an orphaned runner is reaped within the lease plus ONE check interval"
 # argument is observed. Reading `10#` out of the script would prove nothing.
 INTERVAL_BIN=$(fm_fakebin "$TMP_ROOT/decimal-interval-bin")
 REAL_SLEEP=$(command -v sleep) || fail "this host has no sleep to observe guard intervals"
-cat > "$INTERVAL_BIN/sleep" <<SH
+fm_fakebin_write "$INTERVAL_BIN/sleep" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "\$INTERVAL_SLEEP_LOG"
 exec "$REAL_SLEEP" "\$@"
@@ -3451,7 +3451,7 @@ fm_test_track_procevent_home "$DEBOUNCE_HOME"
 DEBOUNCE_STATE="$TMP_ROOT/lease-debounce-state"; mkdir -p "$DEBOUNCE_STATE"
 DEBOUNCE_BIN=$(fm_fakebin "$TMP_ROOT/lease-debounce-bin")
 REAL_PERL=$(command -v perl) || fail "this host has no perl to build the debounce fixture on"
-cat > "$DEBOUNCE_BIN/perl" <<SH
+fm_fakebin_write "$DEBOUNCE_BIN/perl" <<SH
 #!/usr/bin/env bash
 if [ -s "\$LEASE_DEBOUNCE_STATE/armed" ] && [ ! -s "\$LEASE_DEBOUNCE_STATE/spent" ]; then
   for arg in "\$@"; do

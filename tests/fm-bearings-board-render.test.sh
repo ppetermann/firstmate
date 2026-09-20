@@ -31,7 +31,7 @@ make_home() {  # <name>
   # stub reports the opened shape the real lavish-axi emits. This suite is about
   # what the template renders, not about session liveness, which
   # tests/fm-bearings-board.test.sh owns.
-  cat > "$fakebin/lavish-axi" <<'SH'
+  fm_fakebin_write "$fakebin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1-}" in
   --version) printf '0.1.61\n' ;;

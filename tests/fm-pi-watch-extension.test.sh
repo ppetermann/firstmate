@@ -81,7 +81,7 @@ test_pi_extension_reports_external_healthy_watcher() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'watcher: healthy pid=1 (beacon 0s)\n'
 SH
@@ -159,7 +159,7 @@ test_pi_tool_returns_agent_tool_result() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -223,7 +223,7 @@ test_pi_redundant_tool_call_is_owned_noop() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm\n' >> "${FM_ARM_LOG:?}"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -285,7 +285,7 @@ test_pi_scheduled_retry_call_is_owned_noop() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm\n' >> "${FM_ARM_LOG:?}"
 exit 0
@@ -343,7 +343,7 @@ test_pi_actionable_close_starts_single_successor_before_delivery() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then
   printf 'confirmed generation=%s watcher=%s\n' "$2" "$4" >> "${FM_ARM_LOG:?}"
@@ -434,7 +434,7 @@ test_pi_branch_offer_owns_actionable_wake() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then
   printf 'confirmed generation=%s watcher=%s\n' "$2" "$4" >> "${FM_ARM_LOG:?}"
@@ -546,7 +546,7 @@ test_pi_branch_offer_flags_heartbeat() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then
   printf 'confirmed generation=%s watcher=%s\n' "$2" "$4" >> "${FM_ARM_LOG:?}"
@@ -631,7 +631,7 @@ test_pi_heartbeat_is_not_ridden_into_main_by_a_co_present_check() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then exit 0; fi
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
@@ -724,7 +724,7 @@ test_pi_main_only_check_classes_stay_on_main() {
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
   printf 'project=%s/projects/approved\nwindow=fm-window\n' "$home" > "$home/state/task-a.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then exit 0; fi
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
@@ -824,7 +824,7 @@ test_pi_captain_held_signal_stays_on_main() {
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
   printf 'project=%s/projects/approved\nwindow=fm-window\n' "$home" > "$home/state/task-a.meta"
   printf 'captain-held [key=route]: awaiting the captain\n \t \n' > "$home/state/task-a.status"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then exit 0; fi
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
@@ -914,7 +914,7 @@ test_pi_unread_pending_reply_forces_later_stale_alias_to_main() {
   printf 'project=%s/projects/approved\nwindow=fm-a\n' "$home" > "$home/state/task-a.meta"
   printf 'blocked [key=pending-reply-0123456789abcdef]: pending-reply-missed: task=task-a pending-reply-id=0123456789abcdef request=finish report\n' \
     > "$home/state/task-a.status"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then exit 0; fi
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
@@ -1012,7 +1012,7 @@ test_pi_distinct_files_mixed_batch_routes_whole_batch_to_main() {
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
   printf 'project=%s/projects/approved\nwindow=fm-a\n' "$home" > "$home/state/task-a.meta"
   printf 'project=%s/projects/approved\nwindow=fm-b\n' "$home" > "$home/state/task-b.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then exit 0; fi
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
@@ -1104,7 +1104,7 @@ test_pi_heartbeat_is_not_ridden_into_main_by_a_co_present_needs_decision() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then exit 0; fi
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
@@ -1189,7 +1189,7 @@ test_pi_heartbeat_restoration_failure_stays_on_main() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
@@ -1265,7 +1265,7 @@ test_pi_watcher_failure_never_offered_to_branch() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'watcher: healthy pid=1 (beacon 0s)\n'
 SH
@@ -1345,7 +1345,7 @@ test_pi_away_record_collapses_eligibility_and_keeps_vetoes_on_main() {
   FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" propose >/dev/null || fail "away propose failed"
   FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" confirm >/dev/null || fail "away confirm failed"
   [ -f "$home/state/.afk-contract" ] || fail "the away-posture record was not written"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then exit 0; fi
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
@@ -1446,7 +1446,7 @@ CASES
   mkdir -p "$repo/bin"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'watcher: healthy pid=1 (beacon 0s)\n'
 SH
@@ -1513,7 +1513,7 @@ test_pi_handling_delivery_failure_is_typed_once() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then
   printf 'refused generation=%s watcher=%s\n' "$2" "$4" >> "${FM_ARM_LOG:?}"
@@ -1585,7 +1585,7 @@ test_pi_hung_successor_falls_back_to_typed_wake() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
@@ -1654,7 +1654,7 @@ test_pi_unretired_successor_falls_back_without_retry() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ -f "$FM_ARM_LOG" ]; then
   count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
@@ -1729,7 +1729,7 @@ test_pi_late_unretired_close_resumes_supervision() {
     mkdir -p "$repo/bin" "$home/state" "$home/config"
     install_pi_watch_extension_fixture "$repo"
     plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-    cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+    fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
@@ -1826,7 +1826,7 @@ test_pi_empty_close_retries_instead_of_disappearing() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
@@ -1884,7 +1884,7 @@ test_pi_established_empty_close_honors_retry_limit() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -1936,7 +1936,7 @@ test_pi_actionable_close_rechecks_session_lock() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 while [ ! -e "$FM_RELEASE_FILE" ]; do sleep 0.02; done
@@ -1994,7 +1994,7 @@ test_pi_arm_distinguishes_session_lock_ownership() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm\n' >> "${FM_ARM_LOG:?}"
 SH
@@ -2078,7 +2078,7 @@ test_pi_session_transition_generation_owner() {
   mkdir -p "$repo/bin" "$home/state" "$home/config" "$marker_root"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 # The marker identifies this exact process lifetime after its PID is recycled.
 marker=$(mktemp "${FM_MARKER_ROOT:?}/arm.XXXXXX") || exit 1
@@ -2273,7 +2273,7 @@ test_pi_session_replacement_carries_inflight_actionable_close() {
   mkdir -p "$repo/bin" "$home/state" "$home/config" "$marker_root"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then
   printf 'confirmed generation=%s watcher=%s\n' "$2" "$4" >> "${FM_ARM_LOG:?}"
@@ -2462,7 +2462,7 @@ test_pi_streaming_followup_is_replayed_after_replacement() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 trap 'exit 0' TERM INT
 printf 'watcher: started pid=%s\n' "$$"
@@ -2575,7 +2575,7 @@ test_pi_streaming_time_delivery_keeps_the_successor_chain() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then
   printf 'confirmed=%s\n' "$2" >> "${FM_ARM_LOG:?}"
@@ -2689,7 +2689,7 @@ test_pi_successor_failure_during_delivery_is_retried_after_delivery() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(grep -c '^arm=' "$FM_ARM_LOG")
@@ -2781,7 +2781,7 @@ test_pi_late_retiring_actionable_reaches_replacement() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 count=0
 [ ! -f "$FM_ARM_COUNT" ] || count=$(cat "$FM_ARM_COUNT")
@@ -2886,7 +2886,7 @@ test_pi_replacement_tokens_are_process_unique() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 count=0
 [ ! -f "$FM_ARM_COUNT" ] || count=$(cat "$FM_ARM_COUNT")
@@ -2975,7 +2975,7 @@ test_pi_replacement_persistence_failure_stops_arm_child() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 count=0
 [ ! -f "$FM_ARM_COUNT" ] || count=$(cat "$FM_ARM_COUNT")
@@ -3069,7 +3069,7 @@ test_pi_process_exit_cleanup_listener_lifecycle() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  : > "$repo/bin/fm-watch-arm.sh"
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" < /dev/null
   chmod +x "$repo/bin/fm-watch-arm.sh"
   out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
@@ -3114,7 +3114,7 @@ test_pi_process_exit_cleanup_stops_arm_child() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 trap 'printf "%s\n" "$$" >> "$FM_CLEANUP_LOG"; exit 0' TERM
 printf '%s\n' "$$" > "$FM_CHILD_PID_FILE"
@@ -3207,7 +3207,7 @@ test_opencode_primary_watch_plugin_uses_effective_state_home() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'home=%s root=%s\n' "${FM_HOME:-}" "${FM_ROOT_OVERRIDE:-}" >> "${FM_ARM_LOG:?}"
 printf 'watcher: healthy pid=1 (beacon 0s)\n'
@@ -3257,7 +3257,7 @@ test_opencode_primary_watch_plugin_sources_effective_config() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   printf 'export FM_POLL=7\n' > "$home/config/x-mode.env"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'poll=%s\n' "${FM_POLL:-missing}" >> "${FM_ARM_LOG:?}"
 printf 'watcher: healthy pid=1 (beacon 0s)\n'
@@ -3306,7 +3306,7 @@ test_opencode_primary_watch_plugin_requires_session_lock() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm\n' >> "${FM_ARM_LOG:?}"
 printf 'watcher: healthy pid=1 (beacon 0s)\n'
@@ -3368,7 +3368,7 @@ test_opencode_watch_arm_coordinator_respects_primary_scope() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm\n' >> "${FM_ARM_LOG:?}"
 printf 'watcher: healthy pid=1 (beacon 0s)\n'
@@ -3415,7 +3415,7 @@ test_opencode_primary_watch_plugin_rearms_after_wake() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then
   printf 'confirmed generation=%s watcher=%s\n' "$2" "$4" >> "${FM_ARM_LOG:?}"
@@ -3510,7 +3510,7 @@ test_opencode_pre_ready_actionable_close_preserves_its_successor() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
@@ -3590,7 +3590,7 @@ test_opencode_hung_successor_falls_back_to_typed_wake() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
@@ -3661,7 +3661,7 @@ test_opencode_unretired_successor_falls_back_without_retry() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ -f "$FM_ARM_LOG" ]; then
   count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
@@ -3738,7 +3738,7 @@ test_opencode_late_unretired_close_resumes_supervision() {
     git init -q "$repo"
     : > "$repo/AGENTS.md"
     : > "$home/state/task.meta"
-    cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+    fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
@@ -3833,7 +3833,7 @@ test_opencode_empty_close_retries_instead_of_disappearing() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
@@ -3892,7 +3892,7 @@ test_opencode_established_empty_close_honors_retry_limit() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -3946,7 +3946,7 @@ test_opencode_actionable_close_rechecks_session_lock() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 while [ ! -e "$FM_RELEASE_FILE" ]; do sleep 0.02; done
@@ -4012,12 +4012,12 @@ test_opencode_watch_arm_coordinates_with_turnend_guard() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm\n' >> "${FM_ARM_LOG:?}"
 printf 'watcher: started pid=1 (beacon fresh)\n'
 SH
-  cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'guard\n' >> "${FM_GUARD_LOG:?}"
 printf 'guard should not run\n' >&2
@@ -4085,12 +4085,12 @@ test_opencode_healthy_arm_output_does_not_suppress_guard() {
   git init -q "$repo"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'args=%s\n' "$*" >> "${FM_ARM_LOG:?}"
 printf 'watcher: healthy pid=1 (beacon 0s)\n'
 SH
-  cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'guard\n' >> "${FM_GUARD_LOG:?}"
 printf 'guard ran after external healthy watcher\n' >&2

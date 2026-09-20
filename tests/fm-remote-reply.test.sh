@@ -43,7 +43,7 @@ printf '# Mentioned but never offered\n' > "$REMOTE/data/reply/prose-only.md"
 SOURCE_BEFORE="$TMP_ROOT/source-before"
 cp "$REMOTE/state/parent-replies.status" "$SOURCE_BEFORE"
 
-cat > "$FAKEBIN/fake-ssh" <<'SH'
+fm_fakebin_write "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -503,7 +503,7 @@ mkdir -p "$EXTRACT_FAIL_BIN"
 REAL_AWK=$(command -v awk)
 # The stand-in awk refuses only the extraction pass, so every other awk the
 # relay depends on keeps working.
-{
+fm_fakebin_write "$EXTRACT_FAIL_BIN/awk" < <(
   cat <<'SH'
 #!/usr/bin/env bash
 for argument in "$@"; do
@@ -511,7 +511,7 @@ for argument in "$@"; do
 done
 SH
   printf 'exec %q "$@"\n' "$REAL_AWK"
-} > "$EXTRACT_FAIL_BIN/awk"
+)
 chmod +x "$EXTRACT_FAIL_BIN/awk"
 PATH="$EXTRACT_FAIL_BIN:$PATH" remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" \
   >/dev/null 2>&1 || true
@@ -576,7 +576,7 @@ replay_commit_cursor_before=$(cat "$PARENT/state/remote-replies/ios.cursor")
 RECEIPT_FAIL_BIN="$TMP_ROOT/receipt-fail-bin"
 mkdir -p "$RECEIPT_FAIL_BIN"
 REAL_MKTEMP=$(command -v mktemp)
-{
+fm_fakebin_write "$RECEIPT_FAIL_BIN/mktemp" < <(
   cat <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
@@ -584,7 +584,7 @@ case "${1:-}" in
 esac
 SH
   printf 'exec %q "$@"\n' "$REAL_MKTEMP"
-} > "$RECEIPT_FAIL_BIN/mktemp"
+)
 chmod +x "$RECEIPT_FAIL_BIN/mktemp"
 PATH="$RECEIPT_FAIL_BIN:$PATH" remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" \
   >/dev/null 2>&1 || true

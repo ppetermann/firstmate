@@ -2,6 +2,11 @@
 # Behavioral tests for bin/fm-procevent-quota.sh.
 set -u
 
+# This suite does not source tests/lib.sh, so it reaches the fixture
+# tool-directory write carrier directly; that file's header owns the contract.
+# shellcheck source=tests/fakebin-write.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fakebin-write.sh"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 BIN="$FM_ROOT/bin"
@@ -13,7 +18,7 @@ cleanup() { rm -rf "$LAB"; }
 trap cleanup EXIT
 mkdir -p "$FAKEBIN"
 
-cat > "$FAKEBIN/quota-axi" <<'SH'
+fm_fakebin_write "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then
   printf 'quota-axi 0.1.29\n'

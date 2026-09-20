@@ -119,7 +119,7 @@ mkdir -p "$HOME_DIR/state" "$HOME_DIR/data" "$HOME_DIR/config"
 # Preserve the production wrapper's argv and exec it unchanged, while recording
 # the Pi extension's actual event source in this scratch home for the E2E gate.
 mv "$PROJECT/bin/fm-sessionstart-run.sh" "$PROJECT/bin/.fm-sessionstart-run.real.sh"
-cat > "$PROJECT/bin/fm-sessionstart-run.sh" <<'SH'
+fm_fakebin_write "$PROJECT/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
 set -o pipefail
 set -u

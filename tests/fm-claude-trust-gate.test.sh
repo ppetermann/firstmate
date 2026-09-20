@@ -44,7 +44,7 @@ trap cleanup_claude_gate EXIT
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 state=$(cat "$FM_FAKE_CLAUDE_STATE" 2>/dev/null || true)

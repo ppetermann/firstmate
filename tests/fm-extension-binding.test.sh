@@ -1053,7 +1053,7 @@ assert_contains "$(wake_payloads "$H_FLOW")" "procevent ext-flow flow-source 1" 
 assert_absent "${result%.result}.handled" "external evidence was silently treated as handled"
 COLLISION_ROOT="$TMP_ROOT/collision-root"
 mkdir -p "$COLLISION_ROOT/bin"
-cat > "$COLLISION_ROOT/bin/fm-procevent-ext-flow.sh" <<'SH'
+fm_fakebin_write "$COLLISION_ROOT/bin/fm-procevent-ext-flow.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'wrong-built-in-owner\n'
 exit 0
@@ -1843,7 +1843,7 @@ git -C "$REMOTE_ROOT" commit -qm 'remote extension fixture'
 cat > "$H_REMOTE_CONTROL/data/secondmates.md" <<EOF
 - ios - remote extension home (host: remote-mac; root: $REMOTE_ROOT; home: $H_REMOTE; scope: extension test; projects: none; added 2026-08-27)
 EOF
-cat > "$REMOTE_FAKEBIN/fake-ssh" <<'SH'
+fm_fakebin_write "$REMOTE_FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 count=$(cat "$FM_FAKE_SSH_COUNT" 2>/dev/null || echo 0)
 printf '%s\n' "$((count + 1))" > "$FM_FAKE_SSH_COUNT"

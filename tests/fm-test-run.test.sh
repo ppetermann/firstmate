@@ -126,17 +126,17 @@ init_changed_fixture_repo() {
   done
   : >"$repo/tests/lib.sh"
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
-  : >"$repo/bin/fm-supervisor-target-lib.sh"
-  : >"$repo/bin/fm-control-lib.sh"
+  fm_fakebin_write "$repo/bin/fm-supervisor-target-lib.sh" < /dev/null
+  fm_fakebin_write "$repo/bin/fm-control-lib.sh" < /dev/null
   # The real helper, not an empty stub: the runner arms a per-script bound by
   # default now, so every fake repo that actually executes a script needs
   # fm_run_timed to exist. Its content is irrelevant to the changed-file
   # selection fixtures, which only care that the path is there.
   cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
-  : >"$repo/bin/fm-procevent-quota.sh"
-  : >"$repo/bin/fm-quota-axi-lib.sh"
-  : >"$repo/bin/fm-quota-choose.sh"
-  : >"$repo/bin/unmapped-source.sh"
+  fm_fakebin_write "$repo/bin/fm-procevent-quota.sh" < /dev/null
+  fm_fakebin_write "$repo/bin/fm-quota-axi-lib.sh" < /dev/null
+  fm_fakebin_write "$repo/bin/fm-quota-choose.sh" < /dev/null
+  fm_fakebin_write "$repo/bin/unmapped-source.sh" < /dev/null
   # A shared top-level test fixture read by two suites in different families,
   # beside a tests/ file nothing reads at all.
   : >"$repo/tests/shared-probe-fixture.sh"
@@ -152,11 +152,11 @@ init_changed_fixture_repo() {
   # script of the expensive real-Herdr family and consumed by one curated
   # watcher script. This is the shape that made a one-line helper change select
   # every real-Herdr E2E.
-  : >"$repo/bin/shared-probe-lib.sh"
+  fm_fakebin_write "$repo/bin/shared-probe-lib.sh" < /dev/null
   printf '# shared-probe-lib.sh\n' >>"$repo/tests/fm-backend-herdr-smoke.test.sh"
   # shellcheck disable=SC2016  # literal fixture text: the reference must reach
   # the file verbatim so the changed-file scan can find it, not expand here.
-  printf '. "$ROOT/bin/shared-probe-lib.sh"\n' >"$repo/bin/fm-watch-probe.sh"
+  fm_fakebin_write "$repo/bin/fm-watch-probe.sh" < <(printf '. "$ROOT/bin/shared-probe-lib.sh"\n')
   printf '# .claude/settings.json\n# .pi/extensions/fm-primary-turnend-guard.ts\n' \
     >>"$repo/tests/fm-cd-pretool-check.test.sh"
   printf '# .pi/extensions/fm-primary-pi-watch.ts\n' >>"$repo/tests/fm-pi-watch-extension.test.sh"
@@ -257,7 +257,7 @@ test_changed_runner_surfaces_select_their_family() {
   # suite it drives still runs. Narrowing this to the contract owners would
   # also make any wall-clock claim about the changed suite trivially true by
   # not running the work.
-  printf '\n' >>"$repo/bin/fm-test-run.sh"
+  fm_fakebin_write --append "$repo/bin/fm-test-run.sh" < <(printf '\n')
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD | LC_ALL=C sort)
   case "$listed" in
     *tests/fm-test-run.test.sh*) ;;
@@ -339,7 +339,7 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add tests/fm-backend-herdr-eventwait.test.py
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm eventwait-change
 
-  printf '\n' >>"$repo/bin/fm-supervisor-target-lib.sh"
+  fm_fakebin_write --append "$repo/bin/fm-supervisor-target-lib.sh" < <(printf '\n')
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-daemon.test.sh" "supervisor target selects daemon coverage"
   assert_contains "$listed" "tests/fm-afk-return.test.sh" "supervisor target selects afk coverage"
@@ -380,8 +380,8 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add .agents/skills/harness-adapters/SKILL.md
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm harness-adapter-router-change
 
-  printf '\n' >>"$repo/bin/fm-procevent-quota.sh"
-  printf '\n' >>"$repo/bin/fm-quota-choose.sh"
+  fm_fakebin_write --append "$repo/bin/fm-procevent-quota.sh" < <(printf '\n')
+  fm_fakebin_write --append "$repo/bin/fm-quota-choose.sh" < <(printf '\n')
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-procevent-quota.test.sh" \
     "quota process-event source selects its focused test"
@@ -390,7 +390,7 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add bin/fm-procevent-quota.sh bin/fm-quota-choose.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm quota-source-change
 
-  printf '\n' >>"$repo/bin/fm-quota-axi-lib.sh"
+  fm_fakebin_write --append "$repo/bin/fm-quota-axi-lib.sh" < <(printf '\n')
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-procevent-quota.test.sh" \
     "shared quota validator selects process-event coverage"
@@ -399,7 +399,7 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add bin/fm-quota-axi-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm quota-validator-change
 
-  printf '\n' >>"$repo/bin/fm-control-lib.sh"
+  fm_fakebin_write --append "$repo/bin/fm-control-lib.sh" < <(printf '\n')
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-backend.test.sh" \
     "control library keeps backend coverage"
@@ -410,7 +410,7 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add bin/fm-control-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm control-lib-change
 
-  printf '\n' >>"$repo/bin/fm-timeout-lib.sh"
+  fm_fakebin_write --append "$repo/bin/fm-timeout-lib.sh" < <(printf '\n')
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-procevent-quota.test.sh" \
     "timeout library selects quota polling coverage"
@@ -444,7 +444,7 @@ test_changed_bin_reference_selects_per_script_not_per_family() {
   repo="$tmp/repo"
   init_changed_fixture_repo "$repo"
 
-  printf '\n' >>"$repo/bin/shared-probe-lib.sh"
+  fm_fakebin_write --append "$repo/bin/shared-probe-lib.sh" < <(printf '\n')
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
 
   assert_contains "$listed" "tests/fm-backend-herdr-smoke.test.sh" \
@@ -482,7 +482,7 @@ SH
   done
   git -C "$repo" add .
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm fixtures
-  printf '\n' >>"$repo/bin/shared-probe-lib.sh"
+  fm_fakebin_write --append "$repo/bin/shared-probe-lib.sh" < <(printf '\n')
 
   (cd "$repo" && bin/fm-test-run.sh --changed --base HEAD --json "$tmp/parallel.json") \
     >"$tmp/parallel.out" 2>"$tmp/parallel.err" \
@@ -518,7 +518,7 @@ PY
   mkdir -p "$timeout_repo/bin" "$timeout_repo/tests"
   cp "$RUNNER" "$timeout_repo/bin/fm-test-run.sh"
   cp "$ROOT/tests/git-config-helpers.sh" "$timeout_repo/tests/"
-  cat >"$timeout_repo/bin/fm-timeout-lib.sh" <<'SH'
+  fm_fakebin_write "$timeout_repo/bin/fm-timeout-lib.sh" <<'SH'
 fm_run_timed() {
   [ "$1" -eq 900 ] || return 99
   return 124
@@ -556,11 +556,11 @@ test_windows_posix_mode_emulation_does_not_fail_parallel_runs() {
   real_stat=$(command -v stat)
   init_changed_fixture_repo "$repo"
   mkdir -p "$fakebin"
-  cat >"$fakebin/uname" <<'SH'
+  fm_fakebin_write "$fakebin/uname" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${FAKE_UNAME:-MINGW64_NT-10.0}"
 SH
-  cat >"$fakebin/stat" <<'SH'
+  fm_fakebin_write "$fakebin/stat" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -c ] && [ "${2:-}" = %a ]; then
   printf '%s\n' 755
@@ -740,7 +740,7 @@ assert doc["families"] == []
   fake_bin="$tmp/fake-bin"
   real_git=$(command -v git)
   mkdir -p "$fake_bin"
-  cat >"$fake_bin/git" <<'SH'
+  fm_fakebin_write "$fake_bin/git" <<'SH'
 #!/usr/bin/env bash
 if [ ! -e "$SLOW_GIT_MARKER" ]; then
   : >"$SLOW_GIT_MARKER"
@@ -1606,7 +1606,7 @@ test_jobs_parallel_scheduler_and_failure_propagation() {
   cp "$RUNNER" "$runner"
   cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
   cp "$ROOT/tests/git-config-helpers.sh" "$repo/tests/"
-  cat >"$fake_bin/stat" <<'SH'
+  fm_fakebin_write "$fake_bin/stat" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = "-c" ] && [ "$2" = "%a" ]; then
   printf '700\n'

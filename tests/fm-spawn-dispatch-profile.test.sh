@@ -16,7 +16,7 @@ CLAUDE_CONTROL_CHANNEL_FLAG="--append-system-prompt 'You are a task worker launc
 
 make_spawn_pi_probe() {
   local fakebin=$1 tool=$2
-  cat > "$fakebin/$tool" <<'SH'
+  fm_fakebin_write "$fakebin/$tool" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = --help ]; then
@@ -34,12 +34,12 @@ SH
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
-  cat > "$fakebin/timeout" <<'SH'
+  fm_fakebin_write "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
 shift
 exec "$@"
 SH
-  cat > "$fakebin/cursor-agent" <<'SH'
+  fm_fakebin_write "$fakebin/cursor-agent" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --list-models ]; then
   [ "${FM_FAKE_CURSOR_LIST_STATUS:-0}" -eq 0 ] || exit "${FM_FAKE_CURSOR_LIST_STATUS}"
@@ -1138,7 +1138,7 @@ test_launch_environment_inherited_by_secondmate() {
   expect_code 0 "$status" "secondmate with an allowlist should spawn: $out"
   cmp -s "$HOME_DIR/config/launch-env-allowlist" "$sm/config/launch-env-allowlist" \
     || fail "secondmate did not inherit the launch environment contract"
-  cat > "$FAKEBIN_DIR/codex" <<'SH'
+  fm_fakebin_write "$FAKEBIN_DIR/codex" <<'SH'
 #!/bin/sh
 printf '%s\n' "${FM_TEST_AMBIENT_SENTINEL-unset}" "$FM_TEST_ALLOWED" "$FM_HOME" "${FM_STATE_OVERRIDE-unset}"
 SH
@@ -1192,7 +1192,7 @@ test_launch_environment_inheritance_preserves_on_source_errors() {
     printf 'FM_TEST_ALLOWED\n' > "$HOME_DIR/config/launch-env-allowlist"
     printf -- '- inherited-env - Test route (host: inherit-host; root: %s; home: %s; scope: test; projects: ; added 2026-09-05)\n' \
       "$ROOT" "$dest" > "$HOME_DIR/data/secondmates.md"
-    cat > "$FAKEBIN_DIR/inherit-ssh" <<'SH'
+    fm_fakebin_write "$FAKEBIN_DIR/inherit-ssh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 while [ "$#" -gt 0 ]; do
@@ -1272,7 +1272,7 @@ test_worker_launch_delivers_role_scope() {
       printf '%s\n' "$content" > "$brief"
     fi
     cp "$HOME_DIR/data/$id/brief.md" "$CASE_DIR/brief-before"
-    cat > "$FAKEBIN_DIR/codex" <<'SH'
+    fm_fakebin_write "$FAKEBIN_DIR/codex" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$FM_ROLE_PROMPT"
 SH

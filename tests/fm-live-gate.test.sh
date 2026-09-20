@@ -24,7 +24,7 @@ mkdir -p "$BIN"
 
 # A stand-in for a harness this host has: present on the fakebin PATH, and
 # nothing the gate can confuse with a real one.
-cat > "$BIN/fmfakeharness" <<'SH'
+fm_fakebin_write "$BIN/fmfakeharness" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH

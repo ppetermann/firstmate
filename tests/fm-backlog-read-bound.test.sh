@@ -35,7 +35,7 @@ BOUND_CEILING=30
 # the read that hangs.
 make_hanging_tasks_axi() {  # <fakebin>
   local fakebin=$1
-  cat > "$fakebin/tasks-axi" <<'SH'
+  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -281,7 +281,7 @@ pass "the reconcile-requests intake stops loudly on a bound hit instead of refus
 MIG="$TMP_ROOT/migrated"
 MIG_FAKEBIN=$(fm_fakebin "$MIG")
 mkdir -p "$MIG/data" "$MIG/state" "$MIG/config"
-cat > "$MIG_FAKEBIN/tasks-axi" <<'SH'
+fm_fakebin_write "$MIG_FAKEBIN/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -318,7 +318,7 @@ esac
 exit 0
 SH
 chmod +x "$MIG_FAKEBIN/tasks-axi"
-cat > "$MIG_FAKEBIN/bd" <<'SH'
+fm_fakebin_write "$MIG_FAKEBIN/bd" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = list ] && { printf '[]\n'; exit 0; }
 exit 1
@@ -379,7 +379,7 @@ make_hanging_tasks_axi "$E2E_FAKEBIN"
 # the same way tests/fm-session-start.test.sh's make_fake_ps_harness does:
 # every queried pid reports a live `claude` harness, independent of whatever
 # process tree the test itself was launched from.
-cat > "$E2E_FAKEBIN/ps" <<'SH'
+fm_fakebin_write "$E2E_FAKEBIN/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "$*" in

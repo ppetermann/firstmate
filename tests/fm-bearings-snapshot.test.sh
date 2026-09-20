@@ -401,11 +401,11 @@ test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution() {
   write_domain_alpha_fixture "$home" "$mate"
   fakebin=$(make_fakebin "$home")
   stat_log="$home/stat.log"
-  cat > "$fakebin/uname" <<'SH'
+  fm_fakebin_write "$fakebin/uname" <<'SH'
 #!/usr/bin/env bash
 printf 'Linux\n'
 SH
-  cat > "$fakebin/stat" <<'SH'
+  fm_fakebin_write "$fakebin/stat" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$STAT_LOG"
 case "$1 $2" in
@@ -1541,7 +1541,7 @@ test_per_repository_pr_cap_is_disclosed() {
 install_failing_jq() {  # <fakebin> <model|toon>
   local fakebin=$1 phase=$2 real
   real=$(command -v jq)
-  cat > "$fakebin/jq" <<SH
+  fm_fakebin_write "$fakebin/jq" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *'def trunc'*) [ "$phase" = model ] && exit 9 ;;
@@ -2887,7 +2887,7 @@ EOF
   fm_write_meta "$home/state/z-gone.meta" \
     "window=fixture:z-gone" "project=firstmate" "harness=claude" "kind=ship" "mode=no-mistakes"
   printf 'working: stable fixture\n' > "$home/state/a-hold.status"
-  cat > "$fakebin/cp" <<'SH'
+  fm_fakebin_write "$fakebin/cp" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in
@@ -2946,7 +2946,7 @@ EOF
     "harness=claude" "kind=ship" "mode=no-mistakes" "spawn_gen=stable-generation"
   printf 'working: captured state\n' > "$home/state/captured-status.status"
   record_claude_state "$home/state" captured-status idle
-  cat > "$fakebin/cp" <<'SH'
+  fm_fakebin_write "$fakebin/cp" <<'SH'
 #!/usr/bin/env bash
 "$REAL_CP" "$@" || exit
 for arg in "$@"; do
@@ -2994,7 +2994,7 @@ EOF
     "window=fixture:fm-generation-race" "worktree=$worktree" "project=firstmate" \
     "harness=claude" "kind=ship" "mode=no-mistakes" "spawn_gen=old-generation"
   printf 'working: old generation\n' > "$home/state/generation-race.status"
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = display-message ]; then
   if mkdir "$RACE_ONCE" 2>/dev/null; then
@@ -3053,7 +3053,7 @@ test_large_local_snapshot_overlaps_local_reads_without_projection_drift() {
   fm_git_init_commit "$worktree"
   git -C "$worktree" checkout -qb fm/synthetic-large-local
   fakebin=$(make_fakebin "$home")
-  cat > "$fakebin/no-mistakes" <<'SH'
+  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ "$*" = "axi status" ] && [ "${FAKE_NM_DELAY:-0}" = 1 ]; then
   [ -z "${FAKE_NM_SIGNAL:-}" ] || : > "$FAKE_NM_SIGNAL"

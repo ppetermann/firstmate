@@ -29,7 +29,7 @@ TMP_ROOT=$(fm_test_tmproot fm-x-mode-tests)
 make_fake_curl() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/curl" <<'SH'
+  fm_fakebin_write "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 ofile="" method=GET data="" url="" auth=""
 argv=$*
@@ -489,7 +489,7 @@ test_poll_inbox_commit_failure_reports_error() {
   local home fakebin out rc body
   home="$TMP_ROOT/poll-mv-fail"; mkdir -p "$home"
   fakebin=$(make_fake_curl "$home")
-  cat > "$fakebin/mv" <<'SH'
+  fm_fakebin_write "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 dest=
 for arg in "$@"; do
@@ -669,7 +669,7 @@ test_reply_auth_header_tempfile_cleans_up_on_interrupted_post() {
   home="$TMP_ROOT/reply-auth-interrupt"; mkdir -p "$home"
   fakebin=$(fm_fakebin "$home")
   log="$home/auth-file.txt"
-  cat > "$fakebin/curl" <<'SH'
+  fm_fakebin_write "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 auth_file=
 while [ $# -gt 0 ]; do
@@ -785,7 +785,7 @@ test_bootstrap_reports_missing_x_dependency() {
   fakebin=$(fm_fakebin "$home")
   fm_fake_exit0 "$fakebin" tmux node no-mistakes chrome-devtools-axi curl
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.46
-  cat > "$fakebin/gh-axi" <<'SH'
+  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.29'
@@ -798,7 +798,7 @@ SH
     tool_path=$(command -v "$tool") || fail "test host must provide $tool"
     ln -s "$tool_path" "$fakebin/$tool"
   done
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
   exit 0
@@ -806,7 +806,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh"
-  cat > "$fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
   printf '%s\n' 'Usage: treehouse get [--lease] [--lease-holder <holder>]'
@@ -984,7 +984,7 @@ test_bootstrap_opt_out_reports_cleanup_failure() {
   assert_present "$home/state/x-watch.check.sh" "opt-in must create the shim before cleanup failure"
   assert_present "$home/config/x-mode.env" "opt-in must create the cadence config before cleanup failure"
   fakebin=$(fm_fakebin "$home")
-  cat > "$fakebin/rm" <<'SH'
+  fm_fakebin_write "$fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -2244,7 +2244,7 @@ test_dismiss_transport_failure_fails() {
   home="$TMP_ROOT/dismiss-transport"; mkdir -p "$home"
   fakebin=$(fm_fakebin "$home")
   # A curl that fails to reach the relay (non-zero exit, no HTTP code).
-  cat > "$fakebin/curl" <<'SH'
+  fm_fakebin_write "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 exit 7
 SH
@@ -2866,7 +2866,7 @@ test_followup_post_record_failure_clears_link() {
   flag="$home/fail-followups-write"
   mvflag="$home/mv-failed-once"
   err="$home/err.txt"
-  cat > "$fakebin/mv" <<'SH'
+  fm_fakebin_write "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FAKE_MV_FAIL_AFTER_FLAG:-}" ] \
   && [ -f "$FAKE_MV_FAIL_AFTER_FLAG" ] \

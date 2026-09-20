@@ -1024,7 +1024,7 @@ test_pid_identity_is_locale_invariant() {
   # LC_ALL=C pin in fm_pid_identity therefore breaks the equality assertions below
   # on any host with a second locale installed, and the recorded LC_ALL below keeps
   # the pin asserted even where ko_KR.UTF-8 is missing and date falls back to C.
-  cat > "$fakebin/ps" <<'SH'
+  fm_fakebin_write "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${LC_ALL-<unset>}" >> "$FAKE_PS_LOCALE_LOG"
 stamp=$(date -d @1784094040 '+%a %b %e %H:%M:%S %Y' 2>/dev/null) \

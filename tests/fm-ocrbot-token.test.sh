@@ -38,7 +38,7 @@ path_mode() {
 make_fake_curl() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/curl" <<'SH'
+  fm_fakebin_write "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 ofile="" auth="" url=""
 while [ $# -gt 0 ]; do

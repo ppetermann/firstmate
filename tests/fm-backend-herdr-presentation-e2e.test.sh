@@ -44,7 +44,7 @@ export ACTIVE_SEEDED_CONTROL POST_CREATE_ABORT_CONTROL TMP_ROOT
 # The adapter's deliberately session-independent version read cannot pass the
 # helper's leading-option guard, so the wrapper sends only that read straight
 # to the absolute real binary with the same explicit trailing lab session.
-cat > "$FAKEBIN/herdr" <<'SH'
+fm_fakebin_write "$FAKEBIN/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
 {
@@ -196,7 +196,7 @@ fi
 exit "$status"
 SH
 
-cat > "$FAKEBIN/treehouse" <<'SH'
+fm_fakebin_write "$FAKEBIN/treehouse" <<'SH'
 #!/usr/bin/env bash
 set -u
 {
@@ -224,7 +224,7 @@ trap 'exit 1' HUP INT TERM
 exit $?
 SH
 
-cat > "$FAKEBIN/herdr-workspace-mover" <<'SH'
+fm_fakebin_write "$FAKEBIN/herdr-workspace-mover" <<'SH'
 #!/usr/bin/env bash
 set -u
 focus_snapshot() {

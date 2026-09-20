@@ -479,7 +479,7 @@ test_writer_retries_after_a_vanished_lock_collision() {
   marker="$TMP_ROOT/vanished-lock-race/first-ln-failed"
   mkdir -p "$state" "$fakebin"
   real_ln=$(command -v ln)
-  cat > "$fakebin/ln" <<'SH'
+  fm_fakebin_write "$fakebin/ln" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ ! -e "$FM_FAKE_LN_MARKER" ]; then

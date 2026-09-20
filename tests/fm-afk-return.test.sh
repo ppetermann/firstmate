@@ -38,7 +38,7 @@ install_runner() {  # <case-dir>
   printf '## In flight\n\n## Queued\n\n## Done\n' > "$dir/home/data/backlog.md"
   # The fake stop mirrors the real one's ordering: the away flag goes, then the
   # posture record is archived through its owner.
-  cat > "$dir/bin/fm-afk-launch.sh" <<'SH'
+  fm_fakebin_write "$dir/bin/fm-afk-launch.sh" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = stop ] || exit 2
 printf 'stop\n' >> "$FM_HOME/stop.log"
@@ -50,7 +50,7 @@ fi
 rm -f "$FM_HOME/state/.afk-daemon-terminal"
 "$(dirname "$0")/fm-afk-contract.sh" archive >/dev/null
 SH
-  cat > "$dir/bin/fm-wake-drain.sh" <<'SH'
+  fm_fakebin_write "$dir/bin/fm-wake-drain.sh" <<'SH'
 #!/usr/bin/env bash
 file="$FM_HOME/state/.fake-drain"
 if [ "${1:-}" = --ack-through ]; then
@@ -570,7 +570,7 @@ test_failed_held_listing_keeps_catchup_gated() {
   dir="$TMP_ROOT/held-list-failure"
   install_runner "$dir"
   mkdir -p "$dir/fakebin"
-  cat > "$dir/fakebin/tasks-axi" <<'SH'
+  fm_fakebin_write "$dir/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 printf 'synthetic held backlog failure\n' >&2
 exit 1

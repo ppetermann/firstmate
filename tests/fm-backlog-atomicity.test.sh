@@ -88,7 +88,7 @@ Delivery contract: mode=direct-PR
 EOF
   done
 
-  cat > "$fakebin/tmux" <<'SH'
+  fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "$*" in *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
 case "${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
@@ -123,7 +123,7 @@ row_state() {  # <case-dir> <id>
 configure_env_backend_tasks_axi() {  # <case-dir>
   local case_dir=$1
   rm -f "$(backlog_of "$case_dir")"
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 case "\${1:-}" in
   --version) printf '0.2.5\n' ;;
@@ -147,7 +147,7 @@ SH
 require_show_cwd() {  # <case-dir> <expected-dir>
   local case_dir=$1 expected=$2 real
   real=$(command -v tasks-axi)
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 case "\${1:-}" in
   show|start|done)
@@ -165,7 +165,7 @@ SH
 record_tasks_axi_calls() {  # <case-dir>
   local case_dir=$1 real
   real=$(command -v tasks-axi)
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$case_dir/tasks-axi-calls"
 exec "$real" "\$@"
@@ -175,7 +175,7 @@ SH
 
 make_beads_tasks_axi_stub() {  # <case-dir> <id>
   local case_dir=$1 id=$2
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$case_dir/tasks-axi-calls"
 case "\${1:-}" in
@@ -212,7 +212,7 @@ SH
 make_tasks_axi_incompatible() {  # <case-dir>
   local case_dir=$1 real
   real=$(command -v tasks-axi)
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 [ "\${1:-}" != --version ] || exit 1
 exec "$real" "\$@"
@@ -223,7 +223,7 @@ SH
 break_verb() {  # <case-dir> <verb>
   local case_dir=$1 verb=$2 real
   real=$(command -v tasks-axi)
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = "$verb" ]; then
   echo 'error: "backlog is unwritable"' >&2
@@ -237,7 +237,7 @@ SH
 interrupt_spawn_during_start() {  # <case-dir> <before|after>
   local case_dir=$1 timing=$2 real
   real=$(command -v tasks-axi)
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = start ] && [ ! -f "$case_dir/start-interrupted" ]; then
   : > "$case_dir/start-interrupted"
@@ -267,7 +267,7 @@ SH
 lie_start_then_interrupt() {  # <case-dir> <repair: works|fails>
   local case_dir=$1 repair=$2 real
   real=$(command -v tasks-axi)
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = start ]; then
   if [ ! -f "$case_dir/start-interrupted" ]; then
@@ -295,7 +295,7 @@ SH
 hang_start_after_first() {  # <case-dir>
   local case_dir=$1 real
   real=$(command -v tasks-axi)
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = start ]; then
   if [ ! -f "$case_dir/start-interrupted" ]; then
@@ -422,7 +422,7 @@ test_fm_tasks_axi_gnu_timeout_forces_termination_of_a_sigterm_ignoring_child() {
 change_row_on_second_show() {  # <case-dir> <done|rm>
   local case_dir=$1 action=$2 real
   real=$(command -v tasks-axi)
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = show ]; then
   count=0
@@ -440,7 +440,7 @@ SH
 
 break_launch_delivery() {  # <case-dir>
   local case_dir=$1
-  cat > "$case_dir/fakebin/tmux" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "$*" in *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
 case "${1:-}" in
@@ -454,12 +454,12 @@ SH
 
 track_teardown_resource_actions() {  # <case-dir>
   local case_dir=$1
-  cat > "$case_dir/fakebin/tmux" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 : > "$case_dir/backend-resource-action"
 exit 0
 SH
-  cat > "$case_dir/fakebin/treehouse" <<SH
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
 : > "$case_dir/local-copy-resource-action"
 exit 0
@@ -469,7 +469,7 @@ SH
 
 interrupt_teardown_during_treehouse_return() {  # <case-dir>
   local case_dir=$1
-  cat > "$case_dir/fakebin/treehouse" <<SH
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = return ] && [ ! -f "$case_dir/teardown-interrupted" ]; then
   : > "$case_dir/teardown-interrupted"
@@ -489,7 +489,7 @@ interrupt_kimi_readiness() {  # <case-dir>
   mkdir -p "$home/.kimi-code"
   printf '# test config\n' > "$home/.kimi-code/config.toml"
   fm_fake_exit0 "$case_dir/fakebin" kimi
-  cat > "$case_dir/fakebin/tmux" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *"#{pane_current_path}"*) printf '%s\\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
@@ -516,7 +516,7 @@ SH
 break_meta_removal() {  # <case-dir> <meta-path>
   local case_dir=$1 meta=$2 real
   real=$(command -v rm)
-  cat > "$case_dir/fakebin/rm" <<SH
+  fm_fakebin_write "$case_dir/fakebin/rm" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   [ "\$arg" != "$meta" ] || exit 1
@@ -530,7 +530,7 @@ break_busy_removal() {  # <case-dir> <id>
   local case_dir=$1 id=$2 real state
   real=$(command -v rm)
   state="$(home_of "$case_dir")/state"
-  cat > "$case_dir/fakebin/rm" <<SH
+  fm_fakebin_write "$case_dir/fakebin/rm" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   case "\$arg" in
@@ -549,7 +549,7 @@ remove_data_during_startup_budget_check() {  # <case-dir>
   saved="$case_dir/bootstrap-data"
   budget="$(home_of "$case_dir")/config/startup-memory-budget"
   printf '7500\n' > "$budget"
-  cat > "$case_dir/fakebin/stat" <<SH
+  fm_fakebin_write "$case_dir/fakebin/stat" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   if [ "\$arg" = "$budget" ] && [ ! -e "$case_dir/data-removed" ]; then
@@ -565,7 +565,7 @@ SH
 break_meta_publication() {  # <case-dir> <meta-path>
   local case_dir=$1 meta=$2 real
   real=$(command -v mv)
-  cat > "$case_dir/fakebin/mv" <<SH
+  fm_fakebin_write "$case_dir/fakebin/mv" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   [ "\$arg" != "$meta" ] || exit 1
@@ -841,7 +841,7 @@ test_completion_omits_the_file_for_a_beads_done() {
   # row probe, and the close must all address the configured backend without
   # requiring or overriding a markdown file.
   rm -f "$home/data/backlog.md"
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$case_dir/tasks-axi-calls"
 case "\${1:-}" in
@@ -906,7 +906,7 @@ test_dispatch_refuses_a_pending_authoritative_close() {
   marker="$(home_of "$case_dir")/state/$id.backlog-close"
   printf 'id=%s\ndata=%s\nspawn_gen=spawn-closing\narg=--pr\narg=https://github.com/example/repo/pull/12\n' \
     "$id" "$(home_of "$case_dir")/data" > "$marker"
-  cat > "$case_dir/fakebin/tmux" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *new-window*) : > "$case_dir/task-endpoint-created" ;;
@@ -941,7 +941,7 @@ test_dispatch_refuses_a_held_row_before_creating_resources() {
   add_item "$case_dir" "$id"
   tasks-axi hold "$id" --reason "captain decision pending" --kind captain \
     --file "$(backlog_of "$case_dir")" >/dev/null
-  cat > "$case_dir/fakebin/tmux" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *new-window*) : > "$case_dir/task-endpoint-created" ;;
@@ -976,7 +976,7 @@ test_dispatch_refuses_a_blocked_row_before_creating_resources() {
   add_item "$case_dir" "$blocker"
   tasks-axi add "$id" "item for $id" --kind ship --blocked-by "$blocker" \
     --file "$(backlog_of "$case_dir")" >/dev/null
-  cat > "$case_dir/fakebin/tmux" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *new-window*) : > "$case_dir/task-endpoint-created" ;;
@@ -1011,7 +1011,7 @@ test_dispatch_refuses_a_held_in_flight_row_before_relaunch() {
   start_item "$case_dir" "$id"
   tasks-axi hold "$id" --reason "captain decision pending" --kind captain \
     --file "$(backlog_of "$case_dir")" >/dev/null
-  cat > "$case_dir/fakebin/tmux" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *new-window*) : > "$case_dir/task-endpoint-created" ;;
@@ -2461,7 +2461,7 @@ test_bootstrap_rechecks_worker_record_boundary_after_locking() {
   write_task_meta "$case_dir" "$id" ship direct-PR "spawn_gen=local-worker"
   write_task_meta "$foreign_case" "$id" ship direct-PR "spawn_gen=foreign-worker"
   real_ln=$(command -v ln)
-  cat > "$case_dir/fakebin/ln" <<SH
+  fm_fakebin_write "$case_dir/fakebin/ln" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *"$home/state/.meta-$id.lock"*)
@@ -2687,7 +2687,7 @@ test_teardown_rechecks_record_parent_after_lock_acquisition() {
     "harness=claude" "kind=ship" "mode=local-only" "yolo=off"
   track_teardown_resource_actions "$case_dir"
   real_ln=$(command -v ln)
-  cat > "$case_dir/fakebin/ln" <<SH
+  fm_fakebin_write "$case_dir/fakebin/ln" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *"$home/state/.meta-$id.lock"*)

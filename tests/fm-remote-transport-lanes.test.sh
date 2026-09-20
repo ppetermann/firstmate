@@ -62,24 +62,24 @@ cp "$ROOT/bin/backends/herdr.sh" "$REMOTE_ROOT/bin/backends/herdr.sh"
 printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
 # Appends its tag to a shared log, then optionally sleeps: the log order is the
 # observable execution order.
-cat > "$REMOTE_ROOT/bin/fm-mark-job.sh" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/fm-mark-job.sh" <<'SH'
 #!/bin/bash
 printf '%s\n' "$1" >> "$2"
 sleep "${3:-0}"
 SH
-cat > "$REMOTE_ROOT/bin/fm-touch-job.sh" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/fm-touch-job.sh" <<'SH'
 #!/bin/bash
 printf 'ran\n' > "$1"
 SH
 # Marks its start, sleeps, then marks completion: cancellation must leave the
 # start marker without the completion marker.
-cat > "$REMOTE_ROOT/bin/fm-two-phase-job.sh" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/fm-two-phase-job.sh" <<'SH'
 #!/bin/bash
 printf 'started\n' > "$1"
 sleep "$3"
 printf 'finished\n' > "$2"
 SH
-cat > "$REMOTE_ROOT/bin/fm-stdin-probe.sh" <<'SH'
+fm_fakebin_write "$REMOTE_ROOT/bin/fm-stdin-probe.sh" <<'SH'
 #!/bin/bash
 while IFS= read -r line || [ -n "$line" ]; do printf 'stdin=%s\n' "$line"; done
 SH
@@ -96,7 +96,7 @@ cat > "$LOCAL_HOME/data/secondmates.md" <<EOF
 - build - build delivery (host: remote-mac; root: $REMOTE_ROOT; home: $HOME_B; scope: build work; projects: beta; added 2026-08-02)
 EOF
 
-cat > "$FAKEBIN/fake-ssh" <<'SH'
+fm_fakebin_write "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   case "$1" in

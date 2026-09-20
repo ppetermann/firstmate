@@ -825,7 +825,7 @@ test_client_status_reads_both_status_shapes() {
   ln -sf "$(command -v jq)" "$dir/tools/jq"
   # An older client that reports protocols but no .server.compatible field
   # (the pre-0.8 status shape) must be judged by protocol equality.
-  cat > "$dir/bin/herdr" <<'SH'
+  fm_fakebin_write "$dir/bin/herdr" <<'SH'
 #!/usr/bin/env bash
 case "${FM_HERDR_STATUS_SHAPE:?}" in
   legacy-equal) printf '{"client":{"version":"0.7.5","protocol":16},"server":{"running":true,"protocol":16}}\n' ;;

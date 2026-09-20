@@ -34,7 +34,7 @@ install_rm_logger() {
   fakebin=$(fm_fakebin "$home")
   log="$home/rm.log"
   : > "$log"
-  cat > "$fakebin/rm" <<SH
+  fm_fakebin_write "$fakebin/rm" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$log"
 exec "$REAL_RM" "\$@"
