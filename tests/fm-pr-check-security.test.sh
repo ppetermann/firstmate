@@ -650,6 +650,28 @@ SH
   pass "valid direct and merge flows record exact metadata and reject multiline head metadata"
 }
 
+test_task_worker_arming_is_refused() {
+  local dir rc
+  dir=$(make_case task-worker-refused)
+  write_task_meta "$dir"
+
+  set +e
+  FM_TASK_ID=other-task run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
+    > "$dir/stdout" 2> "$dir/stderr"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "a task worker's own fm-pr-check.sh invocation was accepted"
+  grep -q '^pr=' "$dir/home/state/task-a.meta" && fail "a refused worker invocation still recorded pr metadata"
+  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused worker invocation still armed a check"
+  grep -q FM_TASK_ID "$dir/stderr" || fail "the refusal did not name the task-worker marker"
+
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
+    > "$dir/stdout" 2> "$dir/stderr" || fail "firstmate's own arming was refused"
+  fm_pr_poll_artifacts_valid "$dir/home/state" task-a "$POLL" \
+    || fail "firstmate's own arming did not pass the watcher's trust gate on the first try"
+  pass "fm-pr-check.sh refuses a task worker's own invocation and firstmate's own arming still authenticates first try"
+}
+
 run_watcher_bounded() {
   local home=$1 fakebin=$2 check_interval=${FM_TEST_CHECK_INTERVAL:-0} watch_root=${FM_TEST_WATCH_ROOT:-$ROOT}
   local check_timeout=${FM_TEST_CHECK_TIMEOUT:-1}
@@ -2845,6 +2867,7 @@ test_direct_pr_gate_pass_warning
 test_gitlab_merged_poll_retires
 test_invalid_entrypoints_have_zero_side_effects
 test_valid_recording_and_merge_derivation
+test_task_worker_arming_is_refused
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract
 test_atomic_interruption_leaves_no_partial_artifact

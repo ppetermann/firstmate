@@ -8,6 +8,12 @@
 # live only in a private sidecar and are never interpolated into shell source.
 # A GitHub pull request URL and a GitLab merge request URL are both accepted,
 # including a merge request on a self-hosted GitLab instance.
+# Firstmate is the only caller (AGENTS.md section 7): the arm-time template is
+# SCRIPT_DIR's own copy of fm-pr-poll.sh, which must stay byte-identical to
+# whatever the watcher cmp's it against later, and only firstmate's own
+# checkout is guaranteed to still be that copy when the watcher runs. Refuses
+# when FM_TASK_ID marks a task worker's own isolated (and possibly stale)
+# checkout instead of silently arming a check doomed to fail authentication.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -15,6 +21,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+
+if [ -n "${FM_TASK_ID:-}" ]; then
+  echo "error: fm-pr-check.sh must be run by firstmate, not from a task worker (FM_TASK_ID=$FM_TASK_ID); report the PR URL to firstmate so it can register the merge watch" >&2
+  exit 1
+fi
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
