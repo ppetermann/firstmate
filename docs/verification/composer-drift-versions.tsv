@@ -12,5 +12,6 @@
 # guard. One owner: do not record these versions anywhere else.
 #
 # harness<TAB>exact first line of `<binary> --version`
-claude	2.1.272 (Claude Code)
+claude	2.1.278 (Claude Code)
 opencode	1.18.31
+pi	0.86.0
