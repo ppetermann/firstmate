@@ -402,7 +402,14 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
     ($sel.use | map(evaluate(.))) as $cands |
     ([$cands[] | select(.eligible and ((.unranked // false) | not))]) as $elig |
     ([$cands[] | select(.unranked)]) as $unranked |
-    if ($elig | length) == 0 then $ev + {status: "escalate", reason: "no rankable eligible candidate", note: $sel.note, candidates: $cands}
+    if ($elig | length) == 0 then
+      if ($sel.use | length) == 1 and
+         ($cands | length) == 1 and
+         ($cands[0].eligible // false) and
+         (($cands[0].floor // null) == null)
+      then $ev + {status: "clear", note: ($sel.note + " single candidate, no floors: quota ranking skipped - an exhausted window errors at launch"), candidates: $cands, chosen: $cands[0]}
+      else $ev + {status: "escalate", reason: "no rankable eligible candidate", note: $sel.note, candidates: $cands}
+      end
     else
       ($elig | max_by(.spendPriority)) as $best |
       ([$elig[] | select(.spendPriority == $best.spendPriority)] | length) as $ties |

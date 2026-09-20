@@ -189,6 +189,11 @@ run_without_curl() {
 KEY='test-key-9f1c2d3e-never-on-argv'
 code='' out='' err=''
 
+# The absent-key case cannot run under an ambient live key (the .env-loaded
+# FM_JEV_OPENROUTER_API_KEY reaches this suite's environment); sandbox it away
+# for the whole suite so every case's key state is explicit below.
+unset FM_JEV_OPENROUTER_API_KEY FM_JEV_OPENROUTER_API_KEY_PRIVATE
+
 # --- absent key: off, silent on stdout, no network, no quota read -----------
 reset_log
 write_response "$RESPONSE" rule_4 0.9
@@ -283,7 +288,7 @@ assert_not_contains "$argv" "$OR_KEY" "the OpenRouter key never appears on curl 
 assert_equals "Authorization: Bearer $OR_KEY" "$(cat "$LOG/header")" "curl receives the OpenRouter bearer header on fd 3"
 assert_equals $'curl:clean\nquota-axi:clean' "$(cat "$LOG/child-env")" "the OpenRouter key is absent from every child environment"
 body=$(cat "$LOG/body")
-assert_equals 'typesafe/jev-latest' "$(jq -r .model <<<"$body")" "OpenRouter transport sends the router alias model slug"
+assert_equals '~typesafe/jev-latest' "$(jq -r .model <<<"$body")" "OpenRouter transport sends the router alias model slug"
 assert_contains "$out" '  model: typesafe/jev-1.13' "the superset id/provider/model fields render without error"
 assert_contains "$out" 'tokens: 812/60' "typesafe-style usage field names are read on the OpenRouter transport too"
 pass "OpenRouter transport: correct endpoint, model, and key when FM_JEV_OPENROUTER_API_KEY is the only key present"
