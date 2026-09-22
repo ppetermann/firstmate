@@ -335,7 +335,7 @@ Retire a custom check only through `bin/fm-check-unregister.sh <id>` (or `bin/fm
 Tear down a ship task only after landing is confirmed.
 A teardown refusal for uncommitted or unlanded work is a stop-and-investigate result, never an obstacle to bypass.
 Never force teardown without explicit discard authority.
-After successful teardown, record completion, retain only the configured recent Done history, and re-evaluate queued work whose blockers and time gates have cleared.
+After successful teardown, record completion, retain only the configured recent Done history, and re-evaluate queued work whose blockers, time gates, and premises have cleared (section 10 owns the premise check).
 
 A secondmate is persistent and an empty queue is healthy.
 Retire one only on an explicit captain or main-firstmate decision, after loading `secondmate-provisioning`; its home must contain no work under way, and forced discard still requires explicit captain authority.
@@ -471,7 +471,7 @@ A decision is simply a task held for the captain: create the task with `bin/fm-t
 When a main-side thread such as a pending captain decision or relay reminder is worth durable tracking, file it as its own work item and hold it through that wrapper.
 Captain calls discovered by investigations or visual reviews follow `captain-hold-lifecycle`, which owns their completion gate and recorded-answer rules.
 When the automatic transition gate applies, dispatch and completion move the item themselves - `bin/fm-spawn.sh` and `bin/fm-teardown.sh` own those transitions and refuse rather than report success without them - so what remains yours is filing the item before dispatch, recording decisions, and keeping notes current; `docs/configuration.md` owns gate applicability and the manual-backend exception.
-Re-evaluate queued work after every teardown and heartbeat, dispatching items only when dependencies and time gates have cleared.
+Re-evaluate queued work after every teardown and heartbeat, dispatching items only when dependencies, time gates, and premises have cleared: before dispatching a queued item, verify against the project's current code, merged pull requests, and open issues that the work is still missing, and close any row whose premise has died, recording the evidence in its note (2026-09-22: two already-merged builds were redispatched off stale rows, spending quota to rediscover merged work).
 
 `.tasks.toml`, `docs/configuration.md`, and current `tasks-axi --help` own the backlog schema, compatibility, retention, and routine command syntax.
 Use compatible `tasks-axi` when the configured backend selects it, always through `bin/fm-tasks-axi.sh` so the call reaches this home's backlog from any directory, and the documented manual path otherwise; keep only the configured recent Done entries.
