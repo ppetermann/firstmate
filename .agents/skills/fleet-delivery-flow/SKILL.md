@@ -52,6 +52,10 @@ such section is NOT on this flow yet - resolve it at registration
    push is what exhausted its rate limit on 2026-09-05 ('Review rate limited / Action not
    completed'), and it also strands its verdict on a commit the next push replaces, which
    then blocks the merge for a reason nothing on the PR explains.
+   CodeRabbit also reviews every push on its own, so "asked ONCE" means asked only if its own review of the current head did not already approve.
+   Immediately before posting, re-read its reviews for THIS head and skip the ask when one is APPROVED.
+   If its check is still pending or it is mid-burst (reviews on this head within the last minute), wait for it to settle first.
+   On maia#450 (2026-09-23) a read landed between its COMMENTED posts and its APPROVED four seconds later, and the ask went out six seconds after the approval.
 5. Merge-ready contract, all six legs live in the reporting turn:
    (1) `gh-axi pr checks <n>` all required jobs run AND passed on the current head;
    (2) the AGGREGATE decision, read as `reviewDecision` from the GraphQL pullRequest,
