@@ -30,7 +30,7 @@ On an `ocr-pr <owner/repo>#<n> <head_sha>` `check:` wake, run one reviewer round
 4. Spawn the reviewer in the project's clone with explicit harness and model, because dispatch profiles exist and `fm-spawn` refuses a bare spawn: `fm-spawn.sh ocrrev-<slug> projects/<repo> --scout --harness <harness> --model <model> --effort high`.
    A review round resolves its reviewer from `config/crew-dispatch.json` at dispatch, never from a reviewer hardcoded here. Read that config and take its OCR review-round rule when one is present - the captain pins OCR rounds separately from the rest of the fleet, and on 2026-09-15 that pin is glm-5.3 while the active setup stays claude. With no OCR-specific rule, fall back to the JUDGEMENT AND CORRECTION class under the active setup. This binding was a hardcoded `pi`/GLM-5.3 pair that went stale on 2026-08-31 and cost four rounds of deliberate deviation before it was fixed.
    If the repository has no clone under `projects/` yet, load `project-management` and clone it through the normal add intake first.
-5. Scaffold with `fm-brief.sh ocrrev-<slug> <repo> --scout`, then replace `{TASK}` with the filled reviewer brief block below.
+5. Scaffold with `fm-brief.sh ocrrev-<slug> <repo> --scout`, fill `{TASK}` with one line naming the PR URL, the head SHA, and the standing bot setup as the round's reason, and replace `{FIRSTMATE_SPEC}` with the filled reviewer brief block below.
 
 
 ### Declining a round is not free - clear the seen record when you do
@@ -53,7 +53,7 @@ Replace `{OCR_CORE}` with steps 2-4 of the `ocr-delegate-review` worker block pa
 Replace `{OCR_INTENT}` with this round's intent and nothing standing: the captain decision or ruling the head answers, the exact reproduction or record shape to construct, the prior round's findings and the other binding reviewer's findings on the parent, and any proportionality ruling such as filing new discoveries as issues rather than blocking.
 Never restate a standing question from the core's step 4 there.
 When nothing is round-specific, write `Nothing beyond the standing questions.` so the placeholder is never left unfilled.
-Then paste the whole block into the brief's `{TASK}` area.
+Then paste the whole block into the brief's `{FIRSTMATE_SPEC}` area with its heading demoted to `###`, because a `##` heading ends the `## Firstmate spec` subsection early and `fm-spawn.sh` refuses the brief as having an empty spec.
 
 ```markdown
 ## OCR bot review round ({OCR_REPO}#{OCR_PR} at {OCR_HEAD})
