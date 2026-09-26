@@ -24,6 +24,8 @@
 #                 "SECONDMATE_HANDOFF: secondmate <id>: pending delivery: <n> item(s)",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
 #                 "OCRBOT: OCR review bot ..." (armed, off, or failed to arm).
+#                 "TASK_TMP_ORPHAN: <root> (<size>) - <why>; not removed automatically"
+#                 (only with config/worker-tmp-root; bin/fm-task-tmp-lib.sh).
 #          When a RUNNING secondmate home is fast-forwarded, its target is
 #          firstmate's own current default-branch commit. A local worktree uses
 #          a purely local fast-forward with no origin fetch; a remote route hands
@@ -219,6 +221,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # deferred network stage sets, so an ordinary bootstrap run records nothing.
 # shellcheck source=bin/fm-timing-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-timing-lib.sh"
+# shellcheck source=bin/fm-task-tmp-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-task-tmp-lib.sh"
 
 # Network-phase selection (see the header). An unrecognized value resolves to
 # `all` so a malformed override runs every step rather than silently dropping a
@@ -1580,6 +1584,18 @@ detect_local_config() {
   fi
   detect_code_root_backlog_fork
   detect_home_summary_publication
+  detect_task_tmp_orphans
+}
+
+# Leftover per-task temp roots under config/worker-tmp-root (bin/fm-task-tmp-lib.sh
+# owns ownership and the orphan test). Report-only: a root teardown could not
+# fully remove, or one a relaunch or a vanished home left behind, stays visible
+# here until someone removes it, instead of silently filling the disk. Absent
+# config scans nothing; a malformed one is the spawn's refusal to report.
+detect_task_tmp_orphans() {
+  fm_task_tmp_config_read "$CONFIG" 2>/dev/null || return 0
+  [ -n "$FM_TASK_TMP_BASE" ] || return 0
+  fm_task_tmp_orphans "$FM_TASK_TMP_BASE" "$FM_HOME" "$STATE"
 }
 
 # Shadow-backlog check. When this home's data directory is not the code root's,

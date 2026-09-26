@@ -114,6 +114,9 @@
 # regular file, or text carrying its own "Delivery contract: mode=" line (which
 # a later scout promotion could not outrank), stops the scaffold before
 # anything is written. Secondmate charters never take it.
+# When config/worker-tmp-root is set, ship and scout rules gain one line keeping
+# caches out of the task's temp directory (bin/fm-task-tmp-lib.sh owns the
+# setting); a malformed file stops the scaffold before anything is written.
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -137,6 +140,8 @@ esac
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-task-tmp-lib.sh
+. "$SCRIPT_DIR/fm-task-tmp-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 CREWMATE_PAUSE_WAIT_EXAMPLES='an upstream release, a rate-limit reset, a scheduled window, or your own validation round'
 
@@ -277,6 +282,14 @@ if [ "$KIND" != secondmate ] && { [ -e "$BRIEF_INCLUDE_FILE" ] || [ -L "$BRIEF_I
     exit 1
   fi
   [ -n "$(printf '%s' "$BRIEF_INCLUDE_BODY" | tr -d '[:space:]')" ] || BRIEF_INCLUDE_BODY=
+fi
+
+# config/worker-tmp-root (bin/fm-task-tmp-lib.sh) adds one cache rule to ship
+# and scout rules below; read here so a malformed file writes nothing.
+WORKER_TMP_BASE=
+if [ "$KIND" != secondmate ]; then
+  fm_task_tmp_config_read "$CONFIG" || { echo "error: $FM_TASK_TMP_ERROR" >&2; exit 1; }
+  WORKER_TMP_BASE=$FM_TASK_TMP_BASE
 fi
 
 # Append the include as the last section of a ship or scout scaffold.
@@ -500,6 +513,14 @@ IFS= read -r -d '' SHARED_INFRA_RULE <<'EOF' || true
    whatever uncommitted work they had not yet saved.
 EOF
 SHARED_INFRA_RULE=${SHARED_INFRA_RULE%$'\n'}
+# Only with config/worker-tmp-root (read above): the task's TMPDIR is removed
+# at cleanup, so a cache pointed there is re-downloaded every task and, when a
+# container writes it as another user, left behind.
+if [ -n "$WORKER_TMP_BASE" ]; then
+  SHARED_INFRA_RULE="$SHARED_INFRA_RULE
+9. Your temporary files belong in \$TMPDIR, this task's own temp directory, removed at cleanup.
+   Reuse the machine's shared caches (for example ~/.cache/huggingface for model downloads) and never point a cache at your scratch or temp directory."
+fi
 
 if [ "$KIND" = scout ]; then
 if "$SCRIPT_DIR/fm-bootstrap.sh" lavish-compatible >/dev/null 2>&1; then

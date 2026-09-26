@@ -9,7 +9,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | --- | --- |
 | Firstmate's code, private files, or project location | [FM_HOME](#fm_home) and [operational home layout](#operational-home-layout-and-state) |
 | Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend) and [harness support](#harness-support) |
-| Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
+| Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist), and [worker temp root](#worker-temp-root-configworker-tmp-root) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), and [Calm preference](#calm-preference-configcalm) |
 | Persistent secondmates | [Secondmate routes](#secondmate-routes-datasecondmatesmd) |
@@ -149,6 +149,7 @@ config/fleet-ledger  optional presence flag opting this home in to the default-o
 config/lavish-axi-host  optional one-line per-machine Lavish server address; LOCAL, gitignored, inherited by secondmate homes; see "Lavish server address" below
 config/brief-include.md  optional standing worker instructions appended verbatim as the last section of every ship and scout scaffold; LOCAL, gitignored, not inherited; see "Home brief include" below
 config/launch-env-allowlist  optional worker launch environment allowlist; LOCAL, gitignored; see "Worker launch environment" below
+config/worker-tmp-root  optional one-line real-disk base for per-task temp roots; LOCAL, gitignored, inherited by secondmate homes; see "Worker temp root" below
 config/turnend-churn-absorb  optional presence flag for the default-off turn-end pane-churn absorb; LOCAL, gitignored, not inherited; see "Turn-end pane-churn absorb" below
 config/wedge-defer-parked-gate  optional presence flag for the default-off parked-gate wait deferral; LOCAL, gitignored, not inherited; see "Parked-gate wait deferral" below
 config/ocr-bot/     optional OCR review bot opt-in directory; LOCAL, gitignored, not inherited; see "OCR review bot" below
@@ -978,6 +979,25 @@ An absent or blank file changes nothing, while a present path that is not a read
 The text is static and never executed or expanded; secondmate charters never take it, and the file is local to each home rather than part of secondmate inherited configuration.
 
 `bin/fm-brief.sh`'s header owns the placement rule and its safety argument.
+
+## Worker temp root (config/worker-tmp-root)
+
+The optional local, gitignored `config/worker-tmp-root` moves every worker's temporary files off `/tmp` and onto a directory you choose, for a machine whose `/tmp` is a small memory-backed filesystem.
+It holds one path without whitespace, either absolute or starting with `~/`, which expands against the launching user's home so the same value works on every host a secondmate runs on.
+For example: `printf '%s\n' '~/.cache/firstmate-tmp' > config/worker-tmp-root`.
+
+With no file, each task keeps its `/tmp/fm-<id>/` root and only Go's build temp is redirected into it.
+With the file, `fm-spawn.sh` creates `<base>/fm-<id>/` instead and exports `TMPDIR`, `TMP`, and `TEMP` as its `tmp/` directory to every ship, scout, and secondmate launch and relaunch.
+Worker agents follow that variable, Claude Code's session scratch directories and opencode's temp directory included, so everything a worker writes to temp stays inside its own root and cleanup removes it with the task.
+Ship and scout briefs then also carry one rule telling the worker to reuse the machine's shared caches rather than pointing a cache at its temp directory.
+Keep the base path short: some tools place sockets under `TMPDIR`, and a socket path is limited to about 100 bytes.
+
+The base is created if missing and must be owned by you and not writable by anyone else; each per-task root inside it is private and records which firstmate home created it.
+Cleanup removes only a root its own home created and says plainly, with the path and size, anything it could not remove, such as files a container wrote as another user.
+Session start lists roots that no task record still names, with their sizes, and never deletes them itself.
+A malformed or unusable value refuses the launch or the brief before anything is created.
+The file is inherited into secondmate homes through the [primary-authoritative configuration contract](../.agents/skills/secondmate-provisioning/SKILL.md), and changes apply to the next launch.
+[`bin/fm-task-tmp-lib.sh`](../bin/fm-task-tmp-lib.sh) owns the checks, the ownership marker, and the leftover report; [`verification/worker-tmp-root.md`](verification/worker-tmp-root.md) records the evidence that the agents follow `TMPDIR`.
 
 ## Worker launch environment (config/launch-env-allowlist)
 

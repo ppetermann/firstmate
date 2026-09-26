@@ -102,6 +102,8 @@ SH
   # Ordinary teardown reports any final ledger outcome before removing records.
   ln -s "$ROOT/bin/fm-inactive-reconcile.sh" "$fake/bin/fm-inactive-reconcile.sh"
   ln -s "$ROOT/bin/fm-parent-channel-lib.sh" "$fake/bin/fm-parent-channel-lib.sh"
+  # fm-task-tmp-lib.sh: teardown's guarded removal of a relocated temp root.
+  ln -s "$ROOT/bin/fm-task-tmp-lib.sh" "$fake/bin/fm-task-tmp-lib.sh"
   # fm-guard.sh: stub (teardown calls it with `|| true`).
   fm_fakebin_write "$fake/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
@@ -203,6 +205,8 @@ SH
   ln -s "$ROOT/bin/fm-operational-input.sh" "$fake/bin/fm-operational-input.sh"
   ln -s "$ROOT/bin/fm-inactive-reconcile.sh" "$fake/bin/fm-inactive-reconcile.sh"
   ln -s "$ROOT/bin/fm-parent-channel-lib.sh" "$fake/bin/fm-parent-channel-lib.sh"
+  # fm-task-tmp-lib.sh: teardown's guarded removal of a relocated temp root.
+  ln -s "$ROOT/bin/fm-task-tmp-lib.sh" "$fake/bin/fm-task-tmp-lib.sh"
   fm_fakebin_write "$fake/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -250,6 +254,96 @@ test_teardown_skips_gracefully_when_dir_missing() {
   pass "fm-teardown skips gracefully when tasktmp= points to a nonexistent dir"
 }
 
+# --- relocated roots (config/worker-tmp-root; bin/fm-task-tmp-lib.sh) ---
+#
+# A root spawn relocated carries a .fm-home marker naming its home. Teardown
+# removes it only when that marker names this home and the path is exactly the
+# task's own fm-<id>, and reports whatever it could not remove.
+
+make_marked_root() {  # <root> <home>
+  mkdir -p "$1/tmp/claude-1000/project/session/scratchpad" "$1/gotmp"
+  chmod 700 "$1"
+  printf 'scratch\n' > "$1/tmp/claude-1000/project/session/scratchpad/notes"
+  (cd -P "$2" && pwd -P) > "$1/.fm-home"
+}
+
+test_teardown_removes_marked_relocated_root() {
+  local id=td-marked-z5 base fake root out
+  base="$TMP_ROOT/disk-$id"
+  mkdir -p "$base"
+  base=$(cd -P "$base" && pwd -P)
+  root="$base/fm-$id"
+  fake=$(make_fake_root "$id" "$root")
+  make_marked_root "$root" "$fake"
+  printf 'sibling\n' > "$base/keep-me"
+  out=$(FM_HOME="$fake" bash "$fake/bin/fm-teardown.sh" "$id" 2>&1) \
+    || fail "teardown exited non-zero with a marked relocated root: $out"
+  [ ! -e "$root" ] || fail "teardown left the marked relocated root $root"
+  [ -f "$base/keep-me" ] || fail "teardown touched a file beside the relocated root"
+  case "$out" in *"warning: task temp root"*) fail "clean removal still printed a warning: $out" ;; esac
+  pass "fm-teardown removes a marked relocated root, scratchpad included, and nothing beside it"
+}
+
+test_teardown_reports_what_it_cannot_remove() {
+  local id=td-stuck-z6 base fake root out
+  base="$TMP_ROOT/disk-$id"
+  mkdir -p "$base"
+  base=$(cd -P "$base" && pwd -P)
+  root="$base/fm-$id"
+  fake=$(make_fake_root "$id" "$root")
+  make_marked_root "$root" "$fake"
+  # A directory whose entries this user cannot delete stands in for files a
+  # container wrote as another user.
+  mkdir -p "$root/tmp/locked"
+  printf 'owned elsewhere\n' > "$root/tmp/locked/blob"
+  chmod 500 "$root/tmp/locked"
+  out=$(FM_HOME="$fake" bash "$fake/bin/fm-teardown.sh" "$id" 2>&1)
+  local rc=$?
+  chmod 700 "$root/tmp/locked" 2>/dev/null || true
+  [ "$rc" -eq 0 ] || fail "teardown failed outright on a partly removable root: $out"
+  case "$out" in
+    *"warning: task temp root $root could not be fully removed"*"is left behind"*) ;;
+    *) fail "teardown did not report the leftover root with its path: $out" ;;
+  esac
+  printf '%s\n' "$out" | grep -Eq "could not be fully removed; [0-9.]+[KMGT]? is left behind" \
+    || fail "teardown did not report the leftover size: $out"
+  pass "fm-teardown says plainly, with path and size, what it could not remove"
+}
+
+test_teardown_refuses_foreign_or_misnamed_marked_root() {
+  local id=td-foreign-z7 base fake root other out
+  base="$TMP_ROOT/disk-$id"
+  mkdir -p "$base" "$TMP_ROOT/other-home-$id"
+  base=$(cd -P "$base" && pwd -P)
+  root="$base/fm-$id"
+  fake=$(make_fake_root "$id" "$root")
+  make_marked_root "$root" "$TMP_ROOT/other-home-$id"
+  out=$(FM_HOME="$fake" bash "$fake/bin/fm-teardown.sh" "$id" 2>&1) \
+    || fail "teardown exited non-zero on another home's root: $out"
+  [ -f "$root/tmp/claude-1000/project/session/scratchpad/notes" ] \
+    || fail "teardown removed a root another home owns"
+  case "$out" in
+    *"was NOT removed because its ownership marker names another firstmate home"*) ;;
+    *) fail "teardown did not explain leaving another home's root: $out" ;;
+  esac
+
+  id=td-misnamed-z8
+  other="$base/not-this-task"
+  fake=$(make_fake_root "$id" "$other")
+  make_marked_root "$other" "$fake"
+  out=$(FM_HOME="$fake" bash "$fake/bin/fm-teardown.sh" "$id" 2>&1) \
+    || fail "teardown exited non-zero on a misnamed marked root: $out"
+  [ -d "$other" ] || fail "teardown removed a marked root that is not fm-<id>"
+  case "$out" in
+    *"was NOT removed because its name is not fm-$id"*) ;;
+    *) fail "teardown did not explain leaving a misnamed root: $out" ;;
+  esac
+  pass "fm-teardown leaves another home's or a misnamed marked root in place and says why"
+}
+
 test_teardown_removes_tasktmp_dir
 test_teardown_skips_gracefully_without_tasktmp
 test_teardown_skips_gracefully_when_dir_missing
+test_teardown_removes_marked_relocated_root
+test_teardown_reports_what_it_cannot_remove
+test_teardown_refuses_foreign_or_misnamed_marked_root

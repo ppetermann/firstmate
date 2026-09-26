@@ -273,6 +273,10 @@
 #   prevents equal task ids in different Firstmate homes from sharing a file.
 #   Spawn refuses an unsafe pre-existing task temp root or launch namespace, and
 #   task teardown removes only the current home's launch namespace.
+# Worker temp root (config/worker-tmp-root):
+#   Absent keeps the /tmp/fm-<id> root with only GOTMPDIR exported. Present, the
+#   root moves to <base>/fm-<id> on real disk and every launch also exports
+#   TMPDIR, TMP, and TEMP into it; bin/fm-task-tmp-lib.sh owns the contract.
 # Launch environment (config/launch-env-allowlist):
 #   Absent means unchanged ambient inheritance. A present readable regular file
 #   opts every launch (ship, scout, secondmate, raw command, and relaunch) into
@@ -573,6 +577,17 @@ if [ "$LAVISH_AXI_HOST_CONFIG_PRESENT" = 1 ]; then
       ;;
   esac
 fi
+# config/worker-tmp-root optionally moves the per-task temp root onto real disk
+# and exports TMPDIR/TMP/TEMP into it (bin/fm-task-tmp-lib.sh owns the
+# contract). Read once per launch, before any endpoint exists, so a malformed
+# file refuses without leaving anything behind; absent means the /tmp default.
+# shellcheck source=bin/fm-task-tmp-lib.sh
+. "$SCRIPT_DIR/fm-task-tmp-lib.sh"
+if ! fm_task_tmp_config_read "$CONFIG"; then
+  echo "error: $FM_TASK_TMP_ERROR" >&2
+  exit 1
+fi
+WORKER_TMP_BASE=$FM_TASK_TMP_BASE
 SUB_HOME_MARKER=".fm-secondmate-home"
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
@@ -4298,16 +4313,31 @@ esac
 # this user and writable by nobody else, then tightened, so no other local user
 # can plant or swap a file in it. The staged launch command lives in a sibling
 # directory namespaced by home identity, not in this shared per-id root.
+# With config/worker-tmp-root set, the root is <base>/fm-<id>/ on real disk
+# instead, carries this home's ownership marker, and gains a tmp/ that TMPDIR,
+# TMP, and TEMP point at below (bin/fm-task-tmp-lib.sh owns that contract).
 TASK_TMP="/tmp/fm-$ID"
-if ! (umask 077 && mkdir "$TASK_TMP") 2>/dev/null; then
-  if [ -L "$TASK_TMP" ] || [ ! -d "$TASK_TMP" ] || [ ! -O "$TASK_TMP" ] ||
-    [ -n "$(find "$TASK_TMP" -prune \( -perm -g=w -o -perm -o=w \) -print 2>/dev/null)" ] ||
-    ! chmod 700 "$TASK_TMP"; then
-    echo "error: task temp root $TASK_TMP already exists and is not a private directory owned by this user; refusing to stage the launch command there; inspect and remove it, then retry" >&2
+WORKER_TMPDIR=
+if [ -n "$WORKER_TMP_BASE" ]; then
+  if ! fm_task_tmp_base_prepare "$WORKER_TMP_BASE"; then
+    echo "error: $FM_TASK_TMP_ERROR; refusing to launch" >&2
     exit 1
   fi
+  TASK_TMP="$FM_TASK_TMP_BASE_REAL/fm-$ID"
+fi
+if ! fm_task_tmp_private_dir "$TASK_TMP"; then
+  echo "error: $FM_TASK_TMP_ERROR; refusing to stage the launch command there; inspect and remove it, then retry" >&2
+  exit 1
 fi
 mkdir -p "$TASK_TMP/gotmp"
+if [ -n "$WORKER_TMP_BASE" ]; then
+  if ! fm_task_tmp_claim "$TASK_TMP" "$FM_HOME"; then
+    echo "error: $FM_TASK_TMP_ERROR; refusing to launch" >&2
+    exit 1
+  fi
+  WORKER_TMPDIR="$TASK_TMP/tmp"
+  mkdir -p "$WORKER_TMPDIR"
+fi
 
 # Per-harness turn-end hook where enabled: a file that touches
 # state/<id>.turn-ended when the agent finishes a turn. Worktree-resident hooks
@@ -5094,6 +5124,11 @@ LAUNCH="export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VAL
 if [ "$LAVISH_AXI_HOST_CONFIG_PRESENT" = 1 ]; then
   LAUNCH="export LAVISH_AXI_HOST=$(shell_quote "$LAVISH_AXI_HOST"); $LAUNCH"
 fi
+# The relocated temp directory rides the launch itself too, like the Lavish
+# address above, so the agent gets it even when the pane export never landed.
+if [ -n "$WORKER_TMPDIR" ]; then
+  LAUNCH="export TMPDIR=$(shell_quote "$WORKER_TMPDIR") TMP=$(shell_quote "$WORKER_TMPDIR") TEMP=$(shell_quote "$WORKER_TMPDIR"); $LAUNCH"
+fi
 LAUNCH="export COMPACT_ADVISER_DISABLE=1; $LAUNCH"
 if [ -z "$SPAWN_TRACEPARENT" ] && [ "$RELAUNCH" -eq 1 ]; then
   LAUNCH="unset TRACEPARENT; $LAUNCH"
@@ -5129,6 +5164,12 @@ spawn_record_traceparent() {
 # process (go build, go test, ...) inherit it. Sent before the launch command so
 # the env is set when the agent starts; the brief sleep lets the export land.
 spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
+# Only with config/worker-tmp-root: every program the worker runs, the agent
+# included, puts its temp under the per-task root teardown removes. The pane
+# shell gets it on the same channel; the launch command also sets it above.
+if [ -n "$WORKER_TMPDIR" ]; then
+  spawn_send_text_line "$T" "export TMPDIR=$(shell_quote "$WORKER_TMPDIR") TMP=$(shell_quote "$WORKER_TMPDIR") TEMP=$(shell_quote "$WORKER_TMPDIR")"
+fi
 # Per-task chrome-devtools-axi browser session: a task-derived session name gives
 # each crewmate its own bridge, port, and on-disk state, so two workers driving
 # a browser at once cannot read or clobber each other's page state. Without it

@@ -327,7 +327,8 @@ for _teardown_source in \
   fm-cursor-lib.sh \
   fm-nm-run-lib.sh \
   fm-wake-lib.sh \
-  fm-lease-lib.sh
+  fm-lease-lib.sh \
+  fm-task-tmp-lib.sh
 do
   teardown_require_source "$SCRIPT_DIR/$_teardown_source"
 done
@@ -358,6 +359,8 @@ unset _teardown_source
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-task-tmp-lib.sh
+. "$SCRIPT_DIR/fm-task-tmp-lib.sh"
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -3765,7 +3768,15 @@ fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 stop_task_chrome_devtools_session "$ID"
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
-[ -n "$TASK_TMP" ] && rm -rf "$TASK_TMP"
+# A root spawn relocated under config/worker-tmp-root carries an ownership
+# marker and goes through fm_task_tmp_remove's guards instead, which leave
+# anything outside that one root alone and say plainly, with path and size,
+# whatever they could not remove; an unmarked root keeps the plain removal.
+if [ -n "$TASK_TMP" ]; then
+  fm_task_tmp_remove "$TASK_TMP" "$ID" "$FM_HOME" && _task_tmp_rc=0 || _task_tmp_rc=$?
+  [ "$_task_tmp_rc" -ne 2 ] || rm -rf "$TASK_TMP"
+  unset _task_tmp_rc
+fi
 # Retire only this Firstmate home's launch namespace. Its never-reused per-spawn
 # files leave the equal task-id namespace of every other home untouched.
 teardown_launch_home_token() {

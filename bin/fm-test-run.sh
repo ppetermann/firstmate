@@ -389,7 +389,7 @@ family_for_basename() {
     fm-herdr-session-cleanup.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|\
     fm-send-inbox.test.sh|fm-spawn-batch.test.sh|\
     fm-spawn-dispatch-profile.test.sh|fm-claude-trust.test.sh|\
-    fm-worker-account.test.sh|\
+    fm-worker-account.test.sh|fm-worker-tmp-root.test.sh|\
     fm-git-strip-ai-trailers.test.sh|\
     fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|\
     fm-spawn-compact-adviser-disable.test.sh|\
@@ -905,6 +905,7 @@ tests/fm-watch-triage.test.sh 697969
 tests/fm-watcher-lock.test.sh 108940
 tests/fm-worker-account-live-e2e.test.sh 3226
 tests/fm-worker-account.test.sh 54664
+tests/fm-worker-tmp-root.test.sh 29042
 tests/ocr-review-rule-live.test.sh 925
 EOF
 }
@@ -1635,6 +1636,11 @@ families_for_changed_path() {
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit
       printf '%s\n' live-harness-optin
+      ;;
+    bin/fm-task-tmp-lib.sh)
+      # The per-task temp root owner: spawn, teardown, brief, and bootstrap.
+      printf '%s\n' backend-dispatch
+      printf '%s\n' session-bootstrap
       ;;
     bin/fm-task-inbox-lib.sh)
       # The steering-inbox record/doorbell/ladder owner: fm-send's data plane
