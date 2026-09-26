@@ -325,6 +325,9 @@ The worker reports the PR when its draft PR is open rather than waiting for the 
 
 For PR-based ship tasks, the ready signal is `done: PR <url>` once the draft PR is open.
 Run `bin/fm-pr-check.sh <id> <PR url>` with the URL copied from that ready signal - it records `pr=` and the forge's `pr_head=` when available in the task's meta and arms the watcher's merge poll.
+`bin/fm-dod-lib.sh` owns the named-head gate on that ready signal: a ship `done:` whose named head exists only in the worker's disposable copy is not ready (`bin/fm-crew-state.sh` reports blocked, `bin/fm-pr-check.sh` refuses to register, and a secondmate does not publish that done upstream).
+That blocked reading is the gate working, not a stuck worker, so steer the worker on the commit the refusal names rather than waiting.
+A direct-PR worker pushes that commit to its PR branch, and a local-only worker commits it on its `fm/<id>` branch.
 In the same step, load `process-event-sources` and arm its PR-readiness watch for that task, so readiness wakes firstmate instead of waiting for a heartbeat to notice it.
 The landing queue is PER REPOSITORY, not one queue across the fleet: at most one ready PR per repo, and a draft on a repo with no ready PR may be flipped immediately rather than waiting behind another repo's work.
 Tell the captain the PR's full `https://...` URL copied from the worker's ready line or the task's `pr=` metadata, never assembled from memory, and a concise outcome summary.
@@ -401,6 +404,7 @@ Each skill owns its own daemon procedure, which is otherwise identical; these sa
 - `state/.afk-contract` is the away posture, written in the same turn as `/afk` before any other work, because `/afk` is itself the go: no read-back gates entry or waits for a go; entry announces hold-for-return only, and the away session acts on those words by its own judgment through the guarded scripts under standing authority, holding for the return on doubt.
 - While `state/.afk` exists, the daemon owns supervision; do not arm a separate watcher.
   The daemon is never launched on Pi, where the ordinary supervision session continues under the record with main parked: the branch takes every safe actionable wake it can, and only a declined wake (including a broken branch or unsafe scan) or a watcher failure wakes main.
+  Away mode on a Claude home with `config/supervision-host` works the same way with the supervision host as the branch; a wake it hands back arrives as Stop hook feedback and is never the captain's return.
 - A marked message while away or quiet mode is active is internal escalation and does not exit that mode.
 - A message beginning `/afk` refreshes away mode; a message beginning `/quiet` refreshes quiet mode.
 - Any other unmarked message means the captain returned in away mode (load `/afk`, run the return owner, and do not process that message as ordinary work until its durable catch-up gate clears), or, in quiet mode, is simply answered as ordinary work with the flag and daemon left untouched until an explicit `/quiet off`.

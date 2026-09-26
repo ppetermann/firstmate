@@ -157,7 +157,7 @@ fm_fakebin_write "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
 printf 'called\n' >> "${QUOTA_AXI_CALLS:?}"
 if [ "${1:-}" = "--version" ]; then
-  echo "quota-axi 0.1.29"
+  echo "quota-axi 0.1.51"
   exit 0
 fi
 cat "${QUOTA_AXI_FIXTURE:?}"

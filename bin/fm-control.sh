@@ -74,6 +74,10 @@
 #              already recorded for it.
 #              A prefixed raw-command basename cannot reconstruct its launch
 #              command, so relaunch requires an explicit --harness for it.
+#              A replacement Claude or Pi profile must also pass this home's
+#              worker account pin (bin/fm-worker-account-lib.sh) here, so a pin
+#              that no longer resolves or is signed out refuses before the old
+#              agent stops.
 #              --note is required for a ship or scout, whose replacement
 #              inherits the local copy but none of the conversation; a
 #              secondmate reconciles its own home's records at startup, so its
@@ -172,6 +176,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-brief-content-lib.sh
 . "$SCRIPT_DIR/fm-brief-content-lib.sh"
+# shellcheck source=bin/fm-worker-account-lib.sh
+. "$SCRIPT_DIR/fm-worker-account-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -795,6 +801,13 @@ resolve_relaunch_profile() {
   if [ "$TARGET_EFFORT" = ultra ]; then
     "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
   fi
+  # The launch owner applies this home's worker account pin too, but only after
+  # the old agent has been stopped, so a pin that no longer resolves or is
+  # signed out must refuse here, while nothing has changed yet.
+  local account_model=$TARGET_MODEL
+  [ "$account_model" != default ] || account_model=
+  fm_worker_account_select "$TARGET_HARNESS" "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" \
+    "$account_model" "$TARGET_HARNESS" >/dev/null || return 1
 }
 
 # safe_checkpoint: prove, before anything is stopped, that the work a relaunch
@@ -844,10 +857,10 @@ safe_checkpoint() {
     marker=$(cat "$WT/.fm-secondmate-home" 2>/dev/null || true)
     [ "$marker" = "$ID" ] \
       || die "task $ID's home $WT is not marked as its own seeded secondmate home (marker: ${marker:-none}); refusing to relaunch"
-    [ -d "$WT/state" ] \
+    # Do not walk state/ with find(1): watcher scratch files can vanish
+    # mid-scan and make find fail even when every child *.meta is readable.
+    [ -d "$WT/state" ] && [ -r "$WT/state" ] && [ -x "$WT/state" ] \
       || die "secondmate $ID's home has no readable state directory, so its child work cannot be accounted for; refusing to relaunch"
-    find "$WT/state" -mindepth 1 -maxdepth 1 -print >/dev/null 2>&1 \
-      || die "secondmate $ID's child records cannot be traversed; refusing to relaunch"
     children=0
     for child_meta in "$WT/state"/*.meta; do
       if [ ! -e "$child_meta" ] && [ ! -L "$child_meta" ]; then

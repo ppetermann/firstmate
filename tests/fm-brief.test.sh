@@ -532,8 +532,8 @@ test_herdr_lab_contract_is_explicit_and_complete() {
     "Herdr lab brief missing helper-owned provisioning"
   assert_grep "\"\$HERDR_LAB_HELPER\" teardown \"\$HERDR_LAB_SESSION\"" "$brief" \
     "Herdr lab brief missing helper-owned teardown"
-  assert_grep "required trailing \`--session \"\$HERDR_LAB_SESSION\"\`" "$brief" \
-    "Herdr lab brief missing the per-call trailing session contract"
+  assert_grep "required \`--session \"\$HERDR_LAB_SESSION\"\` as a Herdr option, before any \`--\` delimiter" "$brief" \
+    "Herdr lab brief missing the per-call session option contract"
   assert_grep "direct \`herdr server stop\`" "$brief" \
     "Herdr lab brief missing the forbidden server-global command list"
   assert_grep "records the live default session before provisioning" "$brief" \
@@ -985,9 +985,9 @@ test_scout_lavish_line_follows_presentation_floor() {
       assert_no_grep "$hosting" "$brief" "$label: scout brief offered a below-floor Lavish"
     fi
   done <<'ROWS'
-lavish-axi at the floor^0.1.46^hosting
+lavish-axi at the floor^0.1.77^hosting
 lavish-axi above the floor^0.2.0^hosting
-lavish-axi just below the floor^0.1.45^text
+lavish-axi just below the floor^0.1.76^text
 absent lavish-axi^absent^text
 ROWS
   pass "fm-brief.sh: scout Lavish hosting follows the bootstrap lavish-axi floor"

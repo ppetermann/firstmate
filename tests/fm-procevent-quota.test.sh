@@ -21,7 +21,7 @@ mkdir -p "$FAKEBIN"
 fm_fakebin_write "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then
-  printf 'quota-axi 0.1.29\n'
+  printf 'quota-axi 0.1.51\n'
   exit 0
 fi
 case "${QUOTA_AXI_MALFORMED:-}" in

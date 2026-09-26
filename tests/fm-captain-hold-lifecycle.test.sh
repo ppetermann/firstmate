@@ -337,7 +337,7 @@ write_known_rows_stub() {  # <fakebin> <row-id...>
   cat > "$fb/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  --version) printf '%s\n' '0.2.5' ;;
+  --version) printf '%s\n' '0.2.6' ;;
   update)
     [ "${2:-}" = --help ] || exit 1
     printf '%s\n' '--archive-body'
@@ -533,7 +533,7 @@ EOF
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "@LOG@"
 case "${1:-}" in
-  --version) printf '%s\n' '0.2.5' ;;
+  --version) printf '%s\n' '0.2.6' ;;
   update)
     if [ "${2:-}" = --help ]; then
       printf '%s\n' '--archive-body'
