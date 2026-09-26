@@ -25,7 +25,7 @@ make_case() {  # <name>
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = --version ]; then
-  printf 'quota-axi 0.1.29\n'
+  printf 'quota-axi 0.1.51\n'
   exit 0
 fi
 if [ "${1:-}" = --json ]; then

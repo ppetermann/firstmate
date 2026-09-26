@@ -113,7 +113,7 @@ test_promotion_refuses_a_missing_brief_and_records_every_mode() {
   instructions="$dir/home/data/$id/ship-instructions.md"
   run_promote "$dir" "$id" no-mistakes
   [ "$RC" -ne 0 ] || fail "promotion to the retired no-mistakes mode must refuse"
-  printf '%s\n' "$ERR" | grep -F 'must be one of direct-PR, local-only' >/dev/null \
+  printf '%s\n' "$ERR" | grep -F 'is retired in this fleet and is never dispatched; promote as direct-PR or local-only' >/dev/null \
     || fail "the retired-mode refusal did not name the accepted modes: $ERR"
   assert_absent "$instructions" "a refused promotion must publish no ship instructions"
   pass "fm-promote: refuses a missing scout brief and a retired mode, and records every live mode's contract"

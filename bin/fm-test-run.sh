@@ -721,6 +721,7 @@ tests/fm-calm-claude-mod-live-e2e.test.sh 46
 tests/fm-calm-claude-mod-plugin.test.sh 172
 tests/fm-calm-claude-mod.test.sh 1252
 tests/fm-calm-pi-extension.test.sh 45128
+tests/fm-calm-pi-queue-retention-live-e2e.test.sh 1426
 tests/fm-check-unregister.test.sh 481
 tests/fm-chrome-devtools-session.test.sh 430
 tests/fm-ci-workflow.test.sh 2073
@@ -749,11 +750,13 @@ tests/fm-dispatch-resolve.test.sh 4397
 tests/fm-documentation-audiences.test.sh 847
 tests/fm-dod-lib.test.sh 4000
 tests/fm-extension-binding.test.sh 9053
+tests/fm-fleet-ledger.test.sh 14334
 tests/fm-fleet-snapshot-view.test.sh 17465
 tests/fm-fleet-sync.test.sh 37749
 tests/fm-forge-detect.test.sh 160
 tests/fm-gate-refuse.test.sh 5328
 tests/fm-gemini-harness.test.sh 1338
+tests/fm-git-strip-ai-trailers.test.sh 3835
 tests/fm-gitignore-config.test.sh 62
 tests/fm-gotmp.test.sh 1320
 tests/fm-grok-continuity-live-e2e.test.sh 45
@@ -770,9 +773,13 @@ tests/fm-herdr-session-cleanup.test.sh 6828
 tests/fm-herdr-submit-confirm-live-e2e.test.sh 46
 tests/fm-herdr-version-floor-live-e2e.test.sh 72
 tests/fm-home-summary-refresh.test.sh 37264
+tests/fm-host-mirror-live-e2e.test.sh 120
+tests/fm-host-mirror.test.sh 19141
 tests/fm-inactive-reconcile.test.sh 74399
+tests/fm-inbox.test.sh 9038
 tests/fm-interrupt-composer-live-e2e.test.sh 22
 tests/fm-kimi-harness.test.sh 19151
+tests/fm-launch-prompt-signals-live-e2e.test.sh 125
 tests/fm-lint-workflows.test.sh 855
 tests/fm-live-gate.test.sh 6000
 tests/fm-local-gate.test.sh 2039
@@ -823,6 +830,7 @@ tests/fm-remote-job.test.sh 59603
 tests/fm-remote-reply.test.sh 118669
 tests/fm-remote-secondmate-lifecycle-e2e.test.sh 241208
 tests/fm-remote-secondmate-parent-binding.test.sh 32176
+tests/fm-remote-secondmate-relaunch.test.sh 521
 tests/fm-remote-secondmate-trace-context.test.sh 67096
 tests/fm-remote-transport-lanes.test.sh 63976
 tests/fm-review-tally.test.sh 4031
@@ -895,6 +903,8 @@ tests/fm-watch-checkpoint.test.sh 6076
 tests/fm-watch-recovery-loop.test.sh 58946
 tests/fm-watch-triage.test.sh 697969
 tests/fm-watcher-lock.test.sh 108940
+tests/fm-worker-account-live-e2e.test.sh 3226
+tests/fm-worker-account.test.sh 54664
 tests/ocr-review-rule-live.test.sh 925
 EOF
 }

@@ -146,6 +146,11 @@ case "${1:-}" in
       prev=$arg
     done
     if [ -n "$literal" ]; then
+      # The spawn stages a long launch command in a private file and types only
+      # ". '<file>'" (a452a79e), so read the staged command back to match it.
+      case "$literal" in
+        ". '"*"'") staged=${literal#". '"}; staged=${staged%"'"}; [ ! -f "$staged" ] || literal=$(cat "$staged") ;;
+      esac
       case "$literal" in
         *dangerously-skip-permissions*)
           printf 'launch\n' > "$FM_FAKE_CLAUDE_STATE"

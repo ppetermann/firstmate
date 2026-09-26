@@ -147,6 +147,11 @@ test_flag_on_records_a_pr_registration() {
   out=$(in_home "$ROOT/bin/fm-spawn.sh" "$TASK" "$PROJ_DIR" --mode direct-PR --yolo off 2>&1) \
     || fail "spawn failed: $out"
   printf 'done: PR %s\n' "$pr_url" >> "$HOME_DIR/state/$TASK.status"
+  # A direct-PR worker pushes its branch before it reports done, and the
+  # named-head gate (bin/fm-dod-lib.sh) arms only a pushed head; this fleet's
+  # spawn bases the worker on the project's local default branch, so publish
+  # the fixture head as the pushed branch.
+  git -C "$WT_DIR" update-ref "refs/remotes/origin/fm/$TASK" HEAD
   out=$(in_home "$ROOT/bin/fm-pr-check.sh" "$TASK" "$pr_url" 2>&1) || fail "PR registration failed: $out"
   out=$(in_home env FM_PR_CHECK_MERGE=1 "$ROOT/bin/fm-pr-check.sh" "$TASK" "$pr_url" 2>&1) \
     || fail "merge-time PR re-record failed: $out"

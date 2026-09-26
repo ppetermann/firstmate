@@ -2402,6 +2402,24 @@ Its native App Server peer and watcher-close process are deterministic fixtures;
 omp runs crewmate, scout, secondmate, and primary work; [`supervision.md`](supervision.md#omp-oh-my-pi-native-delivery-2026-09-05) owns the primary evidence.
 The evidence below was produced on 2026-09-05 against omp 18.1.11 (`~/.local/bin/omp`, a Bun-compiled single binary) on macOS 26 arm64 through the Herdr backend with the `openai-codex/gpt-6-astra` model, building on the 2026-09-02 adapter investigation against 18.1.2.
 
+
+### 2026-09-26 this fleet's away merge grant
+
+The merge, merge-poll security, and branch-supervision suites were run on Ubuntu 26.04.1 LTS (Linux 7.0.0-29-generic x86_64), Node v24.19.0, after this fleet kept its away merge rule on top of the words model above.
+While the away-posture record exists, `bin/fm-pr-merge.sh` grants away authority only for a task whose metadata records `yolo=on` or when `--away-words` states that the captain's away words name that merge (`bin/fm-merge-authority-lib.sh`); any other merge under the record is refused with exit 2 and holds for the return.
+This supersedes, for this fleet, the 2026-09-20 line that any green merge lands under away authority yolo or not.
+The always-draft flow's merge poll arms on a draft pull request, so `bin/fm-pr-check.sh` records a draft like a ready one.
+
+```sh
+bin/fm-test-run.sh tests/fm-pr-merge.test.sh tests/fm-pr-check-security.test.sh tests/fm-branch-supervision.test.sh
+```
+
+```text
+ok - while the away-posture record exists a merge is granted only for yolo or named away words, lands under away authority, and attended merges stay untagged
+ok - fm-pr-merge --allow-missing is single use, attended-only, and GitHub-only like --allow-red
+ok - queued merges retain their away authority after captain return
+ok - arming records and arms a draft, a ready, and an unreadable-draft pull request alike
+```
 ### Process identity and markers
 
 `ps -o comm=` reports the bare name `omp` for the agent process, from both its `!` bash path and the model's bash tool, so identity is the anchored name; `ompd` and `comp` never match.

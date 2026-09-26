@@ -3946,7 +3946,7 @@ claude_spawn_fail() { # <detail>
 # common trusted-home case.
 claude_wait_for_ready() {
   CLAUDE_READY_REASON=
-  local pane enter_sent=0 clean=0 i=0
+  local pane enter_sent=0 clean_polls=0 i=0
   local max=${FM_CLAUDE_READY_POLLS:-60} interval=${FM_CLAUDE_POLL_INTERVAL:-0.5}
   local clean_needed
   if [ -n "${BUSY_GEN:-}" ]; then clean_needed=0; else clean_needed=${FM_CLAUDE_CLEAN_POLLS:-6}; fi
@@ -3956,14 +3956,14 @@ claude_wait_for_ready() {
     fi
     pane=$(claude_capture)
     if claude_trust_prompt_visible "$pane"; then
-      clean=0
+      clean_polls=0
       if [ "$enter_sent" -eq 0 ]; then
         spawn_send_key "$T" Enter
         enter_sent=1
       fi
     else
-      clean=$((clean + 1))
-      if [ "$clean_needed" -gt 0 ] && [ "$clean" -ge "$clean_needed" ]; then
+      clean_polls=$((clean_polls + 1))
+      if [ "$clean_needed" -gt 0 ] && [ "$clean_polls" -ge "$clean_needed" ]; then
         return 0
       fi
     fi
