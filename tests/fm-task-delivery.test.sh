@@ -385,6 +385,36 @@ STUB
   pass "fm-promote: a promoted worker receives the same mode-specific delivery contract a briefed one does"
 }
 
+# A registered name may contain spaces, and the lookup must match the whole
+# name rather than only its first whitespace-delimited token (issue #1977).
+# The longer "foo bar" row is listed before the "foo" row so a leading-prefix
+# match would pick the wrong row if the fix regressed.
+test_project_mode_matches_whole_multiword_names() {
+  local home out err
+  home="$TMP_ROOT/project-mode-multiword/home"
+  mkdir -p "$home/data"
+  cat > "$home/data/projects.md" <<'EOF'
+- 048. Blast- Lease summary drafter [local-only] - fixture (added 2026-01-01)
+- foo bar [local-only +yolo] - fixture (added 2026-01-01)
+- foo [direct-PR] - fixture (added 2026-01-01)
+- controlproj [direct-PR] - fixture (added 2026-01-01)
+EOF
+  out=$(FM_HOME="$home" "$PROJECT_MODE" "048. Blast- Lease summary drafter" 2>/dev/null)
+  [ "$out" = "local-only off" ] || fail "a multi-word registered name did not resolve to its own row (got '$out')"
+  err=$(FM_HOME="$home" "$PROJECT_MODE" "048. Blast- Lease summary drafter" 2>&1 >/dev/null)
+  [ -z "$err" ] || fail "a multi-word registered name still warned as not in the registry: $err"
+
+  out=$(FM_HOME="$home" "$PROJECT_MODE" foo 2>/dev/null)
+  [ "$out" = "direct-PR off" ] || fail "a single-word name matched a longer name it prefixes (got '$out')"
+
+  out=$(FM_HOME="$home" "$PROJECT_MODE" "foo bar" 2>/dev/null)
+  [ "$out" = "local-only on" ] || fail "a longer multi-word name did not resolve to its own row (got '$out')"
+
+  out=$(FM_HOME="$home" "$PROJECT_MODE" controlproj 2>/dev/null)
+  [ "$out" = "direct-PR off" ] || fail "a single-word control name regressed (got '$out')"
+  pass "fm-project-mode: the registry lookup matches a whole multi-word name, not just its first token"
+}
+
 # The registry parser survives for the mechanical consumers only. It accepts the
 # conditional policy, maps it to its most rigorous leg for them, and exposes the
 # raw annotation for the one caller that must tell a policy from a flat mode.
@@ -883,7 +913,13 @@ ROWS
     printf '%s\n' "$registry" > "$home/data/projects.md"
     out=$(FM_HOME="$home" "$PROJECT_MODE" fp 2>/dev/null) \
       || fail "$label: a token the parser never read became a refusal"
-    [ "$out" = "no-mistakes off" ] || fail "$label: expected the old tolerant 'no-mistakes off', got '$out'"
+    # Fork patch: an unreadable mode falls back to this fleet's direct-PR
+    # default; a registered no-mistakes mode still reads as itself.
+    case "$registry" in
+      *"[no-mistakes "*|*"[no-mistakes]"*) expect="no-mistakes off" ;;
+      *) expect="direct-PR off" ;;
+    esac
+    [ "$out" = "$expect" ] || fail "$label: expected the old tolerant '$expect', got '$out'"
     out=$(FM_HOME="$home" "$PROJECT_MODE" --forge fp 2>/dev/null) \
       || fail "$label: --forge refused a token the parser never read"
     [ "$out" = none ] || fail "$label: an ignored token bound a forge ('$out')"
@@ -950,11 +986,11 @@ test_forge_gerrit_refuses_yolo() {
   IFS='|' read -r home proj fakebin <<EOF
 $rec
 EOF
-  FM_HOME="$home" "$BRIEF" forge-yolo-s1 proj --mode no-mistakes --forge gerrit >/dev/null \
+  FM_HOME="$home" "$BRIEF" forge-yolo-s1 proj --mode direct-PR --forge gerrit >/dev/null \
     || fail "a gerrit ship brief should scaffold"
   fill_brief_subsections "$home/data/forge-yolo-s1/brief.md" \
     "Run the review loop on the Gerrit project." "Ship the review pass."
-  out=$(run_spawn "$home" "$fakebin" forge-yolo-s1 "$proj" claude --mode no-mistakes --yolo on 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-yolo-s1 "$proj" claude --mode direct-PR --yolo on 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a spawn with --yolo on launched on a gerrit-forge project"
   assert_contains "$out" "--yolo on is refused" "the spawn refusal did not name the refused flag"
@@ -964,7 +1000,7 @@ EOF
 
   meta="$home/state/forge-yolo-p1.meta"
   printf 'window=fm-forge-yolo-p1\nkind=scout\nworktree=/tmp/wt\nproject=%s\n' "$proj" > "$meta"
-  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" forge-yolo-p1 --mode no-mistakes --yolo on 2>&1)
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" forge-yolo-p1 --mode direct-PR --yolo on 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a promotion with --yolo on was accepted for the gerrit-forge project"
   assert_contains "$out" "--yolo on is refused" "the promotion refusal did not name the refused flag"
@@ -1064,8 +1100,8 @@ test_spawn_requires_the_brief_to_carry_the_registered_forge() {
   IFS='|' read -r home proj fakebin <<EOF
 $rec
 EOF
-  write_brief "$home" forge-agree-a1 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" forge-agree-a1 "$proj" claude --mode no-mistakes --yolo off 2>&1)
+  write_brief "$home" forge-agree-a1 direct-PR
+  out=$(run_spawn "$home" "$fakebin" forge-agree-a1 "$proj" claude --mode direct-PR --yolo off 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a gerrit project launched on a brief that records no forge"
   assert_contains "$out" "forge mismatch for forge-agree-a1" "the refusal did not name the drift it caught"
@@ -1073,7 +1109,7 @@ EOF
     "the refusal did not name the authored brief the re-scaffold must replace"
   assert_not_contains "$out" "remove $home/data/forge-agree-a1/launch-brief.md" \
     "the refusal named the generated launch brief instead of the authored one"
-  assert_contains "$out" "fm-brief.sh forge-agree-a1 proj --mode no-mistakes --forge gerrit" \
+  assert_contains "$out" "fm-brief.sh forge-agree-a1 proj --mode direct-PR --forge gerrit" \
     "the refusal did not print a re-scaffold command that can actually run"
   assert_contains "$out" "Captain's intent" \
     "the refusal did not say to preserve the filled subsections the re-scaffold discards"
@@ -1086,10 +1122,10 @@ EOF
   assert_not_contains "$out" "forge mismatch" "a gerrit direct-PR brief was reported as drift"
   assert_not_contains "$out" "cannot ship" "direct-PR was refused on the forge it publishes to"
 
-  FM_HOME="$home" "$BRIEF" forge-agree-a3 proj --mode no-mistakes --forge gerrit >/dev/null \
+  FM_HOME="$home" "$BRIEF" forge-agree-a3 proj --mode direct-PR --forge gerrit >/dev/null \
     || fail "a gerrit ship brief should scaffold"
   fill_brief_subsections "$home/data/forge-agree-a3/brief.md" "Run the review loop." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" forge-agree-a3 "$proj" claude --mode no-mistakes --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-agree-a3 "$proj" claude --mode direct-PR --yolo off 2>&1)
   assert_not_contains "$out" "forge mismatch" "an agreeing brief and registry were reported as drift"
 
   # local-only publishes nothing and cannot carry the forge, so a bound project
@@ -1110,14 +1146,14 @@ EOF
   IFS='|' read -r home proj fakebin <<EOF
 $rec
 EOF
-  FM_HOME="$home" "$BRIEF" forge-agree-a5 proj --mode no-mistakes --forge gerrit >/dev/null \
+  FM_HOME="$home" "$BRIEF" forge-agree-a5 proj --mode direct-PR --forge gerrit >/dev/null \
     || fail "a gerrit ship brief should scaffold"
   fill_brief_subsections "$home/data/forge-agree-a5/brief.md" "Run the review loop." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" forge-agree-a5 "$proj" claude --mode no-mistakes --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-agree-a5 "$proj" claude --mode direct-PR --yolo off 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a gerrit brief launched on a project with no registered forge"
   assert_contains "$out" "forge mismatch for forge-agree-a5" "the unbound-project refusal did not name the drift"
-  assert_contains "$out" "fm-brief.sh forge-agree-a5 proj --mode no-mistakes" \
+  assert_contains "$out" "fm-brief.sh forge-agree-a5 proj --mode direct-PR" \
     "the refusal did not print the unbound re-scaffold command"
   assert_absent "$home/state/forge-agree-a5.meta" "the refused spawn still recorded a task"
 
@@ -1136,8 +1172,8 @@ test_spawn_refuses_a_registry_forge_it_cannot_read() {
   IFS='|' read -r home proj fakebin <<EOF
 $rec
 EOF
-  write_brief "$home" forge-typo-a1 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" forge-typo-a1 "$proj" claude --mode no-mistakes --yolo on 2>&1)
+  write_brief "$home" forge-typo-a1 direct-PR
+  out=$(run_spawn "$home" "$fakebin" forge-typo-a1 "$proj" claude --mode direct-PR --yolo on 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a spawn launched on a registry entry whose forge token does not resolve"
   assert_contains "$out" 'unknown forge "gerit"' \
@@ -1173,7 +1209,7 @@ STUB
   fill_brief_subsections "$home/data/$id/brief.md" \
     "Fix what the investigation found on the Gerrit project." "Carry over only the fix."
 
-  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode no-mistakes --yolo off 2>&1) \
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off 2>&1) \
     || fail "promotion should take the registered forge with no flag to remember"
   payload="$TMP_ROOT/forge-promote/payload"
   ( cd "$sendroot" \
@@ -1181,20 +1217,20 @@ STUB
        eval "$(printf '%s\n' "$out" | sed -n 's/^next: //p' | grep 'fm-send\.sh')" ) \
     || fail "promotion's delivery command did not run"
   assert_present "$payload" "promotion delivered no message to the worker"
-  grep -qx "Delivery contract: mode=no-mistakes forge=gerrit shape=squash" "$payload" \
+  # Fork patch: promotion dispatches direct-PR here (no-mistakes is refused at
+  # intake), so the forge contract carried is the direct-PR Gerrit publish.
+  grep -qx "Delivery contract: mode=direct-PR forge=gerrit shape=squash" "$payload" \
     || fail "the promoted worker did not receive the forge in its delivery contract"
   # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
-  assert_grep 'Pass `--skip push,pr,ci` on every `no-mistakes axi run` for this task' "$payload" \
-    "the promoted worker was not given the skip vocabulary the forge requires"
-  assert_grep 'You may not publish until you have closed that gap' "$payload" \
-    "the promoted worker was not required to recover custody before publishing"
+  assert_grep 'Publish from this copy with `gerrit-axi`, never with `git push`' "$payload" \
+    "the promoted worker was not given the Gerrit publish contract the forge requires"
   assert_no_grep 'done [at=<epoch>]: PR {url} checks green' "$payload" \
     "the promoted worker was still told to report a PR with green checks"
 
   # Both real generation paths must end in the same contract, as they do for every
   # mode: a promoted worker is never handed a weaker one than a briefed worker.
   rm "$home/data/$id/brief.md"
-  FM_HOME="$home" "$BRIEF" "$id" proj --mode no-mistakes --forge gerrit >/dev/null 2>&1 \
+  FM_HOME="$home" "$BRIEF" "$id" proj --mode direct-PR --forge gerrit >/dev/null 2>&1 \
     || fail "ordinary gerrit ship brief generation should succeed"
   awk '/^# Definition of done$/ { emit=1 } emit' "$home/data/$id/brief.md" > "$TMP_ROOT/forge-promote/brief-dod"
   awk '/^# Definition of done$/ { emit=1 } emit' "$payload" > "$TMP_ROOT/forge-promote/delivered-dod"
@@ -1261,6 +1297,7 @@ test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract
 test_promote_refuses_a_symlinked_task_record
 test_promotion_delivers_the_real_definition_of_done
+test_project_mode_matches_whole_multiword_names
 test_project_mode_maps_the_conditional_policy
 test_project_mode_binds_the_forge_orthogonally
 test_project_mode_refuses_only_a_malformed_forge_binding

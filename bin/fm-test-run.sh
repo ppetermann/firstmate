@@ -70,7 +70,7 @@
 #                   script paths, which use the bounded automatic scheduler.
 #   --per-script-timeout-secs N
 #                   terminate a script that runs longer than N seconds and
-#                   record it as exit 124. Defaults to 900s for every selection
+#                   record it as exit 124. Defaults to 1500s for every selection
 #                   mode: no real script approaches it, so it only converts a
 #                   HUNG script into a bounded failure. An explicit 0 disables
 #                   the bound and is the only way to get an unbounded run.
@@ -185,16 +185,20 @@ JOBS_EXPLICIT=0
 JOBS_MAX=8
 MAX_WALL_MS=
 # Bound applied to every selection mode unless the caller passes an explicit
-# --per-script-timeout-secs, derived from measured healthy runtimes with margin
-# rather than picked. The slowest legitimate script measured in the 184-script
-# full-suite run on this host is tests/fm-watch-triage.test.sh at 508s, so 900s
-# leaves roughly 1.8x headroom over the slowest real script and can only fire on
-# a script that is genuinely stuck. It is a guard, not a speed control: a HUNG
-# script becomes a bounded failure instead of an unbounded suite, which is the
-# shape that silently outruns a caller's invocation budget.
+# --per-script-timeout-secs (this fleet keeps the every-mode bound; upstream
+# applies it only on --changed), derived from measured healthy runtimes with
+# margin rather than picked: the slowest measured script is
+# tests/fm-watch-triage.test.sh in the watcher-wake-lock family, at about 434s
+# alone and about 698s under CI load (the hint table below records that loaded
+# figure), and the slowest script in a runner-file changed selection is
+# tests/fm-calm-pi-extension.test.sh at 77s once its Chrome reap terminates.
+# 1500s keeps every measured script under the bound with roughly 2.1x headroom
+# over the slowest loaded measurement. It is a guard, not a speed control: a
+# HUNG script becomes a bounded failure instead of an unbounded suite, which is
+# the shape that silently outruns a caller's invocation budget.
 # Defaulting rather than refusing keeps every existing invocation working; a
 # caller who genuinely wants no bound still says so with an explicit 0.
-DEFAULT_PER_SCRIPT_TIMEOUT_SECS=900
+DEFAULT_PER_SCRIPT_TIMEOUT_SECS=1500
 PER_SCRIPT_TIMEOUT_SECS=$DEFAULT_PER_SCRIPT_TIMEOUT_SECS
 
 # How many separate-runner shards the portable serial remainder splits into.
@@ -336,7 +340,7 @@ family_for_basename() {
     fm-remote-secondmate-trace-context.test.sh|\
     fm-secondmate-harness.test.sh|fm-secondmate-lifecycle-e2e.test.sh|\
     fm-secondmate-liveness.test.sh|fm-secondmate-reconcile.test.sh|\
-    fm-secondmate-restart.test.sh|\
+    fm-secondmate-restart.test.sh|fm-remote-secondmate-relaunch.test.sh|\
     fm-secondmate-safety.test.sh|fm-secondmate-sync.test.sh|\
     fm-startup-memory-budget.test.sh|fm-stow-cascade.test.sh|\
     fm-send-secondmate-marker.test.sh|fm-shared-captain-inheritance.test.sh)
@@ -370,11 +374,12 @@ family_for_basename() {
     fm-pi-primary-live-e2e.test.sh|fm-pi-codex-native.test.sh|fm-omp-primary-live-e2e.test.sh|\
     fm-pr-blockers-live-e2e.test.sh|\
     fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|\
-    fm-supervision-host-live-e2e.test.sh|\
+    fm-supervision-host-live-e2e.test.sh|fm-host-mirror-live-e2e.test.sh|\
     fm-quota-array-dispatch-live-e2e.test.sh|fm-send-secondmate-marker-herdr-e2e.test.sh|\
     fm-send-inbox-doorbell-live-e2e.test.sh|\
     fm-interrupt-composer-live-e2e.test.sh|\
     fm-calm-claude-mod-plugin.test.sh|fm-calm-claude-mod-live-e2e.test.sh|\
+    fm-calm-pi-queue-retention-live-e2e.test.sh|\
     fm-herdr-submit-confirm-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
@@ -385,6 +390,7 @@ family_for_basename() {
     fm-send-inbox.test.sh|fm-spawn-batch.test.sh|\
     fm-spawn-dispatch-profile.test.sh|fm-claude-trust.test.sh|\
     fm-worker-account.test.sh|\
+    fm-git-strip-ai-trailers.test.sh|\
     fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|\
     fm-spawn-compact-adviser-disable.test.sh|\
     fm-spawn-compact-adviser-disable-remote.test.sh|\
@@ -398,7 +404,7 @@ family_for_basename() {
       printf '%s\n' pr-forge
       ;;
     fm-afk-contract.test.sh|fm-afk-inject-e2e.test.sh|fm-afk-return.test.sh|\
-    fm-afk-shutdown-e2e.test.sh|fm-supervision-host.test.sh)
+    fm-afk-shutdown-e2e.test.sh|fm-supervision-host.test.sh|fm-host-mirror.test.sh)
       printf '%s\n' afk
       ;;
     fm-bearings-board-render.test.sh|fm-bearings-snapshot.test.sh|fm-contributions.test.sh|\

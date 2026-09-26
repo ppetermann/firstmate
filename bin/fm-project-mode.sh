@@ -22,6 +22,7 @@
 #   - <name> [<mode>] - <desc> (added <date>)          -> <mode> off
 #   - <name> [<mode> +yolo] - <desc> (added <date>)    -> <mode> on
 #   - <name> [<mode> forge=gerrit] - <desc> (added <date>) -> <mode> off, --forge gerrit
+#   <name> may contain spaces; it ends at the literal " [" or " - " that follows it.
 # `+yolo` and `forge=` are order-independent annotation tokens; only the FIRST
 # token is read as the mode.
 #
@@ -117,11 +118,21 @@ parsed=$(awk -v n="$NAME" '
     }
     return d[lx,ly];
   }
-  $1=="-" && $2==n {
+  {
+    # Exact whole-name match on the raw line text (never a regex, so a name
+    # containing dots or brackets is compared literally): the line must start
+    # with "- " n, and the text right after the name must be empty, or start
+    # with " [" or " - ", so a name that is a leading prefix of a longer
+    # registered name does not match that longer row.
+    prefix = "- " n; plen = length(prefix);
+    if (substr($0, 1, plen) != prefix) next
+    after = substr($0, plen + 1);
+    if (after != "" && substr(after, 1, 2) != " [" && substr(after, 1, 3) != " - ") next
     mode="direct-PR"; yolo="off"; forge="none";
-    if ($3 ~ /^\[/) {
+    if (substr(after, 1, 2) == " [") {
       s="";
-      for (i=3; i<=NF; i++) { s = s (s==""?"":" ") $i; if ($i ~ /\]$/) break }
+      nk = split(after, rest, " ");
+      for (i=1; i<=nk; i++) { s = s (s==""?"":" ") rest[i]; if (rest[i] ~ /\]$/) break }
       gsub(/^\[|\]$/, "", s);           # strip the surrounding brackets
       k = split(s, a, " ");
       if (a[1] != "" && a[1] != "+yolo" && a[1] !~ /^forge=/) mode = a[1];

@@ -64,6 +64,7 @@ make_case() {
   # regardless of the ambient umask a given machine happens to run tests
   # under (fm_procevent_private_directory_valid).
   chmod 0700 "$dir/state"
+  fm_test_track_watcher_state "$dir/state"
   fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -171,6 +172,7 @@ make_supercase() {
   fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
   chmod 0700 "$dir/state"
+  fm_test_track_watcher_state "$dir/state"
   fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -251,6 +253,7 @@ make_bordered_case() {
   dir="$TMP_ROOT/$name"; fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
   chmod 0700 "$dir/state"
+  fm_test_track_watcher_state "$dir/state"
   printf '╭─────╮\n│ >   │\n╰─────╯\n' > "$dir/composer"
   fm_fakebin_write "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
@@ -297,6 +300,12 @@ case "${1:-}" in
       fi
     elif [ "$lit" = 1 ]; then
       [ "${FM_FAKE_SEND_FAIL:-0}" = 1 ] && exit 1
+      # FM_FAKE_SEND_MAX_BYTES models a transport ceiling on one literal send.
+      if [ -n "${FM_FAKE_SEND_MAX_BYTES:-}" ] \
+        && [ "$(printf '%s' "$text" | LC_ALL=C wc -c | tr -d ' ')" -gt "$FM_FAKE_SEND_MAX_BYTES" ]; then
+        echo "command too long" >&2
+        exit 1
+      fi
       [ -n "${FM_FAKE_SENT:-}" ] && printf '%s\n' "$text" >> "$FM_FAKE_SENT"
       write_composer "$text"
     fi

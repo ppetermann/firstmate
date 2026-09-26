@@ -102,7 +102,7 @@ spawn_ship() {
   : > "$CASE/launch.log"
   FM_FAKE_LAUNCH_LOG="$CASE/launch.log" FM_TEST_CLAUDE_CONFIG_DIR="$CASE/ambient-claude" \
     ANTHROPIC_API_KEY=ambient-invoker-key \
-    fm_test_run_spawn "$HOME_DIR" "$WT" "$FAKEBIN" "$id" "$PROJ" --mode no-mistakes --yolo off "$@"
+    fm_test_run_spawn "$HOME_DIR" "$WT" "$FAKEBIN" "$id" "$PROJ" --mode direct-PR --yolo off "$@"
 }
 
 # run_pane: execute the recorded launch in a pane whose ambient environment
@@ -366,6 +366,7 @@ test_local_secondmate_reads_the_launching_home_pin() {
   printf '%s\n' "$CASE/work" > "$HOME_DIR/config/claude-account"
   sm="$CASE/secondmate-home"
   mkdir -p "$sm/bin" "$sm/data" "$sm/config" "$CASE/sm-own"
+  git init -q -b main "$sm"
   printf '# Firstmate\n' > "$sm/AGENTS.md"
   printf '%s\n' "$id" > "$sm/.fm-secondmate-home"
   printf 'charter for %s\n' "$id" > "$sm/data/charter.md"
