@@ -160,7 +160,7 @@ last_status_line() {  # <status-file> [<previous-event-var>]
 # A bare legacy free-text line counts as an event only when a captain token leads
 # it, so continuation prose that merely mentions one cannot hide a declaration.
 _fm_status_event_scan() {
-  local line last='' prev='' fallback='' verb legacy_re
+  local line last='' prev='' fallback='' verb legacy_re unstamped
   legacy_re="^[[:space:]]*(${FM_CAPTAIN_RE:-$FM_CLASSIFY_CAPTAIN_RE_DEFAULT})"
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in *[![:space:]]*) fallback=$line ;; *) continue ;; esac
@@ -170,7 +170,8 @@ _fm_status_event_scan() {
       "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}"|\
       "${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}"|\
       "${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}") prev=$last; last=$line ;;
-      *) _fm_classify_matches "$line" "$legacy_re" && { prev=$last; last=$line; } ;;
+      *) _fm_status_unstamped "$line" unstamped
+         _fm_classify_matches "$unstamped" "$legacy_re" && { prev=$last; last=$line; } ;;
     esac
   done
   printf '%s\n%s\n' "$prev" "${last:-$fallback}"
@@ -205,8 +206,12 @@ status_is_terminal_verb() {
 # (working, resolved, captain-held) and paused never match from free-text prose;
 # only lines without those leading verbs may still match free-text tokens for
 # legacy bare lines such as "merged" or "PR ready".
+# Regex matching ignores any emission-time tag before the first colon - here and
+# in the shared event scan, the module's two FM_CAPTAIN_RE sites - so an override
+# keeps matching a stamped event however the worker spelled the stamp; other
+# metadata and note text remain intact, as do the stored and surfaced event bytes.
 status_is_captain_relevant() {
-  local line=$1 verb
+  local line=$1 verb unstamped
   [ -n "$line" ] || return 1
   status_line_verb "$line" verb
   case "$verb" in
@@ -219,7 +224,8 @@ status_is_captain_relevant() {
       done|needs-decision|blocked|failed) return 0 ;;
     esac
   fi
-  _fm_classify_matches "$line" "${FM_CAPTAIN_RE:-$FM_CLASSIFY_CAPTAIN_RE_DEFAULT}"
+  _fm_status_unstamped "$line" unstamped
+  _fm_classify_matches "$unstamped" "${FM_CAPTAIN_RE:-$FM_CLASSIFY_CAPTAIN_RE_DEFAULT}"
 }
 
 # 0 if a status line's leading verb is the pause verb (paused: <reason>). A pure
@@ -275,6 +281,135 @@ status_paused_until() {  # <status-line> -> epoch on stdout
   fm_utc_iso_to_epoch "$token"
 }
 
+# --- optional event emission time -------------------------------------------
+# New writers may append "[at=<epoch>]" before the first colon, alongside key
+# and corr tags in any order. Epoch is UTC Unix seconds: canonical unsigned
+# decimal, at most 12 digits (bounded for safe shell arithmetic). For example:
+#   resolved [key=api-shape] [at=1788576000]: answered: use REST
+# No colons appear inside this field, so existing verb/key/note readers retain
+# their grammar. Missing, malformed, or duplicate time fields mean UNKNOWN time;
+# never infer emission time from file mtime, a wake, or observation time. Relays
+# preserve source tags and leave legacy source events unstamped. Time describes
+# event history only and must never decide current state or decision closure.
+# This parser owns that grammar; every reader below is a thin adapter over it,
+# so no second spelling of "well-formed" can drift against this one.
+# Internals carry a reserved prefix: bash locals are dynamically scoped, so a
+# plain name here would shadow the caller's out-var of the same name.
+_fm_status_at_epoch() {  # <status-line> <out-var> -> 0 and the epoch when known
+  local __fm_at_head __fm_at_value __fm_at_rest
+  printf -v "$2" '%s' ''
+  case "$1" in *:*) __fm_at_head=${1%%:*} ;; *) return 1 ;; esac
+  case "$__fm_at_head" in *\[at=*\]*) ;; *) return 1 ;; esac
+  __fm_at_rest=${__fm_at_head#*\[at=}
+  __fm_at_value=${__fm_at_rest%%\]*}
+  case "${__fm_at_rest#*\]}" in *\[at=*) return 1 ;; esac
+  case "$__fm_at_value" in ''|*[!0-9]*|0[0-9]*) return 1 ;; esac
+  [ "${#__fm_at_value}" -le 12 ] || return 1
+  printf -v "$2" '%s' "$__fm_at_value"
+}
+
+status_line_at_epoch() {  # <status-line> -> epoch; nonzero when unknown
+  local epoch
+  _fm_status_at_epoch "$1" epoch || return 1
+  printf '%s' "$epoch"
+}
+
+# Stamp only a newly emitted event. Preserve an existing tag, even malformed,
+# and preserve the event itself if the clock cannot be read. Never use this to
+# timestamp a copied historical line.
+status_stamp_line() {  # <new-status-line> -> line (without newline)
+  local head epoch
+  case "$1" in
+    *:*) head=${1%%:*} ;;
+    *) printf '%s' "$1"; return 0 ;;
+  esac
+  case "$head" in *\[at=*) printf '%s' "$1"; return 0 ;; esac
+  if epoch=$(date +%s); then
+    printf '%s [at=%s]:%s' "$head" "$epoch" "${1#*:}"
+  else
+    printf '%s' "$1"
+  fi
+}
+
+# Characters status_stamp_line would insert into a line it stamps: the space,
+# the "[at=" and "]" delimiters, and the clock's own digit width. A writer that
+# caps a status line BEFORE the append stamps it must subtract this from its
+# cap, or the bytes actually appended overrun the cap that writer enforces and
+# every capped rendering downstream loses that much real note text. Zero when
+# the clock cannot be read, because then nothing is stamped either.
+status_stamp_width() {  # -> characters a stamp adds to a line
+  local epoch tag
+  epoch=$(date +%s) || { printf 0; return 0; }
+  case "$epoch" in ''|*[!0-9]*) printf 0; return 0 ;; esac
+  tag=" [at=$epoch]"
+  printf '%s' "${#tag}"
+}
+
+# Strip the one well-formed time tag _fm_status_at_epoch accepts, for readers
+# that need a stamped line as the exact bytes it carried before stamping:
+# retry-dedup identity here, and the pending-reply escalation match in
+# bin/fm-pending-reply-lib.sh, which compares against its own literal spellings.
+# Every other [at=...] byte run - malformed, duplicate, or outside the canonical
+# bounds - is ordinary line bytes here, never a time tag, so a retry of it stays
+# a distinct event. A reader that instead asks where the HEAD ends owns a more
+# tolerant rule in _fm_status_unstamped below and must route through that one;
+# do not route such a reader through this one. It reads the grammar from that
+# single parser rather than a second spelling of it, and a sweep that normalizes
+# a line at a time never pays a fork for the match it prepares.
+_fm_status_untimed() {  # <status-line> <out-var> -> line without a time tag
+  local __fm_untimed_epoch __fm_untimed_head __fm_untimed_tag __fm_untimed_before
+  if _fm_status_at_epoch "$1" __fm_untimed_epoch; then
+    __fm_untimed_head=${1%%:*}
+    __fm_untimed_tag="[at=$__fm_untimed_epoch]"
+    __fm_untimed_before=${__fm_untimed_head%%"$__fm_untimed_tag"*}
+    printf -v "$2" '%s%s:%s' "${__fm_untimed_before% }" \
+      "${__fm_untimed_head#*"$__fm_untimed_tag"}" "${1#*:}"
+    return 0
+  fi
+  printf -v "$2" '%s' "$1"
+}
+
+# Strip every time-tag-shaped run a worker could have written as the stamp,
+# however malformed its value. This is the shared head-boundary rule for every
+# reader that asks where a line's head ends rather than what its stamp means:
+# captain-relevance, the event scan, and the note, key, and decision-fold
+# readers. A tag is metadata a worker appended, so it must never decide whether
+# a terminal event reaches its supervisor, which note or key that event carries,
+# or whether a decision opens or closes - not when the worker left the brief's
+# <epoch> placeholder unsubstituted, and not when they wrote a readable time
+# whose colons swallow the head/note separator.
+# A run is the stamp only while nothing before it holds a colon; once one does,
+# the head has ended and every later [at=...] is note text the override may
+# legitimately match on, so scanning stops there. The caller's own bytes are
+# untouched: this writes a throwaway copy used for matching only.
+_fm_status_unstamped() {  # <status-line> <out-var> -> line with its stamp removed
+  local __fm_unstamped_rest=$1 __fm_unstamped_keep='' __fm_unstamped_before
+  while :; do
+    case "$__fm_unstamped_rest" in *\[at=*\]*) ;; *) break ;; esac
+    __fm_unstamped_before=${__fm_unstamped_rest%%\[at=*}
+    case "$__fm_unstamped_before" in *:*) break ;; esac
+    __fm_unstamped_keep=$__fm_unstamped_keep${__fm_unstamped_before% }
+    __fm_unstamped_rest=${__fm_unstamped_rest#*\[at=}
+    __fm_unstamped_rest=${__fm_unstamped_rest#*\]}
+  done
+  printf -v "$2" '%s' "$__fm_unstamped_keep$__fm_unstamped_rest"
+}
+
+# Retry deduplication ignores only a well-formed optional numeric time tag;
+# all other bytes, including correlation metadata, still identify the event.
+# Both sides normalize through _fm_status_untimed, so a stamped retry of an
+# already-recorded event can never read as a new one.
+status_event_recorded() {  # <status-file> <new-status-line>
+  local wanted line untimed
+  [ -f "$1" ] || return 1
+  _fm_status_untimed "$2" wanted
+  while IFS= read -r line || [ -n "$line" ]; do
+    _fm_status_untimed "$line" untimed
+    [ "$untimed" != "$wanted" ] || return 0
+  done < "$1"
+  return 1
+}
+
 # --- durable keyed decisions ------------------------------------------------
 #
 # The status stream is an append-only EVENT log. Reading it last-event-wins
@@ -292,29 +427,27 @@ status_paused_until() {  # <status-line> -> epoch on stdout
 # rule 6), so closure never depends on a busy worker's discipline.
 #
 # Decision key grammar (backward-compatible with the existing "<verb>: <note>"
-# format): an OPTIONAL "[key=<slug>]" token names a decision so an
-# needs-decision/blocked open and its resolved/captain-held close can be paired.
-# Two positions are accepted, validated by the same slug charset in
-# _fm_decision_slug below:
-#   1. Between the verb and the colon (canonical, takes precedence):
-#        needs-decision [key=api-shape]: <summary>
-#        resolved       [key=api-shape]: <how it was decided>
-#   2. Leading the note, right after the colon (fallback, so a worker's natural
-#      "needs-decision: [key=api-shape] ..." still pairs with a matching
-#      "resolved: [key=api-shape] ..."):
-#        needs-decision: [key=api-shape] <summary>
-#        resolved:       [key=api-shape] <how it was decided>
-# A line with no token uses the key "default", preserving the historical
-# one-open-decision-per-task behavior (a bare "resolved:" closes "default").
-# An invalid slug at EITHER position falls back to the reserved "invalid-key"
-# bucket, NEVER to "default": the line still folds as a transition, so a
-# malformed escalation surfaces in OPEN DECISIONS (closable with
-# `fm-send --resolve-key invalid-key`) instead of vanishing, while its own
-# bucket keeps it from masking, overwriting, or closing a real unkeyed decision.
-# The canonical before-colon position wins when both are present. The parsers are
-# pure reads of a single line. Status metadata may contain any number of
-# "[name=value]" tags before the colon, in any order, so verb parsing ends at
-# the first tag rather than special-casing "[key=...]".
+# format): an OPTIONAL "[key=<slug>]" token names the decision. Its documented
+# position sits between the verb and the colon, and a complete token at the
+# head of the note is accepted as an EQUIVALENT position, because that
+# misplaced-colon shape is common real worker output whose stated key must
+# never silently collapse into the shared "default" bucket (issue #2109):
+#   needs-decision [key=api-shape]: <summary>
+#   needs-decision: [key=api-shape] <summary>
+#   resolved       [key=api-shape]: <how it was decided>
+# Both positions state the same key and yield the same note (a consumed
+# note-head token is key metadata, stripped from the note); when both positions
+# carry a token, the documented before-colon one wins and the note-head token
+# stays note text. A token deeper inside the note is prose, never a stated key,
+# so a summary merely MENTIONING "[key=x]" cannot open or close that decision.
+# A line with no token in either position uses the key "default", preserving
+# the historical one-open-decision-per-task behavior (a bare "resolved:" closes
+# "default"). A stated key whose slug fails the charset below folds under the
+# reserved "invalid-key" bucket (this fleet's patch, see _fm_decision_key), never
+# rewritten to "default".
+# The parsers are pure reads of a single line. Status metadata may contain any
+# number of "[name=value]" tags before the colon, in any order, so verb parsing
+# ends at the first tag rather than special-casing "[key=...]".
 #
 # Correlation tokens. That bracket rule already covers every BRACKETED tag,
 # including the "[corr=<16 hex>]" form bin/fm-secondmate-report.sh writes. It
@@ -407,54 +540,69 @@ _fm_key_before_colon() {  # <status-line>
     *) return 1 ;;
   esac
 }
-status_line_note() {  # <status-line> -> text after the first colon, trimmed
+# Raw slug of a complete "[key=<slug>]" token at the head of the note (the
+# first thing after the line's first colon, ignoring whitespace). Fails when
+# the line has no colon or no complete token there; slug charset validity is
+# the caller's check via _fm_decision_slug_ok, exactly as for the before-colon
+# position.
+_fm_key_at_note_head() {  # <status-line> -> raw slug
+  local rest
   case "$1" in
-    *:*) local n=${1#*:}; printf '%s' "${n#"${n%%[![:space:]]*}"}" ;;
-    *) printf '%s' "$1" ;;
+    *:*) rest=${1#*:} ;;
+    *) return 1 ;;
+  esac
+  rest=${rest#"${rest%%[![:space:]]*}"}
+  case "$rest" in
+    \[key=*\]*) rest=${rest#\[key=}; printf '%s' "${rest%%\]*}" ;;
+    *) return 1 ;;
   esac
 }
-# Extract and validate a decision-key slug from text whose leading [key=...]
-# token holds it: prints the slug between the first [key= and the next ] and
-# returns 0, or returns 1 on an invalid slug charset. Pure read of its argument;
-# the single owner of the decision-key slug charset, so both accepted positions
-# (before and after the colon) validate identically. Callers gate on a leading
-# [key= token before calling.
-_fm_decision_slug() {  # <text-whose-first-[key=...]-token-holds-the-slug>
-  local k=${1#*\[key=}
-  k=${k%%\]*}
-  case "$k" in
+# 0 when a stated key slug is well-formed: nonempty, A-Za-z0-9._- only.
+_fm_decision_slug_ok() {  # <slug>
+  case "$1" in
     ''|*[!A-Za-z0-9._-]*) return 1 ;;
-    *) printf '%s' "$k" ;;
+    *) return 0 ;;
   esac
 }
+# Both readers below locate the head/note separator on an unstamped copy, so a
+# worker-written stamp cannot move it: a readable time like [at=10:30] carries
+# colons that would otherwise end the head mid-tag and hand the caller a note
+# and a key sliced out of the timestamp. The line's own bytes are never altered.
+status_line_note() {  # <status-line> -> text after the first colon, trimmed
+  local n k unstamped
+  _fm_status_unstamped "$1" unstamped
+  case "$unstamped" in
+    *:*) n=${unstamped#*:}; n=${n#"${n%%[![:space:]]*}"} ;;
+    *) printf '%s' "$unstamped"; return 0 ;;
+  esac
+  # A note-head token that states this line's key (no before-colon token, valid
+  # slug) is key metadata, not note text: strip it so both stated-key positions
+  # yield the same note.
+  if ! _fm_key_before_colon "$unstamped" && k=$(_fm_key_at_note_head "$unstamped") \
+    && _fm_decision_slug_ok "$k"; then
+    n=${n#"[key=$k]"}
+    n=${n#"${n%%[![:space:]]*}"}
+  fi
+  printf '%s' "$n"
+}
+# Fork patch: a stated key whose slug fails the charset folds under the
+# reserved "invalid-key" bucket instead of being skipped, so a malformed
+# escalation stays in OPEN DECISIONS (closable with
+# `fm-send --resolve-key invalid-key`) rather than vanishing after one wake, and
+# its own bucket keeps it from masking, overwriting, or closing a real unkeyed
+# decision.
 _fm_decision_key() {  # <status-line> -> key slug, "default" (no token) or "invalid-key"
-  local prefix=${1%%:*} note
-  # Canonical position: a [key=<slug>] token between the verb and the colon.
-  case "$prefix" in
-    *\[key=*\]*)
-      _fm_decision_slug "$prefix" || printf 'invalid-key'
-      return 0
-      ;;
-  esac
-  # Fallback position: a leading [key=<slug>] at the start of the note (after
-  # the colon, optional leading whitespace), so a worker's natural
-  # "needs-decision: [key=x] ..." still folds to key x and interoperates with a
-  # "resolved: [key=x] ..." close at the same position. A line with no colon
-  # has no note, so it keeps the historical "default". The note extraction is
-  # inlined rather than delegated to status_line_note because this runs on the
-  # fold's per-line hot path, where a command substitution costs a subshell.
-  case "$1" in
-    *:*)
-      note=${1#*:}
-      note=${note#"${note%%[![:space:]]*}"}
-      case "$note" in
-        \[key=*\]*) _fm_decision_slug "$note" || printf 'invalid-key' ;;
-        *) printf 'default' ;;
-      esac
-      ;;
-    *) printf 'default' ;;
-  esac
-  return 0
+  local k unstamped
+  _fm_status_unstamped "$1" unstamped
+  if _fm_key_before_colon "$unstamped"; then
+    k=${unstamped%%:*}
+    k=${k#*\[key=}
+    k=${k%%\]*}
+  else
+    k=$(_fm_key_at_note_head "$unstamped") || { printf 'default'; return 0; }
+  fi
+  _fm_decision_slug_ok "$k" || k=invalid-key
+  printf '%s' "$k"
 }
 # Drop the record for <key> from a newline-terminated "<key>\t<verb>\t<note>" set.
 # Portable (no associative arrays) so the fold runs on bash 3.2 as well as 4+.
@@ -535,7 +683,15 @@ _fm_status_kind() {
 }
 
 _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb> <kind>
-  local open=$1 line=$2 resolve=$3 held=$4 kind=$5 verb key note
+  local open=$1 line=$2 resolve=$3 held=$4 kind=$5 verb key note unstamped
+  # Both colon tests below ask where the head ends, the same question the note
+  # and key readers ask, so they read the same unstamped copy those readers do.
+  # A worker-written time tag must never decide whether a decision opens or
+  # closes: a readable [at=10:30] carries colons that would otherwise make bare
+  # prose look like a transition, or make a keyless line open a phantom
+  # decision no later line could close. The stored and surfaced bytes stay the
+  # caller's own.
+  _fm_status_unstamped "$line" unstamped
   # Declaration guard. A transition's verb ends at a colon, or - in the colonless
   # form _fm_decision_key still accepts below - at a complete "[key=...]" token.
   # A line holding neither is continuation prose, a bare word, or blank, and can
@@ -543,12 +699,12 @@ _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb
   # equivalent parameter expansion costs tens of milliseconds per line under bash
   # 3.2's global bracket-class substitution, which is the whole per-line cost of
   # both folds on a status log of ordinary width. Same verdict, bounded cost.
-  case "$line" in
+  case "$unstamped" in
     *:*|*\[key=*\]*) ;;
     *) printf '%s' "$open"; return 0 ;;
   esac
   status_line_verb "$line" verb
-  case "$line" in
+  case "$unstamped" in
     *:*) case "$verb:$kind" in done:ship|done:scout|failed:ship|failed:scout) return 0 ;; esac ;;
   esac
   case "$verb" in
@@ -619,6 +775,36 @@ $open
 EOF
   [ -n "$current" ] || current=$(last_status_line "$1")
   printf '%s\n' "$current"
+}
+
+# 0 when the fold above still holds at least one decision OPENED by
+# `needs-decision` - the status side's own record that a human was asked
+# something and has not answered. A `blocked` record is deliberately not this: a
+# blocker is an obstacle the crew reported, not an unanswered question, and a
+# different action clears it. Whole-file and cursor-free on purpose: this answers
+# a point-in-time question for a caller that holds no cursor and must not write
+# one, so it reads status_open_decisions rather than the incremental fold.
+# An unreadable, missing or symlinked status file folds to nothing and answers 1,
+# which is the safe answer for every caller: no evidence, no exception.
+# Given a <run-id>, only a decision whose key is exactly `nm-<run-id>-<step>` for
+# a non-empty step counts - the key shape the brief mandates for a gate
+# escalation - so an unrelated question left open earlier in the same task is
+# never read as firstmate being told about THIS run's gate.
+status_has_open_needs_decision() {  # <status-file> [<run-id>]
+  local run=${2-} open line key verb
+  open=$(status_open_decisions "$1")
+  [ -n "$open" ] || return 1
+  if [ $# -ge 2 ] && [ -z "$run" ]; then return 1; fi
+  while IFS= read -r line; do
+    key=${line%%$'\t'*}
+    verb=${line#*$'\t'}; verb=${verb%%$'\t'*}
+    [ "$verb" = needs-decision ] || continue
+    [ $# -ge 2 ] || return 0
+    case "$key" in "nm-$run-"?*) return 0 ;; esac
+  done <<EOF
+$open
+EOF
+  return 1
 }
 
 # 0 when <key> has a record in a folded "<key>\t<verb>\t<note>" open set.
@@ -808,13 +994,17 @@ _fm_open_decisions_cursor_path() {  # <status-file>
 # 8: a colonless line without a complete "[key=...]" token is no longer a
 # transition at all, so a cursor holding a phantom decision that bare prose
 # opened - which no later line could close - is discarded.
-# 9: the merged parser is upstream's reading through its 8 plus this fleet's
-# keyed-decision reading, and a cursor persisted under either side's own latest
-# reading is discarded and rebuilt from byte 0 under the merged one.
+# 9: the two colon tests read the line with its time tag stripped, so a
+# malformed worker stamp whose colons used to pose as the head/note separator
+# no longer opens or closes anything; cursors folded under that reading are
+# discarded.
+# 10: this fleet's reserved "invalid-key" bucket on top of upstream's 9: a line
+# whose stated key fails the charset now folds under that bucket instead of
+# being skipped, so cursors folded without it are discarded.
 # Version 4 was already spent on the bracketed-tag parser change above, and a
 # cursor persisted under that reading predates this one, so it must still be
 # discarded and rebuilt from byte 0 under the new reading.
-FM_OPEN_DECISIONS_FOLD_VERSION=9
+FM_OPEN_DECISIONS_FOLD_VERSION=10
 
 # Portable device:inode identity for the rotation/recreation check below.
 _fm_open_decisions_file_ident() {  # <file> -> strongest available identity
@@ -1690,7 +1880,7 @@ _fm_status_open_activities_stream() {
       *) continue ;;
     esac
     verb=$(status_line_verb "$line")
-    key=$(_fm_decision_key "$line")
+    key=$(_fm_decision_key "$line") || continue
     case "$verb" in
       working|"$pause")
         note=$(status_line_note "$line")
@@ -1970,6 +2160,54 @@ crew_is_provably_working() {  # <id>
 # escalating a possible wedge.
 crew_is_paused() {  # <id>
   [ "$(crew_absorb_class "$1")" = paused ]
+}
+
+# The one spelling of the verdict component that says a parked gate's answer is
+# owed by a HUMAN. bin/fm-crew-state.sh mints it (nm_gate_awaits_human_decision
+# owns the derivation: the findings table's `action` column, read by position);
+# crew_gate_awaits_human_decision below is its only consumer.
+FM_GATE_HUMAN_DECISION='ask-user: authority decision'
+
+# 0 if crew <id>'s authoritative current state is a no-mistakes gate whose answer
+# is owed by a human rather than by the crewmate itself.
+#
+# `parked` alone cannot answer this: the gate's shape (awaiting_approval,
+# fix_review, awaiting_agent) is reported parked in every case and does not by
+# itself say who owes the answer; only a findings row whose `action` column is
+# exactly `ask-user` does. A crewmate that goes quiet before answering its OWN
+# gate is precisely the wedge the escalation ladder exists to catch, so only the
+# minted component above - never the parked verdict, the gate name, or the
+# finding text - admits a lane here.
+#
+# The whole component is compared for equality rather than searched for, so a
+# gate name or a reconciliation note that happens to contain the words cannot
+# mint it downstream either.
+# On success it prints the reported run id, read from the line's whole
+# `run: <id>` component, so the caller can bind the gate to the decision that
+# names that run; a line carrying no run id is not evidence, since nothing could
+# then tie a decision to this gate.
+# Same cost and the same caveat as crew_absorb_class: one fm-crew-state.sh read,
+# which may make a bounded no-mistakes call, so callers take it only where they
+# already accept that cost.
+crew_gate_awaits_human_decision() {  # <id> -> <run-id> on stdout
+  local id=$1 line state src rest part human='' run=''
+  [ -n "$id" ] || return 1
+  line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
+  case "$line" in state:*) ;; *) return 1 ;; esac
+  state=${line#state: }; state=${state%% *}
+  [ "$state" = parked ] || return 1
+  src=${line#*source: }; src=${src%% *}
+  [ "$src" = run-step ] || return 1
+  rest="$line · "
+  while [ -n "$rest" ]; do
+    part=${rest%% · *}
+    rest=${rest#* · }
+    [ "$part" = "$FM_GATE_HUMAN_DECISION" ] && human=1
+    case "$part" in "run: "?*) run=${part#run: } ;; esac
+  done
+  [ -n "$human" ] && [ -n "$run" ] || return 1
+  case "$run" in *[[:space:]]*) return 1 ;; esac
+  printf '%s\n' "$run"
 }
 
 # Directories excluded from the worktree write probe below, and the depth it walks.

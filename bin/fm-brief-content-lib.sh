@@ -2,7 +2,7 @@
 # fm-brief-content-lib.sh - the single owner of "does this brief/charter file
 # carry real instructions" validity, checked before a worker ever reads it.
 #
-# Not to be confused with bin/fm-brief-lib.sh, the ship-brief per-mode
+# Not to be confused with bin/fm-dod-lib.sh, the ship-brief per-mode
 # contract-text owner shared between bin/fm-brief.sh and bin/fm-promote.sh.
 # This file owns a different, narrower contract: the {TASK} placeholder.
 #

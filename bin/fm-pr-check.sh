@@ -74,6 +74,10 @@ if [ "$PROVIDER" = gitlab ] && ! command -v glab >/dev/null 2>&1; then
   exit 1
 fi
 
+# Fork patch: no draft refusal here. This fleet's always-draft flow has the
+# worker report `done: PR <url>` on a DRAFT, and firstmate arms this check on
+# that draft before it owns the flip at the PR's landing turn; merge-time draft
+# refusal stays with bin/fm-pr-merge.sh.
 "$FM_ROOT/bin/fm-guard.sh" || true
 
 # pr_head is recorded only when the forge's CLI can supply it. gh exposes the

@@ -17,10 +17,9 @@
 # diverged). Cross-drain cursor persistence and the incremental
 # cost bound live in tests/fm-wake-drain-open-decisions-cursor.test.sh; the
 # drain wiring lives in tests/fm-wake-drain-open-decisions.test.sh.
-# Fork divergence from upstream's expectations, both deliberate: a malformed
-# stated slug folds to the reserved "invalid-key" bucket (never skipped, never
-# "default"), and a colon-first note keeps its leading [key=x] token as note
-# text (only the before-colon token is consumed by the fold).
+# Fork divergence from upstream's expectations, deliberate: a malformed stated
+# slug folds to the reserved "invalid-key" bucket (never skipped, never
+# "default").
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -53,25 +52,21 @@ assert_fold() {  # <status-file> <expected> <label>
 }
 
 test_stated_key_is_honored_in_both_positions() {
-  local dir before after
+  local dir before after expected
   dir=$(case_dir positions)
   printf 'needs-decision [key=api-shape]: pick REST or RPC\n' > "$dir/before.status"
   printf 'needs-decision: [key=api-shape] pick REST or RPC\n' > "$dir/after.status"
+  expected=$(printf 'api-shape\tneeds-decision\tpick REST or RPC\n')
 
-  assert_fold "$dir/before.status" "$(printf 'api-shape\tneeds-decision\tpick REST or RPC\n')" \
-    "documented before-colon form"
-  # Fork divergence: the colon-first note keeps its leading [key=x] token as
-  # note text; only the before-colon token is consumed by the fold.
-  assert_fold "$dir/after.status" \
-    "$(printf 'api-shape\tneeds-decision\t[key=api-shape] pick REST or RPC\n')" \
-    "colon-first form"
+  assert_fold "$dir/before.status" "$expected" "documented before-colon form"
+  assert_fold "$dir/after.status" "$expected" "colon-first form"
 
-  # Both positions still pair on the SAME key (first field), so a matching
-  # resolution closes either open regardless of which position stated it.
+  # Equivalence is byte-for-byte: both positions yield the same key AND the
+  # same note (a consumed note-head token is key metadata, not note text).
   before=$(status_open_decisions "$dir/before.status")
   after=$(status_open_decisions "$dir/after.status")
-  [ "${before%%$'\t'*}" = "${after%%$'\t'*}" ] \
-    || fail "the two key positions folded to different keys: '$before' vs '$after'"
+  [ "$before" = "$after" ] \
+    || fail "the two key positions folded to different records: '$before' vs '$after'"
   pass "a stated [key=X] opens X whether it precedes or follows the verb colon"
 }
 
@@ -112,10 +107,7 @@ test_blocked_is_position_tolerant_like_needs_decision() {
   printf 'blocked [key=creds]: waiting on the deploy token\n' > "$dir/before.status"
   printf 'blocked: [key=creds] waiting on the deploy token\n' > "$dir/after.status"
   assert_fold "$dir/before.status" "$expected" "documented blocked form"
-  # Fork divergence: the colon-first note keeps its leading [key=x] token.
-  assert_fold "$dir/after.status" \
-    "$(printf 'creds\tblocked\t[key=creds] waiting on the deploy token\n')" \
-    "colon-first blocked form"
+  assert_fold "$dir/after.status" "$expected" "colon-first blocked form"
   pass "blocked [key=X] opens X in both key positions"
 }
 
@@ -125,14 +117,13 @@ test_two_colon_form_decisions_stay_distinct() {
   # The concrete hazard behind the silent collapse: two colon-form decisions on
   # one task used to share the default bucket, so answering one could close the
   # other. They must stay independently open and independently closable.
-  # Fork divergence: colon-first notes keep their leading [key=x] tokens.
   printf 'needs-decision: [key=alpha] first question\n' > "$dir/t.status"
   printf 'needs-decision: [key=beta] second question\n' >> "$dir/t.status"
-  expected=$(printf 'alpha\tneeds-decision\t[key=alpha] first question\nbeta\tneeds-decision\t[key=beta] second question\n')
+  expected=$(printf 'alpha\tneeds-decision\tfirst question\nbeta\tneeds-decision\tsecond question\n')
   assert_fold "$dir/t.status" "$expected" "two colon-form decisions"
 
   printf 'resolved [key=alpha]: answered: yes\n' >> "$dir/t.status"
-  assert_fold "$dir/t.status" "$(printf 'beta\tneeds-decision\t[key=beta] second question\n')" \
+  assert_fold "$dir/t.status" "$(printf 'beta\tneeds-decision\tsecond question\n')" \
     "closing one of two colon-form decisions"
   pass "two colon-form keyed decisions never collapse into one shared bucket"
 }
@@ -271,12 +262,12 @@ test_incremental_agrees_with_full_fold_across_appends() {
   # bytes on top of its persisted open set while the full fold re-reads
   # everything from scratch.
   printf 'needs-decision: [key=seam-max-bound] pick the bound\n' > "$f"
-  expected=$(printf 'seam-max-bound\tneeds-decision\t[key=seam-max-bound] pick the bound\n')
+  expected=$(printf 'seam-max-bound\tneeds-decision\tpick the bound\n')
   assert_fold "$f" "$expected" "colon-first open, first read"
 
   printf 'working: routine progress note\n' >> "$f"
   printf 'needs-decision: [key=other] a second colon-form question\n' >> "$f"
-  expected=$(printf 'seam-max-bound\tneeds-decision\t[key=seam-max-bound] pick the bound\nother\tneeds-decision\t[key=other] a second colon-form question\n')
+  expected=$(printf 'seam-max-bound\tneeds-decision\tpick the bound\nother\tneeds-decision\ta second colon-form question\n')
   assert_fold "$f" "$expected" "colon-first opens buried under later appends"
 
   printf 'resolved [key=seam-max-bound]: answered: use 4\n' >> "$f"

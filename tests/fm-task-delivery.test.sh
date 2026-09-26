@@ -93,8 +93,8 @@ missing --yolo|--mode direct-PR|ship spawns require --yolo
 missing --mode|--yolo off|ship spawns require --mode
 unknown mode|--mode nope --yolo off|must be one of direct-PR, local-only
 unknown yolo|--mode direct-PR --yolo maybe|--yolo must be on or off
-retired no-mistakes mode|--mode no-mistakes --yolo off|must be one of direct-PR, local-only
-retired prod-only policy|--mode no-mistakes-prod-only --yolo off|must be one of direct-PR, local-only
+retired no-mistakes mode|--mode no-mistakes --yolo off|is retired in this fleet and is never dispatched
+retired prod-only policy|--mode no-mistakes-prod-only --yolo off|its no-mistakes leg is retired in this fleet
 ROWS
   pass "fm-spawn: a ship spawn requires a valid explicit mode and yolo before anything is created"
 }
@@ -235,7 +235,7 @@ test_promote_requires_and_records_the_delivery_contract() {
     out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" promote-d1 --mode "$retired" --yolo off 2>&1)
     status=$?
     [ "$status" -ne 0 ] || fail "promotion on the retired mode $retired should exit non-zero"
-    assert_contains "$out" "must be one of direct-PR, local-only" "promote did not refuse $retired as a task mode"
+    assert_contains "$out" "retired in this fleet" "promote did not refuse the retired $retired"
   done
 
   blocked_data="$home/data-blocked"

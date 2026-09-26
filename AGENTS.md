@@ -68,7 +68,7 @@ README.md            public overview and development notes
 .claude/mods/        Claude Code mods (function-hooks plugins), committed; Calm's module may load through CLAUDE_CODE_ENABLE_FUNCTION_HOOKS or tengu_plugin_hooks_modules, but activates only when CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is exactly "1" and is otherwise a complete no-op (docs/calm.md)
 skills/              standalone public installer-facing skills, committed; not loaded by firstmate
 bin/                 helper scripts, committed; read each script's header before first use
-.env                 optional Relay pairing token (presence-gates section 14) and typed dispatch resolution keys TYPESAFE_API_KEY (direct) and FM_JEV_OPENROUTER_API_KEY (either presence-gates the typed dispatch resolution in section 4 and selects its transport; TYPESAFE_API_KEY wins when both are present; docs/configuration.md "Typed dispatch resolution"); LOCAL, gitignored
+.env                 optional Relay pairing token (presence-gates section 14), mail-plane credentials (schema: docs/configuration.md "Mail plane"), and typed dispatch resolution keys TYPESAFE_API_KEY (direct) and FM_JEV_OPENROUTER_API_KEY (either presence-gates the typed dispatch resolution in section 4 and selects its transport; TYPESAFE_API_KEY wins when both are present; docs/configuration.md "Typed dispatch resolution"); LOCAL, gitignored
 config/              local operating choices; docs/configuration.md owns every file and its schema
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
@@ -81,7 +81,7 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
 projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
 state/               runtime records and signals; gitignored
-  <id>.status        appended by crewmates: "<state>: <note>" wake-event lines, not current-state truth
+  <id>.status        append-only wake events, not current-state truth; bin/fm-classify-lib.sh owns their syntax
   <id>.meta          task metadata; each producer script's header owns its exact fields and mutation contract, with docs/configuration.md routing operator-facing backend and trace-context details
   <id>.check.sh      authenticated slow poll; the watcher dispatches validated PR data and the byte-identified Relay shim through trusted repository scripts, runs registered custom checks from hash-validated private snapshots, and rejects every other state check without execution
   state/ (everything else)  watcher, poll, Relay, away-mode, and recovery machinery owned by its producing script - never touch; full inventory: docs/configuration.md
@@ -153,7 +153,7 @@ When dispatch profiles exist, consult them at every crewmate or scout intake and
 Routing precedence is an explicit per-task captain override, then the best-fit configured rule, then the configured default, then the static crewmate harness.
 Firstmate alone resolves a matched profile array: begin with `quota-axi`'s default TOON at that intake, using the skill's narrow TOON-then-`--json` fallback only for genuine ambiguity, evaluate every configured candidate against that current output, and choose with inspectable `spendPriority` as the one quota-perspective ranker after the skill's eligibility, reasoning-class, and runway-feasibility gates.
 Account for every candidate with the catalog evidence, provider relationship, applicable quota and authentication facts, remaining uncertainty, fit and reasoning class, and the spendPriority and runway evidence used in selection; never omit a candidate, guess, fall back silently, or call the result quota-informed without them.
-Establish model support and provider family from that harness's own authoritative catalog, then read `quota-axi` at the granularity the vendor actually supplies: provider-level or all-model evidence applies to every model established in that family, and a named-model window bounds only that model.
+Establish model support and provider family from that harness's own authoritative catalog, then apply the [account and scope matching rules in `quota-array-dispatch`](.agents/skills/quota-array-dispatch/SKILL.md#1-eligibility).
 Missing model-level quota, a missing authentication source, unmeasurable headroom, or unmodeled authentication is disclosed uncertainty that keeps a candidate eligible, never a credential or login escalation.
 Only concrete contradictory evidence blocks a candidate, such as an authoritative catalog proving the model unsupported or proof that the credential selected for that surface is unusable; never infer a credential store, provider family, or quota mapping from a harness, model, or source name, and never launch another harness's CLI to judge a candidate.
 Preserve malformed profile configuration as an actionable error rather than selecting around it.
@@ -345,7 +345,7 @@ Retire one only on an explicit captain or main-firstmate decision, after loading
 A completed scout must leave a self-contained report before its scratch worktree can be discarded; read and relay its findings, record the report as the Done artifact, and re-evaluate the queue.
 A report may recommend implementation but does not authorize it.
 Before treating the investigation or any visual review as complete, load `captain-hold-lifecycle`; teardown enforces that shared completion gate.
-When a scout's deliverable is a visual artifact the captain will iterate on, prefer keeping that scout alive to host its own Lavish loop rather than tearing it down and mediating from firstmate, so the scout keeps its investigation context and the captain iterates in one continuous session.
+When a scout's deliverable is a visual artifact the captain will iterate on, keep it alive and follow the crew-hosted Lavish board contract in `docs/configuration.md` rather than arming or polling the board from firstmate.
 When implementation is separately authorized, promote the existing scout through `bin/fm-promote.sh` rather than creating a duplicate task.
 The promoted worker must inventory scratch state, return to a clean default-branch base, carry over only intended fix changes, create the ship branch, and follow the project's selected delivery path while leaving scratch commits and debug edits behind and turning a reproduced bug into the regression test.
 
@@ -373,6 +373,7 @@ Handle actionable wakes as follows:
 1. For `signal:`, read the listed event lines first, then reconcile current state only where action depends on it.
 2. For `stale:`, inspect the recorded endpoint and load `stuck-crewmate-recovery` for a stopped, looping, confused, or unresponsive worker; a deep-inspection reason also requires current-state and validation-log inspection.
 3. For `check:`, act on the named poll result, including merges, contribution signals, Relay events, process-to-event source results, and captain inbox notes; a handled inbox note is also acknowledged with `bin/fm-inbox.sh drain --ack <id>`, or it stays counted as still waiting for firstmate.
+   When the note needs a durable answer the submitter can read, publish it with `bin/fm-inbox.sh reply <id>` (the script header owns the reply contract) rather than leaving the answer only in this transcript.
 4. For `heartbeat:`, review the whole fleet from the structured fleet view, reconcile suspicious tasks and PR state, update the backlog, and never report an unchanged fleet as progress.
 
 Load `bearings` on a contributions check wake or when filing work linked to an upstream issue; its contribution-follow-up section owns triage and exact signal acknowledgement.
@@ -397,7 +398,7 @@ Invoke the `/quiet` skill instead when the captain says `/quiet` or asks for qui
 Each skill owns its own daemon procedure, which is otherwise identical; these safety facts remain inline for both:
 
 - Every current daemon injection uses the `away-supervisor` kind from `bin/fm-operational-input.sh` after `FM_OPERATIONAL_PREFIX` (U+2063 INVISIBLE SEPARATOR followed by `FIRSTMATE_OP: `), while the `/afk` skill owns legacy bare-marker compatibility.
-- `state/.afk-contract` is the away posture, written only after the captain confirms the read-back of their away words; entry announces hold-for-return only, and the record's clauses are recorded, not executed, in this release.
+- `state/.afk-contract` is the away posture, written in the same turn as `/afk` before any other work, because `/afk` is itself the go: no read-back gates entry or waits for a go; entry announces hold-for-return only, and the away session acts on those words by its own judgment through the guarded scripts under standing authority, holding for the return on doubt.
 - While `state/.afk` exists, the daemon owns supervision; do not arm a separate watcher.
   The daemon is never launched on Pi, where the ordinary supervision session continues under the record with main parked: the branch takes every safe actionable wake it can, and only a declined wake (including a broken branch or unsafe scan) or a watcher failure wakes main.
 - A marked message while away or quiet mode is active is internal escalation and does not exit that mode.
