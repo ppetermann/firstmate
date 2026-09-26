@@ -58,10 +58,13 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
 | `fm-home-seed.sh`        | Transactionally provision a local secondmate home and maintain `data/secondmates.md` |
 | `fm-remote-home-seed.sh` | Register and provision a whole secondmate home on an SSH-reachable host              |
+| `fm-remote-secondmate-relaunch.sh` | Relaunch a remote secondmate onto a new harness, model, or effort, then republish this parent's route record to match what the host confirmed |
+| `fm-secondmate-liveness-lib.sh` | Shared persistent-secondmate endpoint liveness probe and guarded relaunch, driven by the session-start sweep and the watcher's liveness tick |
 | `fm-remote-readiness-lib.sh` | Shared remote second-mate readiness gate: check and, when needed, repair then re-check through `fm-remote-doctor.sh` |
 | [`fm-project-origin-lib.sh`](../bin/fm-project-origin-lib.sh) | Accepted origin-form owner shared by both remote provisioning boundaries |
 | `fm-spawn.sh`            | Spawn crewmates, scouts, `id=repo` batches, and secondmates on the resolved harness and runtime backend |
 | `fm-git-strip-ai-trailers.sh` | Strip known AI commit trailers at commit-msg time and install that hook for a fleet launch |
+| `fm-worker-account-lib.sh` | Single owner of the opt-in per-home Claude and Pi worker account pin: pin parsing and resolution, the launch-time sign-in check, and the credentials a pinned Claude launch sheds |
 | `fm-backend.sh`          | Runtime-backend selection, meta helpers, selector resolution, and operation dispatch |
 | `fm-backend-hometag-lib.sh` | Shared per-installation home-tag derivation for zellij tab and cmux workspace titles |
 | `fm-composer-lib.sh`     | Single fleet-wide owner of composer shapes, capability-aware screen classification, and verdicts |
@@ -95,6 +98,9 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-afk-contract.sh`     | Own the away-posture record: schema, the captain's away words verbatim, read-back, entry announcement, archive, and cross-subsystem authority lock |
 | `fm-afk-start.sh`        | Run the common sourceable away-mode daemon entry in the foreground                      |
 | `fm-afk-launch.sh`       | Own away-mode entry (same-turn record write, then read-back), exit, rollback, and any backend terminal lifecycle |
+| `fm-supervision-host.sh` | Opt-in supervision host: watcher-cycle ownership plus a headless engine session that runs the supervision branch's contract beside a non-Pi primary; inert without `config/supervision-host` ([supervision-host.md](supervision-host.md)) |
+| `fm-branch-report.sh`    | The supervision host's report surface: record exactly one handled fleet event in the branch outcome store and return the receipt the host requires |
+| `fm-host-mirror.sh`      | The supervision host's dialog mirror: record what the captain and main said so the host's engine session can be given it on an attended wake |
 | `fm-afk-return.sh`       | Own deterministic return shutdown, the return brief, catch-up evidence, and the firstmate-actionable blocker gate |
 | `fm-supervisor-target-lib.sh` | Resolve the shared supervisor target and backend for the daemon and launcher       |
 | `fm-signal-wait-lib.sh`  | Single owner of signal-responsive waiting: sleeps and child waits a trapped signal interrupts at once, plus bounded child shutdown |
