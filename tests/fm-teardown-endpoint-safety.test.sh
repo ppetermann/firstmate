@@ -1017,6 +1017,187 @@ test_own_and_absent_slot_claims_still_tear_down() {
   pass "fm-teardown: a task's own slot claim, and an unclaimed slot, both still tear down"
 }
 
+# Two records name one slot, and its owner claim names one of them: the
+# spawn-time claim settles which record is stale, so neither is refused. The
+# stale record finishes its own cleanup through the reassigned-slot path and
+# leaves the slot to the claimant, and the claimant's own teardown returns the
+# slot while the stale record stays for its own cleanup. This is the stranded
+# pair a stale record left once the next spawn claimed its slot.
+test_claim_settles_a_stale_second_record() {
+  local dir id=stale-task other=claimant-task worker rc
+
+  dir=$(make_case slot-claim-settles-stale)
+  mark_case_as_treehouse_pool "$dir"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  fm_write_meta "$dir/home/state/$other.meta" \
+    "window=firstmate:fm-$other" "endpoint_task_id=$other" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  claim_pool_slot "$dir" "$other"
+  ( cd "$dir/worktree" && exec sleep 30 ) &
+  worker=$!
+
+  set +e
+  run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "the stale record of a claimed slot was refused: $(cat "$dir/stderr")"
+  kill -0 "$worker" 2>/dev/null || fail "stale-record teardown killed the claimant's worker"
+  assert_present "$dir/worktree/sentinel" "stale-record teardown reset the claimant's slot"
+  assert_present "$dir/home/state/$other.meta" "stale-record teardown removed the claimant's record"
+  assert_reassigned_slot_left_alone "$dir" "$id" "$other" "stale record beside its claimant's record"
+  kill "$worker" 2>/dev/null || true
+  wait "$worker" 2>/dev/null || true
+
+  dir=$(make_case slot-claim-settles-claimant)
+  mark_case_as_treehouse_pool "$dir"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  fm_write_meta "$dir/home/state/$other.meta" \
+    "window=firstmate:fm-$other" "endpoint_task_id=$other" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  claim_pool_slot "$dir" "$other"
+
+  run_case "$dir" "$other" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "the claimant's teardown was refused over a stale record: $(cat "$dir/stderr")"
+  assert_absent "$dir/home/state/$other.meta" "claimant teardown left its own record"
+  assert_present "$dir/home/state/$id.meta" "claimant teardown removed the stale record"
+  assert_absent "$dir/pool/1/.fm-slot-owner" "claimant teardown left its spent slot claim behind"
+  grep -Fq "treehouse <return>" "$dir/runtime.log" \
+    || fail "claimant teardown did not return its own pool slot: $(cat "$dir/runtime.log")"
+  assert_contains "$(cat "$dir/stderr")" "$id" \
+    "claimant teardown should name the stale record it passed over"
+
+  pass "fm-teardown: a slot claim naming one of two records lets both finish their own cleanup"
+}
+
+# The collision still refuses whenever the claim cannot settle it: a claim
+# naming a third task, a second record that names the slot as a secondmate
+# home=, and two records sharing one task id across homes.
+test_unsettled_second_record_still_refuses() {
+  local dir id=stale-task other=live-task second_home second_project
+
+  dir=$(make_case slot-claim-third-task)
+  mark_case_as_treehouse_pool "$dir"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  fm_write_meta "$dir/home/state/$other.meta" \
+    "window=firstmate:fm-$other" "endpoint_task_id=$other" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  claim_pool_slot "$dir" third-task
+  assert_refused_without_mutation "$dir" "$id" "third-task claim, first record"
+  assert_contains "$(cat "$dir/stderr")" "REFUSED" "third-task claim should refuse by name"
+  assert_refused_without_mutation "$dir" "$other" "third-task claim, second record"
+  assert_present "$dir/home/state/$other.meta" "third-task claim removed a record"
+
+  dir=$(make_case slot-claim-home-field)
+  mark_case_as_treehouse_pool "$dir"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  fm_write_meta "$dir/home/state/$other.meta" \
+    "window=firstmate:fm-$other" "endpoint_task_id=$other" \
+    "home=$dir/worktree" "project=$dir/project" "kind=secondmate"
+  claim_pool_slot "$dir" "$id"
+  assert_refused_without_mutation "$dir" "$id" "own claim beside a secondmate home record"
+  assert_contains "$(cat "$dir/stderr")" "task $other's recorded home" \
+    "home-field refusal should name the secondmate home record"
+
+  dir=$(make_case slot-claim-same-id)
+  mark_case_as_treehouse_pool "$dir"
+  second_home="$dir/secondmate-home"
+  second_project="$second_home/projects/project"
+  mkdir -p "$second_home/projects" "$second_home/state" "$second_home/data"
+  git clone -q "$dir/project" "$second_project"
+  printf '%s\n' "- mate - fixture (home: $second_home; scope: test; projects: project; added 2026-01-01)" \
+    > "$dir/home/data/secondmates.md"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  fm_write_meta "$second_home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$second_project" "kind=scout"
+  claim_pool_slot "$dir" "$id"
+  assert_refused_without_mutation "$dir" "$id" "own-id claim with the same task id in another home"
+  assert_present "$second_home/state/$id.meta" "same-id collision removed the other home's record"
+
+  pass "fm-teardown: a second record the slot claim cannot settle still refuses"
+}
+
+# A caller that stops reading teardown's output - `| grep -m1`, `| head`, a
+# closed tool pipe - must not stop teardown part-way. The incident shape: the
+# reader exits on the leaked-process reap line, and teardown died by SIGPIPE at
+# its next write - relaying what Treehouse printed for the return - after
+# returning the pool slot but before removing the record.
+write_talking_treehouse() {  # <case>
+  fm_fakebin_write "$1/fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+printf 'treehouse' >> "${FM_RUNTIME_LOG:?}"
+printf ' <%s>' "$@" >> "${FM_RUNTIME_LOG:?}"
+printf '\n' >> "${FM_RUNTIME_LOG:?}"
+[ "${1:-}" != return ] || printf 'Returned %s to the pool\n' "${3:-}"
+exit 0
+SH
+  chmod +x "$1/fakebin/treehouse"
+}
+
+test_teardown_completes_when_its_reader_stops_reading() {
+  local dir id=reader-task worker first
+
+  dir=$(make_case reader-stops-on-reap)
+  mark_case_as_treehouse_pool "$dir"
+  write_talking_treehouse "$dir"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  claim_pool_slot "$dir" "$id"
+  # A leaked process in the slot, so the reap line is teardown's first output.
+  ( cd "$dir/worktree" && exec sleep 30 ) &
+  worker=$!
+
+  first=$(run_case "$dir" "$id" 2>&1 | grep -m1 'reaping leaked')
+  assert_contains "$first" "reaping leaked worktree process" "the reader never saw the reap line"
+  kill -0 "$worker" 2>/dev/null && fail "teardown did not reap the leaked process in its own slot"
+  wait "$worker" 2>/dev/null || true
+  assert_absent "$dir/home/state/$id.meta" "teardown stopped part-way after its reader exited"
+  assert_absent "$dir/pool/1/.fm-slot-owner" "teardown stopped before releasing its spent slot claim"
+  grep -Fq "treehouse <return>" "$dir/runtime.log" \
+    || fail "teardown did not return its pool slot: $(cat "$dir/runtime.log")"
+
+  # A reader that is gone before teardown writes anything at all.
+  dir=$(make_case reader-gone-before-output)
+  mark_case_as_treehouse_pool "$dir"
+  write_talking_treehouse "$dir"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  run_case "$dir" "$id" 2>&1 | true
+  assert_absent "$dir/home/state/$id.meta" "teardown stopped when its reader was gone before any output"
+  grep -Fq "treehouse <return>" "$dir/runtime.log" \
+    || fail "teardown with no reader did not return its pool slot: $(cat "$dir/runtime.log")"
+
+  # Teardown started from inside its own slot refuses at the reap, which finds
+  # its own scans there. The relay carrying its output must not be one of the
+  # processes that reap kills, or the refusal is lost with it.
+  dir=$(make_case reader-teardown-in-slot)
+  mark_case_as_treehouse_pool "$dir"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  ( cd "$dir/pool/1/project" \
+      && FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+         FM_RUNTIME_LOG="$dir/runtime.log" PATH="$dir/fakebin:$PATH" \
+         exec "$TEARDOWN" "$id" --force ) 2>&1 | cat > "$dir/output"
+  assert_present "$dir/home/state/$id.meta" "teardown started in its own slot removed its record"
+  assert_contains "$(cat "$dir/output")" "REFUSED: leaked worktree processes for $id" \
+    "teardown started in its own slot lost its refusal"
+
+  pass "fm-teardown: a reader that stops reading never stops teardown part-way"
+}
+
 # The tmux shim used by the endpoint-close tests below: every subcommand
 # reaches the real isolated server, so presence is always read from real tmux.
 # When FM_TEST_BLOCK_KILL is set, `kill-window` alone fails without forwarding,
@@ -1404,6 +1585,9 @@ test_cross_home_pool_slot_collision_refuses
 test_sole_slot_record_still_tears_down
 test_reassigned_pool_slot_finishes_own_cleanup_without_touching_the_slot
 test_own_and_absent_slot_claims_still_tear_down
+test_claim_settles_a_stale_second_record
+test_unsettled_second_record_still_refuses
+test_teardown_completes_when_its_reader_stops_reading
 test_recorded_endpoint_that_changed_directory_still_tears_down
 test_project_lock_anchors_at_the_local_root_across_home_layouts
 test_remote_seeded_home_returns_its_uncontested_slot

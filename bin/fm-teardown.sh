@@ -111,6 +111,17 @@
 # absent claim - a slot taken before claims existed, or already returned - keeps
 # exactly the record-scan protection it had before, because refusing it would
 # strand every task in flight across that change on no evidence at all.
+# The claim also settles a two-record collision, which the scan alone cannot:
+# when the second record names the slot in its worktree= and the claim names
+# either task, the record the claim does not name is the stale one. So the scan
+# lets both records through - the claimant's teardown as the slot's owner, the
+# stale record's through the reassigned-slot path above - rather than refusing
+# both forever (observed 2026-09-29: a stale record whose slot the next spawn
+# had claimed stranded itself and that spawn's own record). The collision still
+# refuses when the claim settles nothing - absent, unreadable, or naming a third
+# task - when the second record names the slot as a secondmate home=, which does
+# not take its slot through a claim, and when both records carry the same task
+# id, which a claim naming a task id cannot tell apart.
 # Why Treehouse's own state cannot answer this for crewmate slots, and why the
 # claim file sits on top of it, is owned by bin/fm-wake-lib.sh's slot-owner
 # claim comment.
@@ -276,7 +287,40 @@
 #     root still exists, so the account's healthy LaunchAgent worker and every
 #     live remote secondmate worker are out of scope. Best effort: a sweep
 #     failure never blocks this teardown.
+#   Output relay - a closed output pipe can never stop teardown part-way.
+#     Teardown is destructive in stages, so dying between two of them leaves a
+#     record that names a slot already back in the pool, with no refusal to
+#     explain it (observed 2026-09-29: `fm-teardown.sh <id> 2>&1 | grep -m1
+#     teardown` let grep exit on the reap line, and the next write killed
+#     teardown by SIGPIPE after the pool return but before the record was
+#     removed; the next spawn then claimed that slot). So when stdout or stderr
+#     is a pipe or socket, teardown writes through its own relay instead:
+#     the relay forwards output while the reader is there, and once the reader
+#     is gone it drains and discards the rest, so every teardown write still
+#     succeeds and teardown runs to its own completion or refusal. A shared
+#     stdout and stderr keep one relay so their order is preserved; a file or
+#     terminal needs no relay.
 set -eu
+
+teardown_output_relay() {
+  trap '' PIPE
+  # Never under a task worktree, where the leaked-process reap would find it.
+  cd / || true
+  cat 2>/dev/null || cat >/dev/null
+}
+
+teardown_relay_output() {
+  local out_pipe=0 err_pipe=0
+  if [ -p /dev/fd/1 ] || [ -S /dev/fd/1 ]; then out_pipe=1; fi
+  if [ -p /dev/fd/2 ] || [ -S /dev/fd/2 ]; then err_pipe=1; fi
+  if [ "$out_pipe" = 1 ] && [ /dev/fd/1 -ef /dev/fd/2 ]; then
+    exec > >(teardown_output_relay) 2>&1
+    return 0
+  fi
+  if [ "$out_pipe" = 1 ]; then exec > >(teardown_output_relay); fi
+  if [ "$err_pipe" = 1 ]; then exec 2> >(teardown_output_relay >&2); fi
+}
+teardown_relay_output
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -2399,11 +2443,27 @@ collect_local_firstmate_states() {
   done
 }
 
+# Whether the slot's owner claim settles a second record naming this slot (the
+# script header owns when it does and why): true only for a worktree= record of
+# a different task id, when the claim names this record or that other task.
+teardown_slot_claim_settles_collision() {  # <record-id> <other-id> <field>
+  local record_id=$1 other_id=$2 field=$3
+  [ "$field" = worktree ] && [ "$record_id" != "$other_id" ] || return 1
+  case "$TEARDOWN_EXCLUSIVE_SLOT_OWNER" in
+    mine) return 0 ;;
+    other) [ "$TEARDOWN_EXCLUSIVE_SLOT_OWNER_ID" = "$other_id" ] ;;
+    *) return 1 ;;
+  esac
+}
+
 require_exclusive_worktree_slot_record() {
   local record_meta=$1 record_id=$2 record_state=$3 worktree=$4
-  local slot state_dir other other_id field other_path other_slot
+  local slot state_dir other other_id field other_path other_slot stale_id
   slot=$(canonical_existing_dir "$worktree") || return 0
   collect_local_firstmate_states "$record_state" || return 1
+  fm_treehouse_slot_owner_state "$slot" "$record_id"
+  TEARDOWN_EXCLUSIVE_SLOT_OWNER=$FM_TREEHOUSE_SLOT_OWNER
+  TEARDOWN_EXCLUSIVE_SLOT_OWNER_ID=$FM_TREEHOUSE_SLOT_OWNER_ID
   for state_dir in "${TREEHOUSE_OWNER_STATES[@]}"; do
     for other in "$state_dir"/*.meta; do
       [ -f "$other" ] && [ ! -L "$other" ] || continue
@@ -2418,6 +2478,11 @@ require_exclusive_worktree_slot_record() {
         [ -n "$other_path" ] || continue
         other_slot=$(canonical_existing_dir "$other_path") || continue
         [ "$other_slot" = "$slot" ] || continue
+        if teardown_slot_claim_settles_collision "$record_id" "$other_id" "$field"; then
+          if [ "$TEARDOWN_EXCLUSIVE_SLOT_OWNER" = mine ]; then stale_id=$other_id; else stale_id=$record_id; fi
+          echo "teardown: task $other_id's recorded $field also names $slot, but that pool slot's owner claim names task $TEARDOWN_EXCLUSIVE_SLOT_OWNER_ID, so task $stale_id's record is the stale one and not a collision." >&2
+          continue
+        fi
         echo "REFUSED: task $record_id's recorded worktree $slot is also task $other_id's recorded $field." >&2
         echo "Returning that pool slot would kill $other_id's processes and reset its copy, so nothing was changed - not even with --force." >&2
         echo "Reconcile whichever record is wrong (bin/fm-crew-state.sh $record_id; bin/fm-crew-state.sh $other_id), then re-run teardown." >&2
