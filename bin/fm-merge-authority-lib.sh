@@ -17,10 +17,11 @@
 # which merge the words meant is the supervision session's reading). Any other
 # merge under the record is not granted and holds for the captain's return:
 # this fleet's patch on upstream, which grants every green merge while the
-# record exists. Without the record the merge is attended. The retired values
-# yolo and away-grant are still accepted when an existing record is read, so a
-# merge persisted before the words model landed is still consumed, but they are
-# never written again.
+# record exists. Without the record, or while the record is quiet mode's
+# (bin/fm-afk-contract.sh mode: the captain is present), the merge is attended.
+# The retired values yolo and away-grant are still accepted when an existing
+# record is read, so a merge persisted before the words model landed is still
+# consumed, but they are never written again.
 # The identity comes from the merge run's immutable canonical URL parse;
 # persistence revalidates the task's current pr= metadata under its metadata
 # and lifecycle locks and refuses a mismatch. The file is atomically published,
@@ -68,6 +69,11 @@ fm_merge_authority_resolve() {  # <home> <state> <meta> <task-id> [<away-words: 
     "$_FM_MERGE_AUTHORITY_LIB_DIR/fm-afk-contract.sh" validate >/dev/null 2>&1; then
     FM_MERGE_AUTHORITY_REASON='record-unreadable'
     return 1
+  fi
+  if ! fm_afk_contract_away_present "$state"; then
+    FM_MERGE_AUTHORITY='attended'
+    FM_MERGE_AUTHORITY_REASON='attended'
+    return 0
   fi
   if [ -f "$meta" ]; then
     yolo=$(grep '^yolo=' "$meta" | tail -1 | cut -d= -f2- || true)

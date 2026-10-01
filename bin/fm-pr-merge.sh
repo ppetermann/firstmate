@@ -99,10 +99,11 @@
 # only when the task's meta yolo=on, or when --away-words states that the
 # captain's away words name this merge (which merge they meant is the
 # supervision session's reading, bin/fm-branch-prompt.sh "Postures"); any other
-# merge is held for the captain's return. bin/fm-merge-authority-lib.sh owns
-# that rule. An unreadable record refuses rather than being skipped, neither
-# posture releases a captain hold, and away authority lapses when the record is
-# archived.
+# merge is held for the captain's return. A quiet-mode record is a present
+# captain, so its merges stay attended (bin/fm-afk-contract.sh mode).
+# bin/fm-merge-authority-lib.sh owns that rule. An unreadable record refuses
+# rather than being skipped, neither posture releases a captain hold, and away
+# authority lapses when the record is archived.
 # The authority read and synchronous forge command share the away record's
 # cross-subsystem lock, which bin/fm-afk-contract.sh owns, closing the common
 # live-owner TOCTOU; failure to take it refuses before the forge call. Async and
@@ -118,8 +119,11 @@
 # Extra args must not include --repo or -R in any form, including a bundled
 # short-option cluster such as -yR, because the repository comes only from the
 # URL, nor --sha or --match-head-commit because the head comes only from the
-# live read. An existing task-meta pr= must equal the requested canonical URL;
-# a task cannot be rebound here. Auto-merge (--auto), a protection bypass
+# live read. An existing task-meta pr= must equal the requested canonical URL,
+# unless that bound PR has already merged - proven by its recorded merge
+# notification - in which case the task's next PR is accepted so several PRs
+# from one task can each merge in turn; while the bound PR is still unmerged a
+# different URL is refused. Auto-merge (--auto), a protection bypass
 # (--admin), and branch
 # deletion (--delete-branch, -d and short-flag clusters, and GitLab's
 # --remove-source-branch) are refused by default; --attended-override, parsed
@@ -1119,7 +1123,7 @@ hold_away_record_for_merge() {
 
 require_current_away_authority() {
   FM_PR_AWAY_POSTURE=false
-  if fm_afk_contract_present "$STATE"; then
+  if fm_afk_contract_away_present "$STATE"; then
     FM_PR_AWAY_POSTURE=true
     if [ "$PROVIDER" = github ] && [ "$FM_PR_GITHUB_AUTO_REQUESTED" = true ]; then
       echo "error: --auto is attended-only; while the away-posture record exists only a synchronous merge may run under its authority lock" >&2
@@ -1189,6 +1193,13 @@ require_recorded_pr_identity() {
   existing=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
   [ -n "$existing" ] || return 0
   [ "$existing" = "$URL" ] && return 0
+  # Parsed in a subshell so FM_PR_* stays the new URL's identity for every
+  # caller after this gate; only the already-notified verdict escapes.
+  if ( fm_pr_url_parse "$existing" \
+    && fm_pr_poll_merge_already_notified "$STATE" "$ID" \
+      "$FM_PR_PROVIDER" "$FM_PR_HOST" "$FM_PR_PATH" "$FM_PR_NUMBER" ); then
+    return 0
+  fi
   echo "error: task $ID is bound to $existing, not $URL" >&2
   return 1
 }
