@@ -25,7 +25,8 @@ Collect successful per-script measurements for every member before calculating a
 That post-fix value has only one sample in this baseline, so further green runs must establish its variance.
 The native-Windows-only `tests/fm-pi-windows-shell-invocation.test.sh` retains its separate 5121 ms measurement from 2026-09-06T21:02Z instead of a portable capability skip.
 The session-start hint retains its pre-optimization maximum until CI measures the shorter fixture-only home-summary bound; do not discount a local speedup from CI packing weights.
-This fork develops locally with workflows disabled, so it has no CI run to refresh its own suites from: the serial hints for the 25 fork-only scripts that the upstream tables above do not list keep the fork's last recorded figure, and three of them (`fm-pr-blockers-live-e2e`, `fm-spawn-empty-project`, and `ocr-review-rule-live`) carry a local `--all` measurement from 2026-09-19.
+This fork develops locally with workflows disabled, so it has no CI run to refresh its own suites from: the serial hints for the 25 fork-only scripts that the upstream tables above do not list keep the slowest local figure recorded for them.
+On 2026-10-01 the full portable run (every lane in its own private `/tmp`) raised eleven of those hints to the slower passing sample it measured; a hint for a script that failed or gate-skipped in that run keeps its earlier figure.
 Replace each with a CI-derived sample as soon as one exists; a local sample is a better balance input than the default weight, not an equal one.
 
 ## Parallel lanes
