@@ -192,7 +192,7 @@ composer_frame_rows() {  # <target>
   # shellcheck disable=SC2034 # `lead` is an out-varname set by name inside
   # fm_composer_leading_agent_glyph_var; only its return status is read here.
   local target=$1 cap line plain row=0 glyph=0 rule=0 rules=0 lead
-  cap=$(fm_backend_herdr_capture_ansi "$target" "$FM_COMPOSER_CAPTURE_LINES" 2>/dev/null) || cap=
+  cap=$(fm_backend_herdr_visible_capture_ansi "$target" 2>/dev/null) || cap=
   while IFS= read -r line; do
     row=$((row + 1))
     plain=$(printf '%s\n' "$line" | fm_composer_strip_ansi)
