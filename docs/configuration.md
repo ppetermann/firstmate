@@ -148,6 +148,7 @@ config/claude-account config/pi-account  optional per-home worker account pin fo
 config/supervision-host  optional supervision-host engine setting; absent runs the host on a Claude primary and nowhere else; LOCAL, gitignored, not inherited; see "Supervision host" below
 config/supervision-host-off  optional presence flag opting this home out of the supervision host on every primary; LOCAL, gitignored; inherited by secondmate homes under the primary-authoritative contract; see "Supervision host" below
 config/fleet-ledger  optional presence flag opting this home in to the default-off fleet activity ledger; LOCAL, gitignored; see "Fleet activity ledger" below
+config/maia-notify  optional maia notification settings (url, token, events, ttl) turning on default-off notifications to the maia-firstmate plugin; LOCAL, gitignored, mode 0600, not inherited; see "maia notifications" below
 config/lavish-axi-host  optional one-line per-machine Lavish server address; LOCAL, gitignored, inherited by secondmate homes; see "Lavish server address" below
 config/brief-include.md  optional standing worker instructions appended verbatim as the last section of every ship and scout scaffold; LOCAL, gitignored, not inherited; see "Home brief include" below
 config/launch-env-allowlist  optional worker launch environment allowlist; LOCAL, gitignored; see "Worker launch environment" below
@@ -662,6 +663,13 @@ See [`trace-context.md`](trace-context.md) for carrier semantics, supported rout
 ## Fleet activity ledger (config/fleet-ledger)
 
 See [`fleet-ledger.md`](fleet-ledger.md) for the opt-in setup, record contract, and limits.
+
+## maia notifications (config/maia-notify)
+
+The optional local, gitignored `config/maia-notify` turns on default-off keyed notifications to the maia-firstmate plugin.
+It holds `field=value` lines: `url` and `token` are required, `events` lists the keys to send (absent: `decision merge-ready merged deployed failed`), and `ttl` is the seconds an undelivered notification waits before it is dropped (absent: `900`).
+Keep it at mode `0600`, because it holds the plugin token.
+See [`maia-notify.md`](maia-notify.md) for the keys, their variables, and delivery behavior.
 
 ## Turn-end pane-churn absorb (config/turnend-churn-absorb)
 
@@ -2530,6 +2538,7 @@ FM_WEDGE_ALARM_CHANNEL=            # override config/wedge-alarm with one active
 FM_WEDGE_ALARM_REPEAT_SECS=0       # re-fire cadence for the outbound wedge alert during a persistent wedge episode; 0 fires it once per episode; the durable marker and ERROR log still update every max-defer window (docs/wedge-alarm.md)
 FM_WEDGE_ALARM_EXEC=              # notifier seam: route every channel (osascript, herdr, command:) through this command as `<cmd> <channel> <summary>`; "discard" fires nothing; unset in production; the daemon defaults it to "discard" when sourced so no test posts a real notification (docs/wedge-alarm.md)
 FM_WEDGE_ALARM_TIMEOUT_SECS=10    # maximum seconds for each osascript, herdr, override, or command: notifier before its watchdog terminates it and continues to the next channel; invalid or zero values use 10
+FM_MAIA_NOTIFY_EXEC=              # maia notification transport seam: run as `<cmd> <url>` with the JSON body on stdin, printing the HTTP status; "discard" sends nothing; unset uses curl (bin/fm-maia-notify.sh header, docs/maia-notify.md)
 FM_INJECT_FAIL_SLEEP=30            # seconds to back off when the supervisor pane is unavailable
 FM_INJECT_CONFIRM_RETRIES=3        # daemon Enter-retry attempts after typing a digest once
 FM_INJECT_CONFIRM_SLEEP=0.5        # seconds between daemon submit checks

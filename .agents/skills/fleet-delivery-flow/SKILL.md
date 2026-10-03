@@ -107,10 +107,10 @@ B pre-push: ladder green (gate-pass head= matches) -> pushed once -> DRAFT opene
   backlog updated.
 C flip: landing turn -> rebased -> ladder green -> flip -> verify CI + ocr-review on
   this head (else seen-state recovery) -> CodeRabbit in flight where applicable.
-D merge-ready: the six legs, live.
+D merge-ready: the six legs, live -> `bin/fm-maia-notify.sh send merge-ready --id merge-ready:<PR url>:<head sha> project=<repo> task=<id> pr_url=<PR url> pr_number=<n> title="<PR title>"` (a no-op unless config/maia-notify exists; docs/maia-notify.md).
 E post-merge: clone refreshed -> `bin/fm-review-tally.sh record <PR url>` (read the
   candidates it prints; re-run with --judge for any CodeRabbit finding the bot read and
   declined in its report; where both reviewers' candidates share a file, check which push actually fixed each and pass --acted-at <n>=<sha> wherever the proxy credits the wrong commit)
   -> queue advanced -> worker torn down -> tail evaluated
   against the batching triggers -> backlog updated.
-F release: per-project tail from the Delivery section -> report with full URL(s).
+F release: per-project tail from the Delivery section -> once verified live, `bin/fm-maia-notify.sh send deployed --id deployed:<project>:<version> project=<project> version=<version> url=<release URL>` -> report with full URL(s).

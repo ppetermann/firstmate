@@ -797,6 +797,7 @@ tests/fm-live-gate.test.sh 7452
 tests/fm-live-lab-up-mate.test.sh 17363
 tests/fm-live-lab.test.sh 79639
 tests/fm-local-gate.test.sh 2524
+tests/fm-maia-notify.test.sh 13852
 tests/fm-mail-check.test.sh 7524
 tests/fm-mail.test.sh 9684
 tests/fm-missed-done-wake-regression.test.sh 6740
