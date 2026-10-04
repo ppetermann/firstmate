@@ -34,7 +34,7 @@ ttl=900
 
 | Key           | Sent when | Variables | Default |
 | ------------- | --------- | --------- | ------- |
-| `decision`    | A task is newly held for the captain. A repeated hold and an `--until` deferral send nothing. | `project`, `task`, `title`, `question` | on |
+| `decision`    | A task is newly held for the captain and still held 2 minutes later. A repeated hold and an `--until` deferral send nothing. | `project`, `task`, `title`, `question` | on |
 | `merge-ready` | Firstmate finds all six merge-ready legs passing (`fleet-delivery-flow` checklist D). | `project`, `task`, `pr_url`, `pr_number`, `title` | on |
 | `merged`      | The ledger records a PR merge or a local-only landing. | `project`, `task`, `pr_url`, `pr_number`, `via` | on |
 | `deployed`    | Firstmate verifies a project's release live (`fleet-delivery-flow` checklist F). | `project`, `version`, `url` | on |
@@ -45,6 +45,11 @@ ttl=900
 `project` is the project directory name.
 Each value is cut to 200 characters; the plugin cleans and fences every value again before it reaches maia.
 Every notification carries an id the plugin uses to drop repeats: `decision:<task>:<hold time>`, `merge-ready:<PR URL>:<head sha>`, `merged:<PR URL>` or `merged:local:<task>`, `deployed:<project>:<version>`, and `<state>:<task>:<time>` for status lines.
+
+A `decision` waits a 2-minute grace before delivery, and is dropped with one log line if the task was answered, released or closed in the meantime, so bookkeeping that records an already-answered call never tells the captain firstmate is waiting.
+If the hold state cannot be read when the grace ends, the notification is sent.
+Every other key goes out immediately.
+The `ttl` counts from the end of the grace.
 
 A key can also be sent by hand: `bin/fm-maia-notify.sh send <key> [--id <id>] name=value...`.
 Any key listed in `events` is sent, so a custom key needs only a template in the panel and an `events` entry here.

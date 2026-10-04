@@ -9,14 +9,14 @@
 # repeats that test so a direct invocation writes and sends nothing.
 #
 # Hooks:
-#   bin/fm-captain-hold.sh   send decision (a newly set hold, not a repeat or
-#                            an --until deferral)
+#   bin/fm-captain-hold.sh   send decision --check-hold <task> (a newly set
+#                            hold, not a repeat or an --until deferral)
 #   bin/fm-watch.sh          follow, detached, once per poll cycle
 #   fleet-delivery-flow      send merge-ready (checklist D), send deployed
 #                            (checklist F), run by the firstmate agent
 #
 # Usage:
-#   fm-maia-notify.sh send <key> [--id <id>] [name=value ...]
+#   fm-maia-notify.sh send <key> [--id <id>] [--check-hold <task>] [name=value ...]
 #   fm-maia-notify.sh flush
 #   fm-maia-notify.sh follow
 #
@@ -26,6 +26,17 @@
 # never written to it, and spool file names carry only time, pid and a random
 # suffix. Values are cut to 200 characters. At most 16 variables. The spool
 # keeps at most 200 files; the oldest is dropped to make room.
+#
+# --check-hold <task> makes a notification wait HOLD_GRACE seconds (120) before
+# delivery: the spool file gets a not_before time and a hold_task field (neither
+# is posted). Until then flush skips it. At delivery flush asks
+# `fm-captain-hold.sh open <task>` whether the task is still held for the
+# captain; if it was answered, released or closed the file is deleted with one
+# log line (`dropped ... no longer held`) and nothing is sent. Any other
+# outcome of that check (unreadable backlog, absent backlog file, a tool error)
+# sends, so a broken check can only produce a notification, never lose one. The
+# ttl counts from not_before, so a small ttl cannot expire a delayed file
+# before its grace ends. Keys sent without --check-hold go out immediately.
 #
 # flush posts each spool file in name order: the body (token added here) goes
 # to the transport on stdin, so it is never in any argv. A 2xx answer or a 4xx
@@ -82,6 +93,7 @@ VARS_MAX=16
 VALUE_MAX=200
 ID_MAX=200
 SPOOL_SEQ=0
+HOLD_GRACE=120
 
 usage() {
   echo "usage: fm-maia-notify.sh send <key> [--id <id>] [name=value ...] | flush | follow" >&2
@@ -154,10 +166,12 @@ lock_drop() {
   rm -rf "$DIR/.$1.lock" 2>/dev/null || true
 }
 
-# spool <key> <id> <name=value>... : validated input -> one spool file.
+# spool <key> <id> <hold-task> <name=value>... : validated input -> one spool
+# file. A non-empty hold-task delays delivery by HOLD_GRACE and re-checks it.
 spool() {
-  local key=$1 id=$2 tmp file count
-  shift 2
+  local key=$1 id=$2 hold_task=$3 tmp file count not_before=0
+  shift 3
+  [ -z "$hold_task" ] || not_before=$(( $(now) + HOLD_GRACE ))
   if ! event_enabled "$key"; then
     log "off key=$key id=$id"
     return 0
@@ -174,13 +188,15 @@ spool() {
   done
   tmp=$(mktemp "$SPOOL/.new.XXXXXX") || { log "error key=$key id=$id: cannot write the spool"; return 0; }
   if ! jq -n --arg key "$key" --arg id "$id" --argjson created "$(now)" \
-      --argjson max "$VALUE_MAX" '$ARGS.positional
+      --argjson max "$VALUE_MAX" --arg hold "$hold_task" \
+      --argjson nb "$not_before" '$ARGS.positional
         | map(index("=") as $i | {key: .[:$i], value: (.[$i + 1:]
             | gsub("[[:cntrl:]]"; " ")
             | if length > $max then .[0:$max - 1] + "…" else . end)})
         | from_entries as $vars
         | {key: $key, created: $created, vars: $vars}
-        + (if $id == "" then {} else {id: $id} end)' --args "$@" > "$tmp" 2>/dev/null; then
+        + (if $id == "" then {} else {id: $id} end)
+        + (if $hold == "" then {} else {hold_task: $hold, not_before: $nb} end)' --args "$@" > "$tmp" 2>/dev/null; then
     rm -f -- "$tmp"
     log "error key=$key id=$id: cannot encode the notification"
     return 0
@@ -201,13 +217,14 @@ start_flush() {
 }
 
 cmd_send() {
-  local key=${1:-} id='' pair name n=0
+  local key=${1:-} id='' hold_task='' pair name n=0
   local -a pairs=()
   [ "$#" -ge 1 ] || usage
   shift
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --id) [ "$#" -ge 2 ] || usage; id=$2; shift 2; continue ;;
+      --check-hold) [ "$#" -ge 2 ] || usage; hold_task=$2; shift 2; continue ;;
       *=*) pairs+=("$1") ;;
       *) usage ;;
     esac
@@ -233,9 +250,19 @@ cmd_send() {
     log "rejected key=$key id=$id: more than $VARS_MAX variables"
     return 0
   fi
-  spool "$key" "$id" "${pairs[@]+"${pairs[@]}"}"
+  case "$hold_task" in *[!A-Za-z0-9._-]*) hold_task='' ;; esac
+  spool "$key" "$id" "$hold_task" "${pairs[@]+"${pairs[@]}"}"
   start_flush
   return 0
+}
+
+# still_held <task>: 1 only when fm-captain-hold.sh reports the task is no
+# longer held for the captain (its `open` answers 1); every other outcome is 0.
+still_held() {
+  local rc=0
+  FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE "$SCRIPT_DIR/fm-captain-hold.sh" open "$1" \
+    </dev/null >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 1 ]
 }
 
 # post <url> <token> <spool-file>: print the HTTP status ("000" on transport
@@ -254,7 +281,7 @@ post() {
 }
 
 cmd_flush() {
-  local url token ttl_s now_s file created key id status mode
+  local url token ttl_s now_s file created key id status mode not_before hold_task
   [ -e "$CONF" ] || return 0
   [ -d "$SPOOL" ] || return 0
   lock_take flush || return 0
@@ -270,10 +297,22 @@ cmd_flush() {
     created=$(jq -r '.created // 0' "$file" 2>/dev/null || echo 0)
     key=$(jq -r '.key // ""' "$file" 2>/dev/null || true)
     id=$(jq -r '.id // ""' "$file" 2>/dev/null || true)
+    not_before=$(jq -r '.not_before // 0' "$file" 2>/dev/null || echo 0)
+    hold_task=$(jq -r '.hold_task // ""' "$file" 2>/dev/null || true)
     case "$created" in ''|*[!0-9]*) created=0 ;; esac
+    case "$not_before" in ''|*[!0-9]*) not_before=0 ;; esac
+    [ "$not_before" -le "$created" ] || created=$not_before
+    if [ "$not_before" -gt "$now_s" ]; then
+      continue
+    fi
     if [ $((now_s - created)) -gt "$ttl_s" ]; then
       rm -f -- "$file"
       log "expired key=$key id=$id"
+      continue
+    fi
+    if [ -n "$hold_task" ] && ! still_held "$hold_task"; then
+      rm -f -- "$file"
+      log "dropped key=$key id=$id: task no longer held"
       continue
     fi
     if [ -z "$url" ] || [ -z "$token" ]; then
@@ -328,17 +367,17 @@ follow_record() {
       if [ "$via" = pr ] && [ -n "$pr" ]; then
         num=${pr##*/}
         case "$num" in *[!0-9]*) num='' ;; esac
-        spool merged "merged:$pr" project="$project" task="$task" pr_url="$pr" pr_number="$num" via=pr
+        spool merged "merged:$pr" "" project="$project" task="$task" pr_url="$pr" pr_number="$num" via=pr
       else
-        spool merged "merged:local:$task" project="$project" task="$task" via="${via:-local}"
+        spool merged "merged:local:$task" "" project="$project" task="$task" via="${via:-local}"
       fi ;;
     task.status)
       text=$(printf '%s' "$text" | sed 's/^[[:space:]]*//')
       case "$state" in
-        failed|blocked) spool "$state" "$state:$task:$ts" project="$project" task="$task" text="$text" ;;
+        failed|blocked) spool "$state" "$state:$task:$ts" "" project="$project" task="$task" text="$text" ;;
       esac ;;
     task.pr_ready)
-      [ -z "$pr" ] || spool pr-ready "pr-ready:$pr" project="$project" task="$task" pr_url="$pr" ;;
+      [ -z "$pr" ] || spool pr-ready "pr-ready:$pr" "" project="$project" task="$task" pr_url="$pr" ;;
   esac
   return 0
 }

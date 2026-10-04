@@ -332,6 +332,73 @@ test_captain_hold_sends_decision_once() {
   pass "captain hold: a newly set hold sends one decision notification; a repeat, a deferral, or an absent config sends none"
 }
 
+# --- hold grace: a decision waits, then is re-checked against the backlog ---
+
+hold_case() {  # <name>
+  make_case "$1" on
+  cp "$ROOT/.tasks.toml" "$HOME_DIR/.tasks.toml"
+  printf '## In flight\n\n## Queued\n\n## Done\n' > "$HOME_DIR/data/backlog.md"
+  fm_fake_exit0 "$FAKEBIN" tmux treehouse no-mistakes gh gh-axi
+}
+
+flush_at() {  # <epoch>
+  (cd "$HOME_DIR" && FM_MAIA_NOTIFY_NOW=$1 in_home "$NOTIFY" flush >/dev/null 2>&1)
+}
+
+test_decision_grace_sends_a_still_held_task() {
+  command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; return 0; }
+  hold_case grace-held
+  FM_MAIA_NOTIFY_NOW=1000 run_hold held-call --title "Held call" --repo webapp --reason "Which?" || fail "hold failed"
+  # run_hold uses the real clock for created; rewrite the spool times to the test clock.
+  local f
+  f=$(find "$HOME_DIR/state/maia-notify/spool" -name '*.json')
+  jq -c '.created = 1000 | .not_before = 1120' "$f" > "$f.new" && mv "$f.new" "$f"
+  flush_at 1119
+  assert_equals 1 "$(spool_count)" "spool inside the grace"
+  assert_equals "" "$(bodies)" "bodies inside the grace"
+  flush_at 1121
+  assert_equals 0 "$(spool_count)" "spool after the grace"
+  assert_equals decision "$(bodies | jq -r .key)" "delivered key"
+  assert_equals null "$(bodies | jq -r .hold_task)" "hold_task is not posted"
+  pass "grace: a decision waits out the grace, then is sent while its task is still held"
+}
+
+test_decision_grace_drops_an_answered_task() {
+  command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; return 0; }
+  hold_case grace-answered
+  run_hold answered-call --title "Answered call" --repo webapp --reason "Which?" || fail "hold failed"
+  printf 'go with A\n' > "$HOME_DIR/answer.txt"
+  (cd "$HOME_DIR" && in_home "$ROOT/bin/fm-captain-hold.sh" answer answered-call --decision-file "$HOME_DIR/answer.txt" >/dev/null 2>&1) \
+    || fail "answer failed"
+  flush_at $(( $(date +%s) + 200 ))
+  assert_equals 0 "$(spool_count)" "spool after an answer"
+  assert_equals "" "$(bodies)" "bodies after an answer"
+  assert_grep "task no longer held" \
+    "$HOME_DIR/state/maia-notify/log" "log or capture check: dropped decision"
+  pass "grace: a decision whose task was answered inside the grace is dropped with one log line"
+}
+
+test_decision_grace_sends_when_state_is_unreadable() {
+  command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; return 0; }
+  hold_case grace-unreadable
+  run_hold unread-call --title "Unread call" --repo webapp --reason "Which?" || fail "hold failed"
+  rm -f "$HOME_DIR/data/backlog.md"
+  mkdir "$HOME_DIR/data/backlog.md"
+  flush_at $(( $(date +%s) + 200 ))
+  assert_equals 0 "$(spool_count)" "spool with unreadable state"
+  assert_equals decision "$(bodies | jq -r .key)" "delivered key with unreadable state"
+  pass "grace: an unreadable backlog sends the decision rather than dropping it"
+}
+
+test_non_decision_keys_are_immediate() {
+  make_case immediate on
+  in_home "$NOTIFY" send merged --id m1 project=p || fail "send failed"
+  in_home "$NOTIFY" send decision --id d1 project=p || fail "send without --check-hold failed"
+  assert_equals 0 "$(spool_count)" "spool after immediate sends"
+  assert_equals "merged decision" "$(bodies | jq -r .key | tr '\n' ' ' | sed 's/ $//')" "immediate keys"
+  pass "grace: keys without --check-hold, such as merged, are delivered immediately"
+}
+
 # --- hook: the watcher ---
 
 test_watcher_drives_follow() {
@@ -368,4 +435,8 @@ test_follow_maps_ledger_records
 test_follow_flushes_without_the_ledger
 test_dedup_ids_are_stable
 test_captain_hold_sends_decision_once
+test_decision_grace_sends_a_still_held_task
+test_decision_grace_drops_an_answered_task
+test_decision_grace_sends_when_state_is_unreadable
+test_non_decision_keys_are_immediate
 test_watcher_drives_follow

@@ -1009,7 +1009,7 @@ command_hold() {
     || fail "task $id lost its hold-set stamp while being held"
   publish_parent_hold "$id" "$occurrence" needs-decision "$reason"
   # Opt-in maia notification (docs/maia-notify.md) for a newly set hold only: a repeated hold or an --until deferral stays silent.
-  [ "$preserve_hold_set" = 1 ] || [ -n "$until" ] || [ ! -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/maia-notify" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE "$SCRIPT_DIR/fm-maia-notify.sh" send decision --id "decision:$id:$hold_set" project="$(show_field_value "$show" repo)" task="${origin:-$id}" title="$(show_field_value "$show" title)" question="$reason" >/dev/null 2>&1 || true
+  [ "$preserve_hold_set" = 1 ] || [ -n "$until" ] || [ ! -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/maia-notify" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE "$SCRIPT_DIR/fm-maia-notify.sh" send decision --id "decision:$id:$hold_set" --check-hold "$id" project="$(show_field_value "$show" repo)" task="${origin:-$id}" title="$(show_field_value "$show" title)" question="$reason" >/dev/null 2>&1 || true
   printf '%s\n' "$id"
 }
 
