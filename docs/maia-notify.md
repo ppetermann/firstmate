@@ -35,7 +35,7 @@ ttl=900
 | Key           | Sent when | Variables | Default |
 | ------------- | --------- | --------- | ------- |
 | `decision`    | A task is newly held for the captain and still held 2 minutes later. A repeated hold and an `--until` deferral send nothing. | `project`, `task`, `title`, `question` | on |
-| `merge-ready` | Firstmate finds all six merge-ready legs passing (`fleet-delivery-flow` checklist D). | `project`, `task`, `pr_url`, `pr_number`, `title` | on |
+| `merge-ready` | A task's GitHub PR is open, not a draft, mergeable, approved and green at its current head; once per head. | `project`, `task`, `pr_url`, `pr_number`, `title` | on |
 | `merged`      | The ledger records a PR merge or a local-only landing. | `project`, `task`, `pr_url`, `pr_number`, `via` | on |
 | `deployed`    | Firstmate verifies a project's release live (`fleet-delivery-flow` checklist F). | `project`, `version`, `url` | on |
 | `failed`      | The ledger records a `failed` status line. | `project`, `task`, `text` | on |
@@ -45,6 +45,12 @@ ttl=900
 `project` is the project directory name.
 Each value is cut to 200 characters; the plugin cleans and fences every value again before it reaches maia.
 Every notification carries an id the plugin uses to drop repeats: `decision:<task>:<hold time>`, `merge-ready:<PR URL>:<head sha>`, `merged:<PR URL>` or `merged:local:<task>`, `deployed:<project>:<version>`, and `<state>:<task>:<time>` for status lines.
+
+`merge-ready` is automatic: the supervision monitor reads each task's recorded GitHub PR at most once every 5 minutes and sends when the PR is open, not a draft, mergeable with GitHub reporting it clean, approved, and has at least one check with every check passed.
+Approved means GitHub's review decision is APPROVED, or, on a repository that requires no reviews, an approving latest review and no changes-requested one.
+It is sent once per head commit, so a fix push that is approved and green again sends again, and a merged or closed PR is not read again.
+It needs the `gh` CLI, and a failed read sends nothing and is retried on the next scan.
+The scan covers the GitHub-visible legs only; firstmate still sends `merge-ready` by hand at `fleet-delivery-flow` checklist D as a backstop, and the plugin drops the repeat by its id.
 
 A `decision` waits a 2-minute grace before delivery, and is dropped with one log line if the task was answered, released or closed in the meantime, so bookkeeping that records an already-answered call never tells the captain firstmate is waiting.
 If the hold state cannot be read when the grace ends, the notification is sent.
@@ -68,5 +74,6 @@ It never appears in a command line, in a spool file or its name, or in the log.
 
 `state/maia-notify/log` records one line per outcome with the key, the id, and the HTTP status, and never a variable's value.
 The ledger position is kept in `state/maia-notify/follow-offset`; when it is absent, reading starts at the end of the ledger, so earlier history is not sent.
+The PR heads already announced as merge-ready are kept in `state/maia-notify/merge-ready`.
 
 `bin/fm-maia-notify.sh`'s header owns the exact mechanics, and `tests/fm-maia-notify.test.sh` covers them.

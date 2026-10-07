@@ -267,6 +267,139 @@ test_follow_maps_ledger_records() {
   pass "follow: merges and failures map to keys with project, PR and ids; history, off keys, unknown records and partial lines are not sent"
 }
 
+# The gh fake answers `gh pr view <url> --json ...` from $REC/gh/<number>.json
+# and records each PR it was asked about; a missing file fails the read.
+make_gh() {
+  mkdir -p "$REC/gh"
+  fm_fakebin_write "$FAKEBIN/gh" <<'SH'
+#!/usr/bin/env bash
+[ "$1 $2" = "pr view" ] || exit 1
+printf '%s\n' "$3" >> "$FM_TEST_REC/gh-calls"
+cat "$FM_TEST_REC/gh/${3##*/}.json" 2>/dev/null || exit 1
+SH
+  chmod +x "$FAKEBIN/gh"
+}
+
+# pr_json <number> [jq update...]: an open, approved, green PR, then updates.
+pr_json() {  # <number> <head sha> [jq-update]
+  jq -n --arg sha "$2" '{state: "OPEN", isDraft: false, mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN", reviewDecision: "APPROVED", latestReviews: [],
+    headRefOid: $sha, title: "Make it shine",
+    statusCheckRollup: [{__typename: "CheckRun", status: "COMPLETED", conclusion: "SUCCESS", name: "ci"},
+      {__typename: "StatusContext", state: "SUCCESS", context: "review"}]}' \
+    | jq "${3:-.}" > "$REC/gh/$1.json"
+}
+
+SHA_A=$(printf 'a%.0s' $(seq 40))
+SHA_B=$(printf 'b%.0s' $(seq 40))
+
+# scan <clock>: one follow at that time; returns the merge-ready ids sent so far.
+scan_at() {
+  FM_MAIA_NOTIFY_NOW=$1 in_home "$NOTIFY" follow || fail "follow at $1 failed"
+}
+
+merge_ready_ids() {
+  bodies | jq -r 'select(.key == "merge-ready") | .id'
+}
+
+test_merge_ready_fires_on_approved_and_green() {
+  local url=https://github.com/acme/webapp/pull/7
+  make_case merge-ready on
+  make_gh
+  write_task_meta t1 webapp
+  printf 'pr=%s\n' "$url" >> "$HOME_DIR/state/t1.meta"
+  pr_json 7 "$SHA_A"
+  scan_at 1000
+  assert_equals "{\"key\":\"merge-ready\",\"id\":\"merge-ready:$url:$SHA_A\",\"vars\":{\"project\":\"webapp\",\"task\":\"t1\",\"pr_url\":\"$url\",\"pr_number\":\"7\",\"title\":\"Make it shine\"}}" \
+    "$(bodies | jq -c 'del(.token)')" "merge-ready notification"
+  pass "merge-ready: an open, approved, mergeable, all-green task PR sends checklist D's id and variables"
+}
+
+test_merge_ready_not_before_ready() {
+  local n=1 update
+  make_case merge-ready-not on
+  make_gh
+  for update in '.isDraft = true' '.statusCheckRollup[0].conclusion = "FAILURE"' \
+      '.statusCheckRollup[0] = {__typename: "CheckRun", status: "IN_PROGRESS", conclusion: null}' \
+      '.statusCheckRollup[1].state = "PENDING"' '.statusCheckRollup = []' \
+      '.reviewDecision = "CHANGES_REQUESTED"' '.reviewDecision = "REVIEW_REQUIRED"' \
+      '.reviewDecision = null | .latestReviews = [{state: "APPROVED"}, {state: "CHANGES_REQUESTED"}]' \
+      '.mergeable = "CONFLICTING"' '.mergeable = "UNKNOWN"' '.mergeStateStatus = "BLOCKED"' \
+      '.state = "MERGED"' '.state = "CLOSED"'; do
+    write_task_meta "t$n" webapp
+    printf 'pr=https://github.com/acme/webapp/pull/%s\n' "$n" >> "$HOME_DIR/state/t$n.meta"
+    pr_json "$n" "$SHA_A" "$update"
+    n=$((n + 1))
+  done
+  # A non-GitHub PR and a task with no PR are never read.
+  write_task_meta gl webapp
+  printf 'pr=https://gitlab.example/acme/webapp/-/merge_requests/3\n' >> "$HOME_DIR/state/gl.meta"
+  write_task_meta nopr webapp
+  scan_at 1000
+  assert_equals "" "$(merge_ready_ids)" "merge-ready ids before any PR is ready"
+  assert_equals 13 "$(wc -l < "$REC/gh-calls" | tr -d ' ')" "GitHub reads"
+  # A merged or closed PR is never read again; the others are, once the interval passed.
+  : > "$REC/gh-calls"
+  scan_at 1100
+  assert_absent_or_empty() { [ ! -s "$1" ] || fail "$2: $(cat "$1")"; }
+  assert_absent_or_empty "$REC/gh-calls" "reads inside the scan interval"
+  scan_at 1300
+  assert_equals 11 "$(wc -l < "$REC/gh-calls" | tr -d ' ')" "reads after the interval, merged and closed skipped"
+  assert_equals "" "$(merge_ready_ids)" "merge-ready ids on the second scan"
+  pass "merge-ready: nothing for a draft, red, pending, check-less, unapproved, conflicting, blocked, merged or closed PR; merged and closed are not read again"
+}
+
+test_merge_ready_once_per_head() {
+  local url=https://github.com/acme/webapp/pull/7
+  make_case merge-ready-head on
+  make_gh
+  write_task_meta t1 webapp
+  printf 'pr=%s\n' "$url" >> "$HOME_DIR/state/t1.meta"
+  pr_json 7 "$SHA_A"
+  scan_at 1000
+  scan_at 1300
+  assert_equals "merge-ready:$url:$SHA_A" "$(merge_ready_ids)" "one send for one head"
+  # A fix push: pending on the new head sends nothing, approved and green sends again.
+  pr_json 7 "$SHA_B" '.statusCheckRollup[1].state = "PENDING"'
+  scan_at 1600
+  assert_equals 1 "$(merge_ready_ids | wc -l | tr -d ' ')" "sends while the new head is pending"
+  rm -f "$REC/gh/7.json"
+  scan_at 1900
+  assert_equals 1 "$(merge_ready_ids | wc -l | tr -d ' ')" "sends after a failed read"
+  pr_json 7 "$SHA_B"
+  scan_at 2200
+  scan_at 2500
+  assert_equals "merge-ready:$url:$SHA_A
+merge-ready:$url:$SHA_B" "$(merge_ready_ids)" "sends across two heads"
+  pr_json 7 "$SHA_B" '.state = "MERGED"'
+  scan_at 2800
+  : > "$REC/gh-calls"
+  scan_at 3100
+  assert_equals 0 "$(wc -l < "$REC/gh-calls" | tr -d ' ')" "reads after the merge"
+  assert_equals 2 "$(merge_ready_ids | wc -l | tr -d ' ')" "sends after the merge"
+  pass "merge-ready: once per head, again on a new approved green head, never after a merge"
+}
+
+test_merge_ready_off() {
+  make_case merge-ready-off off
+  make_gh
+  write_task_meta t1 webapp
+  printf 'pr=https://github.com/acme/webapp/pull/7\n' >> "$HOME_DIR/state/t1.meta"
+  pr_json 7 "$SHA_A"
+  scan_at 1000
+  assert_absent "$REC/gh-calls" "GitHub reads without config/maia-notify"
+  assert_absent "$HOME_DIR/state/maia-notify" "notify state without config/maia-notify"
+  make_case merge-ready-unlisted on 'events=decision merged'
+  make_gh
+  write_task_meta t1 webapp
+  printf 'pr=https://github.com/acme/webapp/pull/7\n' >> "$HOME_DIR/state/t1.meta"
+  pr_json 7 "$SHA_A"
+  scan_at 1000
+  assert_absent "$REC/gh-calls" "GitHub reads with merge-ready not in events"
+  assert_absent "$REC/bodies" "notifications with merge-ready not in events"
+  pass "merge-ready: no GitHub read and no send without config/maia-notify or with merge-ready off in events"
+}
+
 test_follow_flushes_without_the_ledger() {
   make_case follow-flush on
   printf '503' > "$REC/status"
@@ -433,6 +566,10 @@ test_input_validation
 test_spool_cap
 test_follow_maps_ledger_records
 test_follow_flushes_without_the_ledger
+test_merge_ready_fires_on_approved_and_green
+test_merge_ready_not_before_ready
+test_merge_ready_once_per_head
+test_merge_ready_off
 test_dedup_ids_are_stable
 test_captain_hold_sends_decision_once
 test_decision_grace_sends_a_still_held_task

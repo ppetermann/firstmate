@@ -12,8 +12,9 @@
 #   bin/fm-captain-hold.sh   send decision --check-hold <task> (a newly set
 #                            hold, not a repeat or an --until deferral)
 #   bin/fm-watch.sh          follow, detached, once per poll cycle
-#   fleet-delivery-flow      send merge-ready (checklist D), send deployed
-#                            (checklist F), run by the firstmate agent
+#   fleet-delivery-flow      send merge-ready (checklist D, a backstop to the
+#                            automatic scan below), send deployed (checklist F),
+#                            run by the firstmate agent
 #
 # Usage:
 #   fm-maia-notify.sh send <key> [--id <id>] [--check-hold <task>] [name=value ...]
@@ -59,6 +60,24 @@
 #   task.pr_ready                -> pr-ready   project task pr_url
 # The project is the basename of state/<task>.meta's project=.
 #
+# follow also runs the merge-ready scan first, when merge-ready is in events
+# and gh is installed, at most once per SCAN_INTERVAL (300 s, stamped in
+# state/maia-notify/merge-ready-scan), under its own lock. For each
+# state/<task>.meta whose last pr= is a GitHub pull request URL it makes one
+# `gh pr view --json` read (timeout 20 s) and sends
+#   merge-ready  --id merge-ready:<url>:<head sha>
+#                project task pr_url pr_number title
+# when the PR is open, not a draft, MERGEABLE with mergeStateStatus CLEAN or
+# HAS_HOOKS, reviewDecision APPROVED (or no reviewDecision, because the repo
+# requires no reviews, with an APPROVED latest review and no CHANGES_REQUESTED
+# one), and has at least one check with every check passed (SUCCESS, NEUTRAL or
+# SKIPPED). state/maia-notify/merge-ready keeps `<url> <sha>` for the head last
+# sent, so one head sends once and a later head sends again, and `<url> closed`
+# for a merged or closed PR, which is never read again. A failed read keeps the
+# previous entry and sends nothing. Entries whose PR no meta records any more
+# are pruned. The PR-poll check is not the owner: its program is byte-pinned
+# and only reports merges, and it reads nothing a merge-ready verdict needs.
+#
 # Log: state/maia-notify/log, one line per outcome, holding key, id and HTTP
 # status. Variable values and the token are never logged.
 #
@@ -94,6 +113,8 @@ VALUE_MAX=200
 ID_MAX=200
 SPOOL_SEQ=0
 HOLD_GRACE=120
+SCAN_INTERVAL=300
+PR_READ_TIMEOUT=20
 
 usage() {
   echo "usage: fm-maia-notify.sh send <key> [--id <id>] [name=value ...] | flush | follow" >&2
@@ -382,9 +403,79 @@ follow_record() {
   return 0
 }
 
+# pr_verdict <url>: one gh read of a GitHub PR -> "closed", "wait", or
+# "ready<US><head sha><US><title>". Any failure prints nothing.
+pr_verdict() {
+  local -a run=()
+  command -v timeout >/dev/null 2>&1 && run=(timeout "$PR_READ_TIMEOUT")
+  ${run[@]+"${run[@]}"} gh pr view "$1" --json state,isDraft,mergeable,mergeStateStatus,reviewDecision,latestReviews,headRefOid,title,statusCheckRollup \
+      </dev/null 2>/dev/null | jq -r '
+    def green: if .__typename == "StatusContext" then .state == "SUCCESS"
+      else .status == "COMPLETED" and (.conclusion | IN("SUCCESS", "NEUTRAL", "SKIPPED")) end;
+    def approved: .reviewDecision == "APPROVED"
+      or ((.reviewDecision // "") == "" and ([.latestReviews[]?.state]
+        | index("APPROVED") != null and index("CHANGES_REQUESTED") == null));
+    if .state == "MERGED" or .state == "CLOSED" then "closed"
+    elif .state == "OPEN" and .isDraft == false and .mergeable == "MERGEABLE"
+      and (.mergeStateStatus | IN("CLEAN", "HAS_HOOKS")) and approved
+      and ((.statusCheckRollup // []) | length > 0 and all(.[]; green))
+      and ((.headRefOid // "") | test("^[0-9a-f]{40}$"))
+    then ["ready", .headRefOid, (.title // "" | gsub("[[:cntrl:]]"; " "))] | join("\u001f")
+    else "wait" end' 2>/dev/null || true
+}
+
+# scan_merge_ready: send merge-ready once per head for each recorded GitHub task
+# PR that is open, ready, mergeable, approved and green. At most once per
+# SCAN_INTERVAL; state/maia-notify/merge-ready holds `<url> <sha>` for the last
+# head sent and `<url> closed` for a merged or closed PR, which is never read
+# again. Entries for PRs no task meta records any more are pruned.
+scan_merge_ready() {
+  local stamp="$DIR/merge-ready-scan" record="$DIR/merge-ready" last now_s meta task url
+  local seen verdict tag sha title next
+  event_enabled merge-ready || return 0
+  command -v gh >/dev/null 2>&1 || return 0
+  now_s=$(now)
+  last=$(cat "$stamp" 2>/dev/null || true)
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  [ $((now_s - last)) -ge "$SCAN_INTERVAL" ] || return 0
+  lock_take scan || return 0
+  printf '%s\n' "$now_s" > "$stamp"
+  next=$(mktemp "$DIR/.merge-ready.XXXXXX") || { lock_drop scan; return 0; }
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    task=${meta##*/}
+    task=${task%.meta}
+    case "$task" in ''|.*|*[!A-Za-z0-9._-]*) continue ;; esac
+    url=$(sed -n 's/^pr=//p' "$meta" 2>/dev/null | tail -n 1)
+    [[ "$url" =~ ^https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$ ]] || continue
+    seen=$(awk -v u="$url" '$1 == u { s = $2 } END { print s }' "$record" 2>/dev/null)
+    if [ "$seen" = closed ]; then
+      printf '%s closed\n' "$url" >> "$next"
+      continue
+    fi
+    verdict=$(pr_verdict "$url")
+    IFS=$'\037' read -r tag sha title <<< "$verdict"
+    case "$tag" in
+      closed) printf '%s closed\n' "$url" >> "$next" ;;
+      ready)
+        if [ "$seen" != "$sha" ]; then
+          spool merge-ready "merge-ready:$url:$sha" "" project="$(meta_project "$task")" task="$task" \
+            pr_url="$url" pr_number="${url##*/}" title="$title"
+        fi
+        printf '%s %s\n' "$url" "$sha" >> "$next" ;;
+      *) [ -z "$seen" ] || printf '%s %s\n' "$url" "$seen" >> "$next" ;;
+    esac
+  done
+  sort -u -o "$next" "$next" 2>/dev/null
+  mv -f -- "$next" "$record" 2>/dev/null || rm -f -- "$next"
+  lock_drop scan
+  return 0
+}
+
 cmd_follow() {
   local offset size new lines line consumed
   [ -e "$CONF" ] || return 0
+  scan_merge_ready
   if [ -e "$CONFIG/fleet-ledger" ] && [ -f "$LEDGER" ] && lock_take follow; then
     size=$(wc -c < "$LEDGER" | tr -d ' ')
     offset=$(cat "$DIR/follow-offset" 2>/dev/null || true)
