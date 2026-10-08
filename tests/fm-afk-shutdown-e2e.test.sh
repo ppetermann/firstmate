@@ -246,6 +246,12 @@ case "$(cat "$dir/state/.watcher-down" 2>/dev/null || true)" in
   pending:downtime:*) ;;
   *) fail "shutdown destroyed the watcher's durable downtime recovery evidence" ;;
 esac
+# The marker is the cleanup's last write, so the exit can trail it slightly.
+i=0
+while [ "$i" -lt 50 ] && ! watcher_finished "$STOPCASE_WATCHER_PID"; do
+  sleep 0.1
+  i=$((i + 1))
+done
 watcher_finished "$STOPCASE_WATCHER_PID" \
   || fail "the resumed watcher never exited after persisting its downtime marker"
 STOPCASE_WATCHER_PID=

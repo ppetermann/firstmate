@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <direct-PR|local-only> --yolo <on|off> [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -34,6 +34,17 @@
 #   The brief contract keeps upstream's three delivery modes (bin/fm-dod-lib.sh
 #   renders all three), but this fleet retired no-mistakes: --mode no-mistakes
 #   and the no-mistakes-prod-only policy value are refused here at intake.
+#   --base-branch is the optional branch selected at intake for a ship or scout
+#   to start from and target instead of the project's default branch. A named
+#   base is a pull-request target, so it lives on origin: a fresh launch resets
+#   its pooled copy to origin/<branch>, refusing when the project has no origin
+#   or origin lacks that branch, or when the mode or the project's registered
+#   forge cannot carry it (local-only refuses one). It must agree with every
+#   Setup "Base branch:" line in the brief (bin/fm-brief.sh --base-branch writes
+#   one; other such lines are prose), and a brief with such a line refuses a
+#   spawn without the flag. The spawn records it as base_branch= in
+#   state/<id>.meta, which a relaunch reuses and later review and cleanup read;
+#   it is refused on secondmates and relaunches, and without it nothing changes.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded worktree, reusing its recorded endpoint when that
@@ -122,14 +133,23 @@
 #   authority, and every ambiguous recovery stays on the flat fallback after
 #   duplicate-agent risk is independently absent. Treehouse allocation and task
 #   metadata are unchanged.
-#   A clean projected create or exact resume makes one bounded attempt to hold
-#   the one session-scoped presentation-order lock (keyed by named session plus
-#   canonical socket, outside any home's state/) through launch handoff. Lock
-#   contention warns and falls back to the ordinary flat layout before any
-#   projection mutation. The exact response-derived new workspace is inserted
-#   immediately after its owning parent (firstmate or 2ndmate-<id>) contiguous
-#   child block. Ordering never authorizes lifecycle cleanup, and any
-#   unavailable, ambiguous, or failed move warns while the spawn continues.
+#   A clean projected create and an exact resume both hold the one
+#   session-scoped presentation-order lock (keyed by named session plus
+#   canonical socket, outside any home's state/) through launch handoff.
+#   On contention a create makes one bounded attempt and falls back to the
+#   ordinary flat layout before any projection mutation. A resume refuses by
+#   default on the same contention (it does not degrade flat; a concurrent
+#   resume is a hard failure). Pass --herdr-resume-lock-wait to opt that
+#   resume into waiting for the lock instead, so two concurrent recoveries
+#   can serialize and each still replace its own exact husk. The flag acts
+#   only on that fresh ship or scout spawn path: --relaunch reuses the
+#   recorded endpoint without taking this lock, so the flag has no effect
+#   there, and a secondmate spawn never projects. Unbounded
+#   blocking on a third-party session lock is never the default. The exact
+#   response-derived new workspace is inserted immediately after its owning
+#   parent (firstmate or 2ndmate-<id>) contiguous child block. Ordering never
+#   authorizes lifecycle cleanup, and any unavailable, ambiguous, or failed
+#   move warns while the spawn continues.
 #   Every projected create, prune, and move captures and verifies the named
 #   session's exact active workspace and tab. A detected focus change restores
 #   only that exact tab id; an ambiguous pre-operation snapshot refuses the
@@ -155,6 +175,20 @@
 #   fm_firstmate_root_home resolves, so a home seeded from another machine anchors
 #   that lock itself rather than failing to resolve one;
 #   contention refuses rather than waits.
+#   Project capacity: when this machine declares how many workers a project
+#   admits at once (config/project-capacity; bin/fm-project-capacity-lib.sh owns
+#   the declaration, what holds a place, and the race argument), a fresh ship or
+#   scout spawn counts the places already held while holding that same
+#   project-identity lock - taken on every backend whenever the declaration caps
+#   any project, Orca included, because an uncapped clone's worker still holds a
+#   place for a capped clone of the same origin - and holds it through metadata
+#   publication. A spawn that finds
+#   every place held prints one `deferred:` line and exits 75 before any brief
+#   render, endpoint, worktree, record, or backlog move exists, so the task stays
+#   exactly as queued as it was; an unreadable declaration refuses with exit 1.
+#   A batch reports such a pair as `batch: DEFERRED` and exits 75 when nothing
+#   else failed. A relaunch and a --secondmate spawn are never counted against
+#   capacity.
 #   With no harness arg, a crewmate/scout spawn resolves the CREW harness only when
 #   config/crew-dispatch.json is absent. When that file exists, crewmate/scout
 #   spawns require an explicit harness so firstmate cannot silently skip dispatch
@@ -252,11 +286,12 @@
 #   local-only (AGENTS.md section 7), so freshening against origin instead of
 #   the local ref reproduced exactly this staleness. Keeping the spawning
 #   project's clone itself current with origin is fleet-sync's job (AGENTS.md
-#   section 8), not this gate's. An unresolvable local default branch, a reset
-#   that cannot reach it, or a non-clean worktree refuses a fresh spawn with a
-#   concrete diagnostic rather than risking a PR based on stale history or
-#   discarding local work. Relaunch reuses the recorded worktree without
-#   resetting its base.
+#   section 8), not this gate's. Only a named --base-branch (described above)
+#   fetches origin and resets to origin/<branch> instead. An unresolvable local
+#   default branch, an unreachable base branch, a reset that cannot reach its
+#   target, or a non-clean worktree refuses a fresh spawn with a concrete
+#   diagnostic rather than risking a PR based on stale history or discarding
+#   local work. Relaunch reuses the recorded worktree without resetting its base.
 #   A slot whose only deviation is a stale submodule gitlink is refused by that
 #   same clean check, but is reported as a stale checkout naming each submodule
 #   and both pins; nothing is converged or removed, and no remedy is suggested.
@@ -328,6 +363,10 @@
 #   worktree, or record exists and names the accepted values. The file is read
 #   on every spawn and relaunch, so a change reaches the next launch without a
 #   restart, and it is inherited into secondmate homes (bin/fm-config-inherit-lib.sh).
+# Worker tool exclusions:
+#   docs/configuration.md "Worker tool exclusions" owns config/crew-exclude-tools
+#   and its operator contract. Resolve it with bin/fm-exclude-tools-lib.sh
+#   before provisioning; __PIEXCLUDE__ below owns the Pi launch substitution.
 # Worker account pin (config/claude-account, config/pi-account):
 #   Opt-in. With no file, a Claude or Pi launch is unchanged: Claude still
 #   receives this process's own CLAUDE_CONFIG_DIR when it is set, and Pi the
@@ -354,6 +393,9 @@
 #     __PIAPPROVE__ optional --approve on a seeded Pi/pi-signed secondmate when
 #                  that executable advertises the flag (empty otherwise; session
 #                  trust for the launch cwd only, never a trust.json rewrite)
+#     __PIEXCLUDE__ optional ` --exclude-tools '<comma-joined names>'` from
+#                  config/crew-exclude-tools on Pi/pi-signed ship and scout
+#                  launches (supplies its own leading space, empty otherwise)
 #     __PIRESUME__ optional relaunch-only `--session <reference>` that keeps a
 #                  Pi replacement on the session the endpoint's runtime already
 #                  reports (relaunch_resume_args below owns it; it supplies its
@@ -536,6 +578,8 @@ PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # shellcheck source=bin/fm-config-inherit-lib.sh
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
+# shellcheck source=bin/fm-exclude-tools-lib.sh
+. "$SCRIPT_DIR/fm-exclude-tools-lib.sh"
 if ! LAUNCH_ENV_ENABLED=$(fm_config_source_present "$CONFIG/launch-env-allowlist"); then
   exit 1
 fi
@@ -653,6 +697,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-brief-content-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-project-capacity-lib.sh
+. "$SCRIPT_DIR/fm-project-capacity-lib.sh"
 # shellcheck source=bin/fm-worker-account-lib.sh
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
@@ -676,8 +722,13 @@ EFFORT_SET=0
 BACKEND_SET=0
 MODE_SET=0
 YOLO_SET=0
+BASE_BRANCH=
+BASE_BRANCH_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
+# Opt-in only: exact-resume presentation-order lock waits instead of refusing.
+# Absent/unset keeps upstream refuse-on-contention. See header.
+HERDR_RESUME_LOCK_WAIT=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -713,6 +764,10 @@ for a in "$@"; do
       YOLO=$a
       YOLO_SET=1
       ;;
+    base-branch)
+      BASE_BRANCH=$a
+      BASE_BRANCH_SET=1
+      ;;
     traceparent)
       TRACEPARENT_ARG=$a
       TRACEPARENT_SET=1
@@ -735,6 +790,7 @@ for a in "$@"; do
     KIND_SET=1
     ;;
   --relaunch) RELAUNCH=1 ;;
+  --herdr-resume-lock-wait) HERDR_RESUME_LOCK_WAIT=1 ;;
   --harness) want_value=harness ;;
   --harness=*)
     HARNESS_ARG=${a#--harness=}
@@ -764,6 +820,11 @@ for a in "$@"; do
   --yolo=*)
     YOLO=${a#--yolo=}
     YOLO_SET=1
+    ;;
+  --base-branch) want_value="base-branch" ;;
+  --base-branch=*)
+    BASE_BRANCH=${a#--base-branch=}
+    BASE_BRANCH_SET=1
     ;;
   --traceparent) want_value=traceparent ;;
   --traceparent=*)
@@ -847,6 +908,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
     echo "error: --relaunch reuses the task's recorded yolo posture; --yolo cannot override it" >&2
     exit 1
   }
+  [ "$BASE_BRANCH_SET" -eq 0 ] || {
+    echo "error: --relaunch reuses the task's recorded base branch; --base-branch cannot override it" >&2
+    exit 1
+  }
 else
   # Delivery contract (AGENTS.md section 7). A ship task's mode and yolo are
   # firstmate's per-task decision, so they are required and closed-set validated
@@ -890,6 +955,10 @@ else
     }
     [ "$YOLO_SET" -eq 0 ] || {
       echo "error: --yolo applies only to ship spawns; a scout delivers a report and a secondmate records its own fixed posture" >&2
+      exit 1
+    }
+    [ "$KIND" != secondmate ] || [ "$BASE_BRANCH_SET" -eq 0 ] || {
+      echo "error: --base-branch applies only to ship and scout spawns; a secondmate charter has no task base" >&2
       exit 1
     }
   fi
@@ -1396,14 +1465,30 @@ spawn_abort_cleanup() {
 }
 trap spawn_abort_cleanup EXIT
 
-# One bounded lock per live Herdr session/socket, shared across all homes.
-# <session> is required so secondmate and primary spawns serialize against the
-# same session without writing any other home's state directory.
+# One lock per live Herdr session/socket, shared across all homes. <session>
+# is required so secondmate and primary spawns serialize against the same
+# session without writing any other home's state directory.
+#
+# Default mode is one BOUNDED attempt. A clean create uses that default and
+# falls back to the ordinary flat layout on contention. An exact resume also
+# defaults to the bounded attempt and hard-refuses on contention (it does not
+# degrade flat). Passing mode `wait` makes this call WAIT for the lock instead
+# (`fm_lock_acquire_wait`, the same unbounded-wait idiom this file already uses
+# for its other fleet-shared locks). Only the recovery path under the explicit
+# --herdr-resume-lock-wait opt-in passes `wait`, so unbounded blocking on a
+# third-party session lock never becomes the default for every caller.
+# Dead-owner reclaim inside `fm_lock_try_acquire` still bounds a wait against a
+# holder that crashed mid-hold.
 spawn_herdr_presentation_order_lock_acquire() {
-  local session=${1:-} attempt lock_path
+  local session=${1:-} mode=${2:-} attempt lock_path
   [ -n "$session" ] || session=$(fm_backend_herdr_session)
   lock_path=$(fm_backend_herdr_presentation_session_lock_path "$session") || return 1
   HERDR_PRESENTATION_ORDER_LOCK="$lock_path"
+  if [ "$mode" = wait ]; then
+    fm_lock_acquire_wait "$HERDR_PRESENTATION_ORDER_LOCK"
+    HERDR_PRESENTATION_ORDER_LOCK_HELD=1
+    return 0
+  fi
   attempt=0
   while [ "$attempt" -lt 50 ]; do
     if fm_lock_try_acquire "$HERDR_PRESENTATION_ORDER_LOCK"; then
@@ -1480,6 +1565,8 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   # spanning several modes is two invocations rather than a silent mixed dispatch.
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
+  [ "$BASE_BRANCH_SET" -eq 0 ] || shared_args+=(--base-branch "$BASE_BRANCH")
+  [ "$HERDR_RESUME_LOCK_WAIT" -eq 0 ] || shared_args+=(--herdr-resume-lock-wait)
   for pair in "${POS[@]}"; do
     case "$pair" in
     *=*) : ;;
@@ -1493,16 +1580,17 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
       echo "error: batch dispatch does not support --secondmate; spawn each secondmate explicitly" >&2
       rc=2
       continue
-    elif [ "$KIND" = scout ]; then
-      if FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "${pair%%=*}" "${pair#*=}" "${shared_args[@]+"${shared_args[@]}"}" --scout; then :; else
-        echo "batch: FAILED to spawn ${pair%%=*} (${pair#*=})" >&2
-        rc=1
-      fi
-    else
-      if FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "${pair%%=*}" "${pair#*=}" "${shared_args[@]+"${shared_args[@]}"}"; then :; else
-        echo "batch: FAILED to spawn ${pair%%=*} (${pair#*=})" >&2
-        rc=1
-      fi
+    fi
+    pair_args=("${pair%%=*}" "${pair#*=}" "${shared_args[@]+"${shared_args[@]}"}")
+    [ "$KIND" != scout ] || pair_args+=(--scout)
+    pair_rc=0
+    FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "${pair_args[@]}" || pair_rc=$?
+    if [ "$pair_rc" -eq "$FM_PROJECT_CAPACITY_DEFER_EXIT" ]; then
+      echo "batch: DEFERRED ${pair%%=*} (${pair#*=}) - its project is at capacity, so it stays queued" >&2
+      [ "$rc" -ne 0 ] || rc=$FM_PROJECT_CAPACITY_DEFER_EXIT
+    elif [ "$pair_rc" -ne 0 ]; then
+      echo "batch: FAILED to spawn ${pair%%=*} (${pair#*=})" >&2
+      rc=1
     fi
   done
   exit "$rc"
@@ -2043,7 +2131,7 @@ launch_template() {
     ;;
   opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}__EFFORTFLAG__}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
   pi | pi-signed)
-    printf '%s' '__PIBIN____PITUIMODE____PIAPPROVE____PIRESUME__'
+    printf '%s' '__PIBIN____PITUIMODE____PIAPPROVE____PIEXCLUDE____PIRESUME__'
     if [ "$kind" = secondmate ]; then
       printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PITURNEND__ -e __PIWATCH__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
     else
@@ -2286,6 +2374,13 @@ if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   exit 1
 fi
 
+# config/crew-exclude-tools (header above): refuse before worker provisioning
+# if this launch cannot honor the list. Secondmate agents are not covered.
+EXCLUDE_TOOLS=
+if [ "$KIND" != secondmate ]; then
+  EXCLUDE_TOOLS=$(fm_exclude_tools_check "$HARNESS" "$RAW_LAUNCH" "$CONFIG") || exit 1
+fi
+
 case "$HARNESS" in
 pi | pi-signed)
   PI_BIN=$(resolve_pi_executable "$HARNESS") || {
@@ -2306,6 +2401,9 @@ pi | pi-signed)
     PI_APPROVE=' --approve'
   fi
   LAUNCH=${LAUNCH//__PIAPPROVE__/$PI_APPROVE}
+  PI_EXCLUDE=
+  [ -z "$EXCLUDE_TOOLS" ] || PI_EXCLUDE=" --exclude-tools $(shell_quote "$EXCLUDE_TOOLS")"
+  LAUNCH=${LAUNCH//__PIEXCLUDE__/$PI_EXCLUDE}
   LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
   ;;
 cursor)
@@ -2772,10 +2870,13 @@ rovo_config_override_flag() {
 # Firstmate worker always reads outside its cwd - a secondmate's steers live
 # in the PARENT home's state/<id>.inbox, and a ship or scout worker's launch
 # record, steers, and brief live in this home's state/operational-inbox,
-# state/<id>.inbox, and data/<id>, with the code root's .agents/skills named
-# by its definition of done - so every Claude launch, fresh spawn and
-# relaunch, in both permission modes, grants exactly those task-channel
-# directories. Paths resolve the way rovo_config_override_flag resolves them
+# state/<id>.inbox, and data/<id>, plus the code root's .agents/skills so the
+# worker can read the skill file the launch role names as the fallback for a
+# session where the skill name does not resolve - so every Claude launch,
+# fresh spawn and relaunch, in both permission modes, grants exactly those
+# task-channel directories. The skills grant is that directory, not the
+# checkout root, so the grant does not open the whole checkout. Paths resolve
+# the way rovo_config_override_flag resolves them
 # (real paths under the task's home). The state channel dirs are created
 # lazily by their first record, so they are made here: an --add-dir naming a
 # directory that does not exist at launch would leave the channel created
@@ -3002,16 +3103,51 @@ else
   WT=""
   BRIEF="$DATA/$ID/brief.md"
 fi
-if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+# Project capacity admission (bin/fm-project-capacity-lib.sh owns the
+# declaration, what holds a place, and why this is race-safe). A fresh worker
+# for a project whose declared capacity is already held is deferred here, before
+# any brief render, endpoint, worktree, record, or backlog move exists, so the
+# deferral leaves the task exactly as queued as it was. A relaunch replaces a
+# worker that already holds a place, and a secondmate is not a worker.
+SPAWN_PROJECT_CAPACITY=
+SPAWN_PROJECT_CAPACITY_ANY=
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
+  SPAWN_CAPACITY_CONFIG=$(fm_project_capacity_config_dir "$FM_HOME" "$CONFIG") || {
+    echo "error: could not resolve the root Firstmate home that declares project capacity for $PROJ_ABS" >&2
+    exit 1
+  }
+  if ! fm_project_capacity_lookup "$SPAWN_CAPACITY_CONFIG" "$(basename "$PROJ_ABS")"; then
+    echo "error: spawn refused: the project capacity declaration is unreadable ($FM_PROJECT_CAPACITY_ERROR); fix it so the captain's worker limits are known (docs/configuration.md \"Project capacity\")" >&2
+    exit 1
+  fi
+  SPAWN_PROJECT_CAPACITY=$FM_PROJECT_CAPACITY
+  SPAWN_PROJECT_CAPACITY_ANY=$FM_PROJECT_CAPACITY_ANY
+fi
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] &&
+  { [ "$BACKEND" != orca ] || [ -n "$SPAWN_PROJECT_CAPACITY_ANY" ]; }; then
   SPAWN_TREEHOUSE_PROJECT_LOCK=$(fm_treehouse_project_lock_path "$PROJ_ABS") || {
     echo "error: could not resolve the shared Treehouse project lock for $PROJ_ABS" >&2
     exit 1
   }
   if ! fm_lock_try_acquire "$SPAWN_TREEHOUSE_PROJECT_LOCK"; then
-    echo "error: another Treehouse slot allocation or return is in progress for $PROJ_ABS; refusing to race it" >&2
+    if [ "$BACKEND" = orca ]; then
+      echo "error: another spawn or cleanup holds the shared project lock for $PROJ_ABS; refusing to race its capacity admission" >&2
+    else
+      echo "error: another Treehouse slot allocation or return is in progress for $PROJ_ABS; refusing to race it" >&2
+    fi
     exit 1
   fi
   SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=1
+fi
+if [ -n "$SPAWN_PROJECT_CAPACITY" ]; then
+  if ! fm_project_capacity_occupants "$SPAWN_TREEHOUSE_PROJECT_LOCK" "$PROJ_ABS" "$STATE" "$ID"; then
+    echo "error: spawn refused: project $(basename "$PROJ_ABS") declares a capacity of $SPAWN_PROJECT_CAPACITY, but this machine's task records cannot all be read to count it ($FM_PROJECT_CAPACITY_ERROR)" >&2
+    exit 1
+  fi
+  if [ "$FM_PROJECT_CAPACITY_OCCUPANTS" -ge "$SPAWN_PROJECT_CAPACITY" ]; then
+    echo "deferred: project $(basename "$PROJ_ABS") admits $SPAWN_PROJECT_CAPACITY worker(s) at once on this machine ($FM_PROJECT_CAPACITY_FILE) and $FM_PROJECT_CAPACITY_OCCUPANTS already hold a place ($FM_PROJECT_CAPACITY_OCCUPANT_IDS); task $ID was not launched and its backlog item stays queued - dispatch it again once one of them records its ready PR or is cleaned up" >&2
+    exit "$FM_PROJECT_CAPACITY_DEFER_EXIT"
+  fi
 fi
 [ -f "$BRIEF" ] || {
   echo "error: task $ID has no brief at inaccessible data path $BRIEF" >&2
@@ -3047,13 +3183,30 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
     echo "error: $BRIEF ## Captain's intent has an operator-address line: $ADDRESS_LINE; write the captain's actual words without a Captain label or address before spawn, since the heading already records provenance" >&2
     exit 1
   fi
+  if [ "$RELAUNCH" -eq 1 ]; then
+    BASE_BRANCH=$(fm_meta_get "$RELAUNCH_META" base_branch)
+  elif [ "$BASE_BRANCH_SET" -eq 1 ]; then
+    [ -n "$BASE_BRANCH" ] || {
+      echo "error: --base-branch requires a branch name" >&2
+      exit 1
+    }
+    BASE_FORGE=$("$FM_ROOT/bin/fm-project-mode.sh" --forge "$(basename "$PROJ_ABS")") || exit 1
+    fm_base_branch_valid "$BASE_BRANCH" "$MODE" "${BASE_FORGE:-none}" "fm-spawn.sh --base-branch" || exit 1
+    if ! fm_brief_base_branches "$BRIEF" >/dev/null || fm_brief_base_branches "$BRIEF" | grep -vxF -- "$BASE_BRANCH" >/dev/null; then
+      echo "error: $BRIEF must record Base branch: $BASE_BRANCH and no other Base branch line to spawn with --base-branch $BASE_BRANCH; scaffold it with bin/fm-brief.sh --base-branch $BASE_BRANCH" >&2
+      exit 1
+    fi
+  elif fm_brief_base_branches "$BRIEF" >/dev/null; then
+    echo "error: $BRIEF records a Base branch line but the spawn has no --base-branch; pass the brief's base with --base-branch or re-scaffold the brief without one" >&2
+    exit 1
+  fi
   # Use the existing launch-brief overlay for every worker kind, including
   # pre-scope briefs and relaunches. Charters never enter this worker path.
   SOURCE_BRIEF=$BRIEF
   BRIEF="$DATA/$ID/launch-brief.md"
   BRIEF_TMP="$DATA/$ID/.launch-brief.md.${BASHPID:-$$}"
   {
-    fm_brief_worker_role "$STATE" "$ID" &&
+    fm_brief_worker_role "$STATE" "$ID" "$FM_ROOT" &&
       printf '\n' &&
       cat "$SOURCE_BRIEF"
   } >"$BRIEF_TMP" || {
@@ -3328,6 +3481,20 @@ EOF
   printf '%s' "$lines" >&2
 }
 
+spawn_worktree_has_origin_config() { # <worktree>
+  # Resolved remote.origin.* variables cover Git's effective include/includeIf chain; raw headers are also detected in the worktree config and any included file Git names through another variable. Git cannot enumerate a variable-less included file, so an empty origin section that is its only content remains indistinguishable from absence and intentionally proceeds rather than reimplementing Git's config parser.
+  local worktree=$1 config origin key seen=$'\n'
+  git -C "$worktree" config --get-regexp '^remote\.origin\.' >/dev/null 2>&1 && return 0
+  while IFS=$'\t' read -r origin key; do
+    case $origin in file:*) config=${origin#file:} ;; *) continue ;; esac
+    [ -f "$config" ] || continue
+    case $seen in *$'\n'"$config"$'\n'*) continue ;; esac
+    seen+="$config"$'\n'
+    awk '/^[[:space:]]*\[[[:space:]]*[Rr][Ee][Mm][Oo][Tt][Ee][[:space:]]+"origin"[[:space:]]*\][[:space:]]*([#;].*)?$/ || /^[[:space:]]*\[[[:space:]]*[Rr][Ee][Mm][Oo][Tt][Ee]\.origin[[:space:]]*\][[:space:]]*([#;].*)?$/ { found=1 } END { exit !found }' "$config" && return 0
+  done < <(git -C "$worktree" config --list --show-origin 2>/dev/null || true)
+  return 1
+}
+
 # Reset a pooled worktree to the spawning project's own current LOCAL
 # default-branch commit before anything is built on it (see the header comment
 # for why this targets PROJ_ABS's local ref rather than origin). Purely local:
@@ -3336,8 +3503,10 @@ EOF
 # in the shared object store. A worktree that cannot actually reach that
 # commit - one that turns out not to share PROJ_ABS's object store - fails the
 # reset below and refuses rather than launching on whatever it already had.
-freshen_spawn_worktree_base() { # <worktree>
-  local worktree=$1 expected actual status
+# A named base branch is a pull-request target, so it alone is fetched from
+# origin and reset to origin/<base>.
+freshen_spawn_worktree_base() { # <worktree> [<base-branch>]
+  local worktree=$1 base=${2:-} target expected actual status
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
     echo "error: could not inspect pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -3350,17 +3519,38 @@ freshen_spawn_worktree_base() { # <worktree>
     fi
     return 1
   fi
-  expected=$(primary_head_commit "$PROJ_ABS") || {
-    echo "error: could not resolve local default-branch commit for spawning project '$PROJ_ABS'; refusing to launch pooled worktree '$worktree' from a potentially stale base" >&2
-    return 1
-  }
+  if [ -n "$base" ]; then
+    if ! spawn_worktree_has_origin_config "$worktree"; then
+      echo "error: pooled worktree '$worktree' has no origin, so it cannot start from base branch '$base'" >&2
+      return 1
+    fi
+    target="origin/$base"
+    if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$base:refs/remotes/origin/$base"; then
+      echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    fi
+    expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
+      echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    }
+  else
+    target="spawning project '$PROJ_ABS' local default-branch commit"
+    expected=$(primary_head_commit "$PROJ_ABS") || {
+      echo "error: could not resolve local default-branch commit for spawning project '$PROJ_ABS'; refusing to launch pooled worktree '$worktree' from a potentially stale base" >&2
+      return 1
+    }
+  fi
   if ! git -C "$worktree" reset --hard "$expected" >/dev/null; then
-    echo "error: could not reset pooled worktree '$worktree' to spawning project '$PROJ_ABS' local default-branch commit '$expected'; refusing to launch from a potentially stale base" >&2
+    echo "error: could not reset pooled worktree '$worktree' to $target '$expected'; refusing to launch from a potentially stale base" >&2
     return 1
   fi
   actual=$(git -C "$worktree" rev-parse --verify --quiet HEAD 2>/dev/null || true)
   if [ "$actual" != "$expected" ]; then
-    echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not spawning project '$PROJ_ABS' current local default-branch commit '$expected'; refusing to launch" >&2
+    if [ -n "$base" ]; then
+      echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not '$target' commit '$expected'; refusing to launch" >&2
+    else
+      echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not spawning project '$PROJ_ABS' current local default-branch commit '$expected'; refusing to launch" >&2
+    fi
     return 1
   fi
 }
@@ -3629,10 +3819,19 @@ else
           echo "error: herdr presentation recovery could not ensure its exact named session" >&2
           exit 1
         }
-        spawn_herdr_presentation_order_lock_acquire "$HERDR_SES" || {
-          echo "error: herdr presentation recovery could not acquire its session lock; refusing a concurrent resume" >&2
-          exit 1
-        }
+        # Refuse-by-default on contention. Wait only when the caller opted in
+        # with --herdr-resume-lock-wait (see header).
+        if [ "$HERDR_RESUME_LOCK_WAIT" = 1 ]; then
+          spawn_herdr_presentation_order_lock_acquire "$HERDR_SES" wait || {
+            echo "error: herdr presentation recovery could not resolve its session lock" >&2
+            exit 1
+          }
+        else
+          spawn_herdr_presentation_order_lock_acquire "$HERDR_SES" || {
+            echo "error: herdr presentation recovery could not acquire its session lock; refusing a concurrent resume" >&2
+            exit 1
+          }
+        fi
         if [ -e "$STATE/$ID.meta" ] || [ -L "$STATE/$ID.meta" ]; then
           herdr_projection_existing_meta_allows_flat "$STATE/$ID.meta" || exit 1
         fi
@@ -4409,7 +4608,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   fi
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
-  freshen_spawn_worktree_base "$WT" || exit 1
+  freshen_spawn_worktree_base "$WT" "$BASE_BRANCH" || exit 1
 fi
 
 # Re-assert the durable task copy after either treehouse acquisition or endpoint
@@ -4705,6 +4904,10 @@ EOF
 // tool calls) and stays a wake NOTIFICATION touch for the watcher, never
 // current-state truth.
 import { execFile } from "node:child_process";
+import { appendFileSync } from "node:fs";
+const excludeTools = "$EXCLUDE_TOOLS".split(",").filter(Boolean);
+const excludeFile = $(perl -MJSON::PP -MEncode=decode_utf8 -e 'print encode_json(decode_utf8($ARGV[0]))' -- "$CONFIG/crew-exclude-tools");
+const statusFile = $(perl -MJSON::PP -MEncode=decode_utf8 -e 'print encode_json(decode_utf8($ARGV[0]))' -- "$STATE/$ID.status");
 const busyEvent = (state: string, event: string) =>
   new Promise<void>((resolve) => {
     execFile("$FM_ROOT/bin/fm-busy-event.sh", [
@@ -4713,7 +4916,22 @@ const busyEvent = (state: string, event: string) =>
     ], () => resolve());
   });
 export default function (pi: any) {
-  pi.on("agent_start", () => busyEvent("busy", "agent-start"));
+  let checkedExclusions = false;
+  pi.on("agent_start", async () => {
+    await busyEvent("busy", "agent-start");
+    // Verify only this worker's registry, never connect servers from Firstmate.
+    // Check before actions so the warning cannot supersede this turn's terminal status.
+    if (!checkedExclusions && excludeTools.length) {
+      const loaded = new Set(pi.getAllTools().map((tool: any) => tool.name));
+      const unmatched = excludeTools.filter((name) => !loaded.has(name));
+      if (unmatched.length) {
+        appendFileSync(statusFile, "note [at=" + Math.floor(Date.now() / 1000) + "]: warning: " + excludeFile
+          + " unmatched exclusion entries (unverified: absent from the worker's loaded-tool registry; excluded tools or unavailable servers cannot be verified): "
+          + unmatched.join(", ") + "\n");
+      }
+      checkedExclusions = true;
+    }
+  });
   pi.on("agent_settled", (_event: any, ctx: any) => {
     if (ctx && typeof ctx.isIdle === "function" && !ctx.isIdle()) return;
     return busyEvent("idle", "agent-settled");
@@ -5006,7 +5224,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp base_branch model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -5022,6 +5240,7 @@ preserve_relaunch_meta() {
   [ -z "$MODE" ] || echo "mode=$MODE"
   [ -z "$YOLO" ] || echo "yolo=$YOLO"
   echo "tasktmp=$TASK_TMP"
+  [ -z "$BASE_BRANCH" ] || echo "base_branch=$BASE_BRANCH"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
   # The worker account pin, only when this home declares one, so an unpinned

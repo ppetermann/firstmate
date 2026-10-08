@@ -18,6 +18,8 @@
 # checkout is guaranteed to still be that copy when the watcher runs. Refuses
 # when FM_TASK_ID marks a task worker's own isolated (and possibly stale)
 # checkout instead of silently arming a check doomed to fail authentication.
+# The recorded pr= also frees the task's place in a declared project capacity
+# (bin/fm-project-capacity-lib.sh).
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 

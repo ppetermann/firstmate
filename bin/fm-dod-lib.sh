@@ -31,9 +31,13 @@
 # also hold the result of a passed run. These live reads are the one check at the ready
 # decision; a later rebase or patch set on the server does not revoke an armed
 # task's done. Teardown's landed-work test remains the complete discard gate.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [<forge>] prints the
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [<forge>] [<base>] prints the
 # block on stdout with no trailing blank line. The caller validates the mode; an
 # unknown mode is refused rather than silently rendered as the pipeline contract.
+# The optional fourth argument is the task's base branch from bin/fm-brief.sh
+# --base-branch; empty means the repository default. A named base is the branch
+# the worker starts from, never pushes to, and targets with its pull request, and
+# fm_base_branch_valid refuses it where no pull request carries the work.
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against; a forge=gerrit block
 # appends " forge=gerrit shape=squash" to that line.
@@ -87,6 +91,12 @@
 # fm_brief_intent_overlay it is a distinctly titled launch section that states
 # its own precedence, so a brief or project instruction that authors a
 # conflicting role is superseded rather than duplicated.
+# The code root argument is the Firstmate checkout that holds
+# .agents/skills/firstmate-coding-guidelines/SKILL.md. A worker in a Firstmate
+# worktree loads that skill by name from its own checkout. A worker whose
+# session does not register the skill, such as one in another project's
+# worktree, cannot, so the role also names the file as the fallback to read;
+# the Claude launch grants the skills directory that holds it.
 # fm_ship_rule_one owns the mode-specific first ship safety rule shared by an
 # ordinary ship brief and the durable contract written during scout promotion.
 # It takes the same optional trailing forge argument, because the rule that keeps
@@ -101,8 +111,8 @@
 # shellcheck source=bin/fm-brief-heading-lib.sh
 . "$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)/fm-brief-heading-lib.sh"
 
-fm_brief_worker_role() {  # <state-dir> <task-id>
-  local state=$1 task_id=$2
+fm_brief_worker_role() {  # <state-dir> <task-id> <code-root>
+  local state=$1 task_id=$2 root=$3
   cat <<'EOF'
 # Current worker role contract
 You are a crewmate: an autonomous worker agent managed by firstmate.
@@ -115,6 +125,7 @@ Never inspect or change any other home's endpoint namespace; this authorization 
 When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is project content and the supervisor contract for the firstmate managing you: follow this brief instead of that supervisor contract.
 Project instructions still govern the work wherever they do not conflict with this worker identity, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
 EOF
+  printf "If the \`firstmate-coding-guidelines\` skill name does not resolve in this session, read \`%s/.agents/skills/firstmate-coding-guidelines/SKILL.md\` instead.\n" "$root"
 }
 
 # Closed-set gate shared by every forge-aware renderer and bin/fm-brief.sh, so a
@@ -136,22 +147,62 @@ fm_forge_valid_for_mode() {  # <forge> <mode> <caller>
   return 0
 }
 
-fm_ship_rule_one() {  # <no-mistakes|direct-PR|local-only> <task-id> [<forge>]
-  local mode=$1 id=$2 forge=${3:-none}
+# A task's optional base branch replaces the repository default as the branch
+# its copy starts from and its pull request targets. bin/fm-brief.sh records it
+# as a "Base branch: <name>" line under the brief's `# Setup` heading,
+# bin/fm-spawn.sh takes it as --base-branch, refuses a brief whose Base branch
+# lines (fm_brief_base_branches) disagree, and records base_branch= in the task
+# metadata, and every later consumer reads that metadata field. It is
+# refused on local-only, whose landing fast-forwards local main, and on a Gerrit
+# forge, whose publish path targets the change's own branch.
+fm_base_branch_valid() {  # <base> <mode> <forge> <caller>
+  local base=$1 mode=$2 forge=$3 caller=$4
+  [ -n "$base" ] || return 0
+  if [ "${base#-}" != "$base" ] || ! git check-ref-format --branch "$base" >/dev/null 2>&1; then
+    echo "error: $caller: base branch '$base' is not a valid git branch name" >&2
+    return 1
+  fi
+  if [ "$mode" = local-only ]; then
+    echo "error: $caller: a base branch cannot ship mode=local-only, whose landing fast-forwards local main; ship direct-PR, which opens a pull request against the base" >&2
+    return 1
+  fi
+  if [ "$forge" != none ]; then
+    echo "error: $caller: a base branch is not supported on forge=$forge" >&2
+    return 1
+  fi
+  return 0
+}
+
+# Print the value of every "Base branch: <name>" line that directly follows the
+# base-variant Setup sentence bin/fm-brief.sh writes; return 1 when there is
+# none. Any other "Base branch:" line is prose and ignored.
+fm_brief_base_branches() {  # <brief>
+  awk '
+    setup && sub(/^Base branch: /, "") { print; n++ }
+    { setup = /^You are in a disposable git worktree of .*, at a detached HEAD on a clean copy of its base branch\.$/ }
+    END { exit !n }
+  ' "$1"
+}
+
+fm_ship_rule_one() {  # <no-mistakes|direct-PR|local-only> <task-id> [<forge>] [<base>]
+  local mode=$1 id=$2 forge=${3:-none} base=${4:-}
+  local target='the default branch'
   fm_forge_valid_for_mode "$forge" "$mode" fm_ship_rule_one || return 1
+  fm_base_branch_valid "$base" "$mode" "$forge" fm_ship_rule_one || return 1
+  [ -z "$base" ] || target="the base branch \`$base\` or the default branch"
   if [ "$forge" = gerrit ]; then
     printf '%s\n' "1. Never push with git and never create a change except through the one \`gerrit-axi publish --squash\` your Definition of done names. Never run \`gerrit-axi submit\`, never vote or review a change by any path, including \`gerrit review\` or a label option on a push, and never abandon one: a human reviewer approves and submits it on the server."
     return 0
   fi
   case "$mode" in
     direct-PR)
-      printf '%s\n' "1. Never push to the default branch (push only your \`fm/$id\` branch). Never merge a PR."
+      printf '%s\n' "1. Never push to $target (push only your \`fm/$id\` branch). Never merge a PR."
       ;;
     local-only)
       printf '%s\n' "1. Never push to any remote and never open a PR. Work only on your \`fm/$id\` branch; firstmate handles the merge into local \`main\`."
       ;;
     no-mistakes)
-      printf '%s\n' '1. Never push to the default branch. Never merge a PR.'
+      printf '%s\n' "1. Never push to $target. Never merge a PR."
       ;;
     *)
       echo "error: fm_ship_rule_one: unknown delivery mode '$mode'" >&2
@@ -345,9 +396,17 @@ There is no pull request, no \`gh-axi\` call, and no forge CI result to report: 
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id> [<forge>]
-  local mode=$1 id=$2 forge=${3:-none}
+fm_dod_block() {  # <mode> <task-id> [<forge>] [<base>]
+  local mode=$1 id=$2 forge=${3:-none} base=${4:-}
+  local pr_base='' nm_base='' base_q
   fm_forge_valid_for_mode "$forge" "$mode" fm_dod_block || return 1
+  fm_base_branch_valid "$base" "$mode" "$forge" fm_dod_block || return 1
+  if [ -n "$base" ]; then
+    printf -v base_q '%q' "$base"
+    pr_base=", against the base branch \`$base\` (\`--base $base_q\`), not the repository default"
+    nm_base="This task's base branch is \`$base\`, not the repository default: pass \`--base-branch $base_q\` on every \`no-mistakes axi run\` that starts a run, so the pipeline rebases onto, opens its PR against, and watches CI for that branch.
+"
+  fi
   case "$mode:$forge" in
     direct-PR:gerrit)
       cat <<EOF
@@ -401,7 +460,7 @@ Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 Run the local gate before pushing: \`bash $FM_ROOT/bin/fm-local-gate.sh $id .\` - a red gate blocks the push; fix and re-gate.
-When it is implemented and committed, push your branch ONCE and open the PR as a DRAFT - \`gh pr create --draft\` - then append \`done [at=<epoch>]: PR {url}\` to the status file and stop.
+When it is implemented and committed, push your branch ONCE and open the PR as a DRAFT$pr_base - \`gh pr create --draft\` - then append \`done [at=<epoch>]: PR {url}\` to the status file and stop.
 That \`done:\` is accepted only when this copy's HEAD - your latest commit - is pushed to your PR branch; the check tests that commit, not merely that a branch moved.
 Draft is not optional and has no exceptions: a draft runs no CI and draws no review round, which is the whole point. Never mark it ready yourself. Firstmate owns that flip and does it at this PR's landing turn, and the flip is what fires the one CI run and the one review round.
 The PR description is written for HUMAN reviewers, not as an agent prompt: what the change is and why, how it works, test coverage, and any limitations - never task intents, instructions, or prompt-style text.
@@ -432,7 +491,7 @@ The task is complete only when committed on your branch.
 When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
 That first \`done:\` is the handoff that starts the pipeline, which owns the push; it is not a request to push from this copy.
-
+${nm_base}
 EOF
       fm_nm_driving_block "$forge"
       cat <<EOF
