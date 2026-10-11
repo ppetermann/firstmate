@@ -319,6 +319,16 @@
 #     succeeds and teardown runs to its own completion or refusal. A shared
 #     stdout and stderr keep one relay so their order is preserved; a file or
 #     terminal needs no relay.
+# Pool-return trim - just before a ship or scout copy goes back to the
+# Treehouse pool, after every landed-work refusal and the process reap above,
+# teardown deletes that copy's Rust incremental caches and linked test and
+# binary executables and keeps its compiled libraries, so an idle copy stops
+# holding tens of GB while the next task in it still starts warm on
+# dependencies. bin/fm-pool-disk-lib.sh's fm_pool_trim_copy owns exactly what is
+# removed. It runs only on a verified pool slot this task still owns, never on
+# the project clone, and only when the return itself proceeds; a path it cannot
+# delete (root-owned container output) is reported with its removal command and
+# cleanup continues.
 # After Fix 1 and Fix 2, when config/pipeline-spend opts this home in, a ship
 # task whose local copy this teardown owns has its no-mistakes pipeline spend
 # recorded by bin/fm-pipeline-spend.sh, which owns the attribution and the
@@ -398,7 +408,8 @@ for _teardown_source in \
   fm-wake-lib.sh \
   fm-path-lib.sh \
   fm-lease-lib.sh \
-  fm-task-tmp-lib.sh
+  fm-task-tmp-lib.sh \
+  fm-pool-disk-lib.sh
 do
   teardown_require_source "$SCRIPT_DIR/$_teardown_source"
 done
@@ -431,6 +442,8 @@ unset _teardown_source
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
 # shellcheck source=bin/fm-task-tmp-lib.sh
 . "$SCRIPT_DIR/fm-task-tmp-lib.sh"
+# shellcheck source=bin/fm-pool-disk-lib.sh
+. "$SCRIPT_DIR/fm-pool-disk-lib.sh"
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -3733,6 +3746,11 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   # to pool. treehouse resolves the pool from the working directory, so run it from
   # the project. teardown_treehouse_return tolerates transient and stale git locks
   # left by a killed crew process; see the script header for retry and stale-lock proof.
+  # Pool-return trim (see script header): only a genuine pool copy, never the
+  # project clone itself, and best effort - it reports and never fails cleanup.
+  if fm_treehouse_pool_slot "$PROJ" "$WT" && ! [ "$WT" -ef "$PROJ" ]; then
+    fm_pool_trim_copy "$WT" apply || true
+  fi
   post_lock_cleanup_check=
   if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety

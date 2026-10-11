@@ -413,6 +413,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/pool-disk.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/project-memory-sections.md",
       "audience": "maintainer-architecture"
     },

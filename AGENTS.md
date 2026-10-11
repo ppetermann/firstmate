@@ -194,6 +194,7 @@ That stamped line is what makes the clock and quota check of section 4 a dated f
 
 Treat file or subsystem overlap as a risk signal rather than an automatic reason to wait, and dispatch isolated work immediately with no concurrency cap when each change can be independently implemented and validated and the selected delivery path can reconcile ordinary rebases or conflicts.
 A project's declared machine capacity (`config/project-capacity`) still bounds that dispatch: a spawn beyond it exits 75 without launching, and its item stays queued rather than blocked.
+A Rust project's spawn also checks free disk on the worker pool: pass its low-disk warning to the captain, treat its refusal as a captain decision, and pass `--allow-low-disk` only on the captain's explicit word ([`docs/pool-disk.md`](docs/pool-disk.md)).
 Serialize only for a true semantic dependency, shared mutable external state, incompatible concurrent migration, or another concrete condition that makes independent progress or reconciliation unsafe; same-file editing alone is insufficient, and genuine blockers remain durable.
 Write the task-specific brief under section 11 before spawning.
 Fill the task subsections according to section 11.

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <direct-PR|local-only> --yolo <on|off> [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <direct-PR|local-only> --yolo <on|off> [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait] [--allow-low-disk]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait] [--allow-low-disk]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -189,6 +189,14 @@
 #   A batch reports such a pair as `batch: DEFERRED` and exits 75 when nothing
 #   else failed. A relaunch and a --secondmate spawn are never counted against
 #   capacity.
+#   Free disk: a fresh ship or scout spawn for a Rust project (a Cargo.toml at
+#   the project clone's top) first reads free space on the filesystem holding
+#   the Treehouse pool (the project clone for Orca). Below 20% free it warns,
+#   for firstmate to pass on to the captain; below 10% free it refuses with exit
+#   1, naming the free space, before anything is created, so the backlog item
+#   stays queued. --allow-low-disk, given only on the captain's explicit word,
+#   launches anyway with a warning. A free-space reading that fails warns and
+#   launches. bin/fm-pool-disk-lib.sh owns the thresholds and the reading.
 #   With no harness arg, a crewmate/scout spawn resolves the CREW harness only when
 #   config/crew-dispatch.json is absent. When that file exists, crewmate/scout
 #   spawns require an explicit harness so firstmate cannot silently skip dispatch
@@ -699,6 +707,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-project-capacity-lib.sh
 . "$SCRIPT_DIR/fm-project-capacity-lib.sh"
+# shellcheck source=bin/fm-pool-disk-lib.sh
+. "$SCRIPT_DIR/fm-pool-disk-lib.sh"
 # shellcheck source=bin/fm-worker-account-lib.sh
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
@@ -726,6 +736,7 @@ BASE_BRANCH=
 BASE_BRANCH_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
+ALLOW_LOW_DISK=0
 # Opt-in only: exact-resume presentation-order lock waits instead of refusing.
 # Absent/unset keeps upstream refuse-on-contention. See header.
 HERDR_RESUME_LOCK_WAIT=0
@@ -790,6 +801,7 @@ for a in "$@"; do
     KIND_SET=1
     ;;
   --relaunch) RELAUNCH=1 ;;
+  --allow-low-disk) ALLOW_LOW_DISK=1 ;;
   --herdr-resume-lock-wait) HERDR_RESUME_LOCK_WAIT=1 ;;
   --harness) want_value=harness ;;
   --harness=*)
@@ -1567,6 +1579,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
   [ "$BASE_BRANCH_SET" -eq 0 ] || shared_args+=(--base-branch "$BASE_BRANCH")
   [ "$HERDR_RESUME_LOCK_WAIT" -eq 0 ] || shared_args+=(--herdr-resume-lock-wait)
+  [ "$ALLOW_LOW_DISK" -eq 0 ] || shared_args+=(--allow-low-disk)
   for pair in "${POS[@]}"; do
     case "$pair" in
     *=*) : ;;
@@ -3102,6 +3115,32 @@ else
   PROJ_ABS="$(cd "$(resolve_project_dir_arg "$PROJ")" && pwd)"
   WT=""
   BRIEF="$DATA/$ID/brief.md"
+fi
+# Free-space check for a Rust dispatch (see header; bin/fm-pool-disk-lib.sh owns
+# the thresholds). Runs before capacity admission, so a refusal leaves the task
+# exactly as queued as a deferral does.
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ -f "$PROJ_ABS/Cargo.toml" ]; then
+  SPAWN_DISK_PATH=$PROJ_ABS
+  if [ "$BACKEND" != orca ] && [ -d "$(fm_pool_root)" ]; then
+    SPAWN_DISK_PATH=$(fm_pool_root)
+  fi
+  if ! fm_pool_disk_free "$SPAWN_DISK_PATH"; then
+    echo "warning: could not read free disk space at $SPAWN_DISK_PATH before this Rust dispatch; launching unchecked" >&2
+  else
+    case "$(fm_pool_disk_verdict)" in
+    refuse)
+      if [ "$ALLOW_LOW_DISK" -eq 1 ]; then
+        echo "warning: disk nearly full for a Rust build: $FM_POOL_DISK_SUMMARY, below the ${FM_POOL_DISK_REFUSE_PCT}% floor; launching anyway on --allow-low-disk" >&2
+      else
+        echo "error: spawn refused: disk nearly full for a Rust build: $FM_POOL_DISK_SUMMARY, below the ${FM_POOL_DISK_REFUSE_PCT}% floor; task $ID was not launched and its backlog item stays queued - free space (docs/pool-disk.md), or spawn it again with --allow-low-disk on the captain's word" >&2
+        exit 1
+      fi
+      ;;
+    warn)
+      echo "warning: disk space low for a Rust build: $FM_POOL_DISK_SUMMARY, below ${FM_POOL_DISK_WARN_PCT}%; tell the captain" >&2
+      ;;
+    esac
+  fi
 fi
 # Project capacity admission (bin/fm-project-capacity-lib.sh owns the
 # declaration, what holds a place, and why this is race-safe). A fresh worker
