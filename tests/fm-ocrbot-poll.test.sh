@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Behavior tests for the OCR review bot poll (bin/fm-ocrbot-poll.sh) and
-# bootstrap's shim activation for config/ocr-bot.
+# bootstrap's shim activation for config/ocr-bot, plus the flip helper
+# (bin/fm-pr-flip.sh) and the watcher's separate bot-poll cadence.
 #
 # The network is stubbed with a fakebin `gh` that models the live-verified
 # `gh api -i` wire shapes: a 200 dump (status line, CRLF header block, CRLF
@@ -37,6 +38,25 @@ make_fake_gh() {
   fakebin=$(fm_fakebin "$dir")
   fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
+# fm-pr-flip.sh's two calls: `gh pr ready <url>` (fails when ready-fail
+# exists) and a single-PR read answered from <owner>__<repo>/pr-<number>.
+if [ "${1:-}" = pr ] && [ "${2:-}" = ready ]; then
+  [ -z "${OCR_GH_LOG:-}" ] || echo "pr-ready $3" >> "$OCR_GH_LOG"
+  if [ -f "${OCR_GH_STATE:?}/ready-fail" ]; then
+    echo "ready failed" >&2
+    exit 1
+  fi
+  exit 0
+fi
+case "${1:-} ${2:-}" in
+  'api repos/'*/pulls/*)
+    single=${2#repos/}
+    repo=${single%/pulls/*}
+    [ -z "${OCR_GH_LOG:-}" ] || echo "pr-get $2" >> "$OCR_GH_LOG"
+    cat "${OCR_GH_STATE:?}/${repo//\//__}/pr-${single##*/}" 2>/dev/null || exit 1
+    exit 0
+    ;;
+esac
 url="" cond=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -410,6 +430,155 @@ test_bootstrap_rejects_linked_shim_destination() {
 
 # ---------------------------------------------------------------------------
 
+run_flip() {
+  local home=$1 fakebin=$2; shift 2
+  PATH="$fakebin:$BASE_PATH" FM_HOME="$home" OCR_GH_STATE="$home/ghfix" \
+    OCR_GH_LOG="$home/gh.log" "$ROOT/bin/fm-pr-flip.sh" "$@"
+}
+
+# Print the payload of every queued wake row, one per line.
+queued_wakes() {
+  awk -F '\t' '{ print $3 "|" $5 }' "$1/state/.wake-queue" 2>/dev/null
+}
+
+test_flip_queues_round_and_records_seen() {
+  local home fakebin out rc
+  home="$TMP_ROOT/flip-bot"; make_home "$home"
+  set_listing "$home" 7:aaa111:false 9:ddd444:true
+  fakebin=$(make_fake_gh "$home")
+  run_poll "$home" "$fakebin" >/dev/null
+  pr_json 9 ddd444 false > "$home/ghfix/ppetermann__maia/pr-9"
+  : > "$home/gh.log"
+  out=$(run_flip "$home" "$fakebin" https://github.com/PPetermann/Maia/pull/9 2>&1); rc=$?
+  expect_code 0 "$rc" "bot-repo flip exit"
+  assert_grep "pr-ready https://github.com/PPetermann/Maia/pull/9" "$home/gh.log" \
+    "the helper must flip the PR"
+  assert_contains "$out" "review queued: ocr-pr ppetermann/maia#9 ddd444" \
+    "the helper must report the queued round in the registered spelling"
+  [ "$(queued_wakes "$home")" = "check|check: $home/state/ocrbot-watch.check.sh: ocr-pr ppetermann/maia#9 ddd444" ] \
+    || fail "the flip must queue exactly the poll's ocr-pr wake (got: $(queued_wakes "$home"))"
+  [ "$(sort "$home/state/ocrbot/seen/ppetermann__maia")" = "$(printf '7 aaa111 0\n9 ddd444 0')" ] \
+    || fail "the flip must record the PR as seen and ready at its head, keeping other PRs"
+  [ "$(path_mode "$home/state/ocrbot/seen/ppetermann__maia")" = 600 ] \
+    || fail "the seen-state must stay a private file"
+  set_listing "$home" 7:aaa111:false 9:ddd444:false
+  out=$(run_poll "$home" "$fakebin"); rc=$?
+  expect_code 0 "$rc" "post-flip poll exit"
+  [ -z "$out" ] || fail "the poll must not wake a second time for a flip the helper queued (got: $out)"
+  pass "fm-pr-flip queues one ocr-pr round and records the flipped head as seen"
+}
+
+test_flip_unregistered_repo_only_flips() {
+  local home fakebin out rc
+  home="$TMP_ROOT/flip-other"; make_home "$home"
+  fakebin=$(make_fake_gh "$home")
+  out=$(run_flip "$home" "$fakebin" https://github.com/ppetermann/other/pull/3 2>&1); rc=$?
+  expect_code 0 "$rc" "unregistered flip exit"
+  assert_grep "pr-ready https://github.com/ppetermann/other/pull/3" "$home/gh.log" \
+    "the helper must still flip an unregistered repo's PR"
+  assert_no_grep "pr-get" "$home/gh.log" "an unregistered repo must not be read back"
+  assert_not_contains "$out" "review queued" "an unregistered repo must not queue a round"
+  [ -z "$(queued_wakes "$home")" ] || fail "an unregistered repo must queue no wake"
+  assert_absent "$home/state/ocrbot/seen" "an unregistered repo must record no seen-state"
+  pass "fm-pr-flip only flips a PR on a repo the bot does not gate"
+}
+
+test_flip_failures_queue_nothing() {
+  local home fakebin rc
+  home="$TMP_ROOT/flip-fail"; make_home "$home"
+  fakebin=$(make_fake_gh "$home")
+  : > "$home/ghfix/ready-fail"
+  run_flip "$home" "$fakebin" https://github.com/ppetermann/maia/pull/9 >/dev/null 2>&1; rc=$?
+  expect_code 1 "$rc" "failed flip exit"
+  assert_no_grep "pr-get" "$home/gh.log" "a failed flip must not go on to read the PR"
+  rm -f "$home/ghfix/ready-fail"
+  run_flip "$home" "$fakebin" https://github.com/ppetermann/maia/pull/9 >/dev/null 2>&1; rc=$?
+  expect_code 3 "$rc" "flip with an unreadable PR exit"
+  pr_json 9 ddd444 true > "$home/ghfix/ppetermann__maia/pr-9"
+  run_flip "$home" "$fakebin" https://github.com/ppetermann/maia/pull/9 >/dev/null 2>&1; rc=$?
+  expect_code 3 "$rc" "flip that still reads as draft exit"
+  [ -z "$(queued_wakes "$home")" ] || fail "no failed flip may queue a wake"
+  assert_absent "$home/state/ocrbot/seen" "no failed flip may record seen-state"
+  run_flip "$home" "$fakebin" https://gitlab.com/a/b/-/merge_requests/1 >/dev/null 2>&1; rc=$?
+  expect_code 2 "$rc" "non-GitHub PR exit"
+  pass "fm-pr-flip queues nothing when the flip or its read-back fails"
+}
+
+# Arm the bot shim directly from the library, so a watcher run sees exactly the
+# bytes bootstrap would write without running bootstrap's other steps.
+arm_shim() {
+  local home=$1
+  mkdir -p "$home/state"
+  ( . "$ROOT/bin/fm-ocrbot-lib.sh" && ocrbot_poll_shim_content "$home" "$ROOT" ) \
+    > "$home/state/ocrbot-watch.check.sh"
+  chmod 700 "$home/state/ocrbot-watch.check.sh"
+}
+
+run_watch() {
+  local home=$1 fakebin=$2 seconds=$3; shift 3
+  env PATH="$fakebin:$PATH" FM_HOME="$home" OCR_GH_STATE="$home/ghfix" OCR_GH_LOG="$home/gh.log" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_HEARTBEAT=999999 "$@" \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds "$seconds" 2>/dev/null
+}
+
+test_watcher_polls_bot_on_its_own_interval() {
+  local home fakebin out rc
+  home="$TMP_ROOT/watch-own"; make_home "$home"; arm_shim "$home"
+  set_listing "$home" 7:aaa111:false
+  fakebin=$(make_fake_gh "$home")
+  # The shared sweep ran just now and is not due again for a long time.
+  touch "$home/state/.last-check"
+  out=$(run_watch "$home" "$fakebin" 10 FM_CHECK_INTERVAL=999999); rc=$?
+  expect_code 0 "$rc" "own-interval watcher exit"
+  assert_contains "$out" "ocr-pr ppetermann/maia#7 aaa111" \
+    "the bot poll must run on its own interval while the shared sweep is not due"
+  assert_present "$home/state/.last-ocrbot-check" "the bot poll must track its own cadence marker"
+  pass "the watcher polls the OCR bot apart from the shared check sweep"
+}
+
+test_watcher_shared_sweep_skips_bot() {
+  local home fakebin rc
+  home="$TMP_ROOT/watch-skip"; make_home "$home"; arm_shim "$home"
+  set_listing "$home" 7:aaa111:false
+  fakebin=$(make_fake_gh "$home")
+  # The shared sweep is due (no .last-check), the bot's own cadence is not.
+  touch "$home/state/.last-ocrbot-check"
+  run_watch "$home" "$fakebin" 4 FM_CHECK_INTERVAL=999999 FM_OCRBOT_CHECK_INTERVAL=999999 >/dev/null; rc=$?
+  expect_code 124 "$rc" "skip watcher exit"
+  assert_present "$home/state/.last-check" "the shared sweep must still have run"
+  assert_absent "$home/gh.log" "the shared sweep must not run the bot poll"
+  pass "the shared check sweep leaves the OCR bot poll to its own interval"
+}
+
+test_watcher_bot_interval_capped_by_check_interval() {
+  local home fakebin out rc
+  home="$TMP_ROOT/watch-cap"; make_home "$home"; arm_shim "$home"
+  set_listing "$home" 7:aaa111:false
+  fakebin=$(make_fake_gh "$home")
+  touch "$home/state/.last-ocrbot-check" "$home/state/.last-check"
+  out=$(run_watch "$home" "$fakebin" 10 FM_CHECK_INTERVAL=2 FM_OCRBOT_CHECK_INTERVAL=999999); rc=$?
+  expect_code 0 "$rc" "capped watcher exit"
+  assert_contains "$out" "ocr-pr ppetermann/maia#7 aaa111" \
+    "the bot poll must never be slower than the shared sweep"
+  pass "the OCR bot interval is capped at the shared check interval"
+}
+
+test_watcher_rejects_tampered_bot_shim() {
+  local home fakebin out rc
+  home="$TMP_ROOT/watch-tampered"; make_home "$home"; arm_shim "$home"
+  printf '# tampered\n' >> "$home/state/ocrbot-watch.check.sh"
+  set_listing "$home" 7:aaa111:false
+  fakebin=$(make_fake_gh "$home")
+  out=$(run_watch "$home" "$fakebin" 10 FM_CHECK_INTERVAL=999999); rc=$?
+  expect_code 0 "$rc" "tampered-shim watcher exit"
+  assert_contains "$out" "rejected unauthenticated state check" \
+    "a shim that fails validation must be reported by the shared sweep"
+  assert_absent "$home/gh.log" "a shim that fails validation must never run the poll"
+  pass "the watcher rejects a tampered OCR bot shim instead of polling"
+}
+
+# ---------------------------------------------------------------------------
+
 test_poll_no_config_is_hard_noop
 test_poll_empty_repos_is_noop
 test_poll_invalid_repos_entry_reports_once
@@ -426,3 +595,10 @@ test_bootstrap_relative_home_writes_absolute_shim
 test_bootstrap_inert_without_config
 test_bootstrap_opt_out_removes_shim
 test_bootstrap_rejects_linked_shim_destination
+test_flip_queues_round_and_records_seen
+test_flip_unregistered_repo_only_flips
+test_flip_failures_queue_nothing
+test_watcher_polls_bot_on_its_own_interval
+test_watcher_shared_sweep_skips_bot
+test_watcher_bot_interval_capped_by_check_interval
+test_watcher_rejects_tampered_bot_shim

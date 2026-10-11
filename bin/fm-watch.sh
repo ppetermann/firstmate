@@ -300,6 +300,19 @@ HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat scans
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
 CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}     # seconds allowed per *.check.sh
+# The OCR review bot poll (state/ocrbot-watch.check.sh) runs on its own faster
+# cadence, never slower than the shared sweep; see bin/fm-ocrbot-poll.sh for
+# the GitHub request budget this implies.
+OCRBOT_CHECK_INTERVAL=${FM_OCRBOT_CHECK_INTERVAL:-60}
+case "$OCRBOT_CHECK_INTERVAL" in
+  ''|*[!0-9]*) OCRBOT_CHECK_INTERVAL=60 ;;
+  *) OCRBOT_CHECK_INTERVAL=$((10#$OCRBOT_CHECK_INTERVAL)) ;;
+esac
+case "$CHECK_INTERVAL" in
+  ''|*[!0-9]*) ;;
+  *) [ "$OCRBOT_CHECK_INTERVAL" -le "$((10#$CHECK_INTERVAL))" ] \
+       || OCRBOT_CHECK_INTERVAL=$((10#$CHECK_INTERVAL)) ;;
+esac
 HOME_SUMMARY_INTERVAL=${FM_HOME_SUMMARY_INTERVAL:-300}
 case "$HOME_SUMMARY_INTERVAL" in
   ''|*[!0-9]*|0) HOME_SUMMARY_INTERVAL=300 ;;
@@ -2275,6 +2288,21 @@ watcher_stop_signals() {
   trap 'exit 1' INT
 }
 
+ocrbot_poll_trusted() {  # <shim> - the shim validates and the poll script is a plain file
+  ocrbot_poll_shim_valid "$1" "$FM_HOME" "$FM_ROOT" \
+    && [ -f "$FM_ROOT/bin/fm-ocrbot-poll.sh" ] && [ ! -L "$FM_ROOT/bin/fm-ocrbot-poll.sh" ]
+}
+
+check_payload_bounded() {  # <check-path> <output> - print the wake payload
+  local c=$1 out=$2 full
+  if [ "${#out}" -gt "${FM_WAKE_CHECK_PAYLOAD_MAX:-4096}" ]; then
+    full="$STATE/.check-out-$(basename "$c" .check.sh)"
+    printf '%s' "$out" > "$full"
+    out="$(printf '%s' "$out" | head -c "${FM_WAKE_CHECK_PAYLOAD_MAX:-4096}") [truncated; full output: $full]"
+  fi
+  printf '%s' "$out"
+}
+
 run_check_capture() {
   local pgid
   fm_check_output_cleanup
@@ -2989,23 +3017,36 @@ while :; do
   # keeps producing signals - the slow poll (e.g. merge detection) would then
   # never run until the fleet went quiet. Checks are due only every
   # CHECK_INTERVAL, so most cycles skip this block and fall straight through.
+  # The OCR review bot poll runs first, on its own OCRBOT_CHECK_INTERVAL and
+  # .last-ocrbot-check mtime, so a review round starts within about a minute
+  # of a flip or fix push; the shared sweep below skips it.
+  # A shim that fails validation is not run here; the shared sweep reports
+  # its rejection on the shared cadence as before.
+  ocrbot_check="$STATE/ocrbot-watch.check.sh"
+  if [ -e "$ocrbot_check" ] \
+    && [ "$(age_of "$STATE/.last-ocrbot-check")" -ge "$OCRBOT_CHECK_INTERVAL" ] \
+    && ocrbot_poll_trusted "$ocrbot_check"; then
+    FM_HOME="$FM_HOME" run_check_capture "$FM_ROOT/bin/fm-ocrbot-poll.sh" || exit 1
+    touch "$STATE/.last-ocrbot-check"
+    if [ -n "$FM_CHECK_RESULT" ]; then
+      reason="check: $ocrbot_check: $(check_payload_bounded "$ocrbot_check" "$FM_CHECK_RESULT")"
+      fm_wake_append check "$ocrbot_check" "$reason" || exit 1
+      wake "$reason"
+    fi
+  fi
   if [ "$(age_of "$STATE/.last-check")" -ge "$CHECK_INTERVAL" ]; then
     rejected_checks=
     contribution_check_output=
     for c in "$STATE"/*.check.sh; do
       [ -e "$c" ] || continue
       is_pr_poll=0
-      if [ "$(basename "$c")" = ocrbot-watch.check.sh ]; then
-        if ocrbot_poll_shim_valid "$c" "$FM_HOME" "$FM_ROOT" \
-          && [ -f "$FM_ROOT/bin/fm-ocrbot-poll.sh" ] && [ ! -L "$FM_ROOT/bin/fm-ocrbot-poll.sh" ]; then
-          FM_HOME="$FM_HOME" run_check_capture "$FM_ROOT/bin/fm-ocrbot-poll.sh" || exit 1
-          out=$FM_CHECK_RESULT
-        else
-          rejected_checks="$rejected_checks $c"
-          fm_wake_append check unauthenticated-state-checks \
-            "check: rejected unauthenticated state check: $c" || exit 1
-          continue
-        fi
+      if [ "$c" = "$ocrbot_check" ]; then
+        # A trusted bot poll runs on its own cadence above.
+        ocrbot_poll_trusted "$c" && continue
+        rejected_checks="$rejected_checks $c"
+        fm_wake_append check unauthenticated-state-checks \
+          "check: rejected unauthenticated state check: $c" || exit 1
+        continue
       elif [ "$(basename "$c")" = x-watch.check.sh ]; then
         if fmx_poll_shim_valid "$c" "$FM_HOME" "$FM_ROOT" \
           && [ -f "$FM_ROOT/bin/fm-x-poll.sh" ] && [ ! -L "$FM_ROOT/bin/fm-x-poll.sh" ]; then
@@ -3071,11 +3112,7 @@ EOF
             continue
           fi
         fi
-        if [ "${#out}" -gt "${FM_WAKE_CHECK_PAYLOAD_MAX:-4096}" ]; then
-          full="$STATE/.check-out-$(basename "$c" .check.sh)"
-          printf '%s' "$out" > "$full"
-          out="$(printf '%s' "$out" | head -c "${FM_WAKE_CHECK_PAYLOAD_MAX:-4096}") [truncated; full output: $full]"
-        fi
+        out=$(check_payload_bounded "$c" "$out")
         reason="check: $c: $out"
         if [ "$is_pr_poll" -eq 1 ] && [ "$out" = merged ]; then
           if [ "$(fm_meta_get "$STATE/$id.meta" kind)" = secondmate ]; then

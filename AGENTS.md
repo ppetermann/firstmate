@@ -227,7 +227,7 @@ Its load-bearing steps are stated here because a contract that lives only in a s
 - Rebase onto the current default branch before flipping, so the reviewed head is the head that merges.
 - Before presenting a PR as merge-ready, check all six legs live in that same turn; name the failing leg instead of presenting it.
 - A converging cascade of review findings means stop and merge, not another round.
-- Verify within about five minutes of every flip that the PR now lists BOTH its CI context and the review check. The review poll records a PR as seen while it is still a draft and will not re-detect it on the flip, so a flipped PR can sit with no review round and look merely slow; `fleet-delivery-flow` owns the seen-state recovery.
+- Flip through `bin/fm-pr-flip.sh`, which starts the review round in the same turn, and verify within about two minutes that the PR lists BOTH its CI context and the review check; a flip that bypasses the helper can sit with no review round and look merely slow, and `fleet-delivery-flow` owns the seen-state recovery.
 
 The selected delivery path owns its own rigor: the local ladder on the exact push head, one CI run and one review round on the flip head, and the six-leg merge-ready contract.
 Never hold work for a manual clean verdict, stack serial manual reviews, add an independent reviewer, or infer authority for one from security, architecture, or risk alone.

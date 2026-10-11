@@ -39,7 +39,7 @@ The poll records a PR's head as seen whether or not a round actually ran, and it
 
 That is correct when the PR is finished with. It is WRONG in the case that produced it on 2026-09-04: a validated-path PR is opened ready by its tool, the poll sees it ready and wakes, firstmate declines because the round belongs at the landing turn, the worker then converts it to a draft, and the flip later returns it to the SAME head - already recorded as seen and not-draft, so no round is ever offered. The PR sat ready with green CI and no reviewer until a post-flip check caught it.
 
-So whenever you decline a round for a PR that will still need one later, delete that PR's line from `state/ocrbot/seen/<owner>__<repo>` in the same turn. The next poll then treats it as a first sighting. Do NOT rely on the flip alone to re-trigger detection.
+So whenever you decline a round for a PR that will still need one later, delete that PR's line from `state/ocrbot/seen/<owner>__<repo>` in the same turn. The next poll then treats it as a first sighting. A flip through `bin/fm-pr-flip.sh` queues its own wake whatever the seen record says; do NOT rely on any other flip to re-trigger detection.
 
 Distinguish the two cases before assuming a fault: a PR recorded with draft flag `1` DOES re-trigger on the flip - the poll handles that transition. Only a head recorded while ready is lost.
 

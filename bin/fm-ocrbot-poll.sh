@@ -36,8 +36,14 @@
 #     line>" (state/ocrbot/poll.error marker, x-poll.error pattern); a fully
 #     successful cycle clears the marker.
 #
-# Cadence: the watcher's default check sweep (300s); the bot defines no
-# cadence override. Budget is one conditional request per repo per cycle.
+# Cadence: the watcher runs this poll on its own interval, FM_OCRBOT_CHECK_INTERVAL
+# (default 60s, never slower than FM_CHECK_INTERVAL), apart from the shared
+# check sweep. Budget is one request per registered repo per cycle: a 304 is
+# free, so the rate-limit cost is one unconditional GET a minute for each repo
+# that has a changed listing or still tracks a draft - at most 60 an hour per
+# registered repo against the 5000-an-hour authenticated budget.
+# bin/fm-pr-flip.sh records a flip it performs as seen-and-ready and queues the
+# same wake line itself, so this poll is the fallback for flips made elsewhere.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -144,8 +150,8 @@ while IFS= read -r repo; do
     elif [ "${prev#* }" = 1 ]; then
       reviewable=1
     fi
-    [ "$reviewable" -eq 1 ] && printf 'ocr-pr %s#%s %s\n' "$repo" "$num" "$sha" >> "$WORK/wakes"
-    printf '%s %s %s\n' "$num" "$sha" "$draft" >> "$WORK/new-seen"
+    [ "$reviewable" -eq 1 ] && ocrbot_wake_line "$repo" "$num" "$sha" >> "$WORK/wakes"
+    ocrbot_seen_line "$num" "$sha" "$draft" >> "$WORK/new-seen"
   done < "$WORK/prs"
 
   # Wake first, record after: a failure between these re-detects next cycle.

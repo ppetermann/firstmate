@@ -16,8 +16,18 @@
 #   ocrbot_repos_list <repos-file>         - print valid owner/repo entries, one
 #                                per line; print the first invalid non-comment
 #                                entry to stderr and fail when any exists
+#   ocrbot_registered_repo <repos-file> <owner/repo> - print the registered
+#                                spelling of that repo (GitHub names compare
+#                                case-insensitively); fail when it is not
+#                                registered or the file has an invalid entry
 #   ocrbot_state_name <owner/repo>         - flat private-state filename for a
 #                                registered repo
+#   ocrbot_seen_line <number> <head_sha> <draft:0|1> - one seen-state record
+#   ocrbot_wake_line <owner/repo> <number> <head_sha> - one reviewable-PR wake
+#                                line, the format ocr-bot-review handles
+#   ocrbot_seen_upsert <state-root> <owner/repo> <number> <head_sha> <draft>
+#                              - replace that PR's seen-state record, keeping
+#                                every other PR's, through the guarded writer
 #   ocrbot_poll_shim_content <home> <root> - the byte-static watcher shim body
 #   ocrbot_poll_shim_valid <file> <home> <root> - private-identity plus
 #                                byte-compare validation for that shim
@@ -80,8 +90,42 @@ ocrbot_repos_list() {
   return "$rc"
 }
 
+ocrbot_registered_repo() {
+  local file=$1 want entries entry
+  entries=$(ocrbot_repos_list "$file" 2>/dev/null) || return 1
+  want=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    if [ "$(printf '%s' "$entry" | tr '[:upper:]' '[:lower:]')" = "$want" ]; then
+      printf '%s\n' "$entry"
+      return 0
+    fi
+  done <<EOF
+$entries
+EOF
+  return 1
+}
+
 ocrbot_state_name() {
   printf '%s\n' "${1//\//__}"
+}
+
+ocrbot_seen_line() {
+  printf '%s %s %s\n' "$1" "$2" "$3"
+}
+
+ocrbot_wake_line() {
+  printf 'ocr-pr %s#%s %s\n' "$1" "$2" "$3"
+}
+
+ocrbot_seen_upsert() {
+  local state_root=$1 repo=$2 num=$3 sha=$4 draft=$5 name seen_dir
+  name=$(ocrbot_state_name "$repo")
+  seen_dir="$state_root/ocrbot/seen"
+  {
+    awk -v n="$num" '$1 != n' "$seen_dir/$name" 2>/dev/null
+    ocrbot_seen_line "$num" "$sha" "$draft"
+  } | fmx_private_artifact_publish_stdin "$seen_dir" "$name" 600
 }
 
 ocrbot_poll_shim_content() {

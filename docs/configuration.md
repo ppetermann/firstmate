@@ -1965,7 +1965,9 @@ The directory holds the captain-managed credentials and registration:
 
 A locked session-start bootstrap writes `state/ocrbot-watch.check.sh`, a byte-static identity shim that the watcher validates by exact bytes before dispatching trusted `bin/fm-ocrbot-poll.sh`, mirroring the Relay shim trust model.
 The PR-check migration preserves a valid shim by the same byte comparison, and the home's supervision-required predicate treats the shim like the Relay poll: an armed bot keeps the live watcher cycle running even with no fleet work, or discovery stops.
-The bot defines no cadence override: polls run on the home's current watcher check cadence (default 300 seconds), and arming or disarming takes effect on the next check sweep with no watcher restart.
+The watcher runs the poll on its own `FM_OCRBOT_CHECK_INTERVAL` (default 60 seconds, never slower than `FM_CHECK_INTERVAL`) rather than the shared check sweep, and arming or disarming takes effect on the next bot cycle with no watcher restart.
+At that cadence the poll costs at most one unconditional listing request a minute per registered repository, and only while its listing changed or a tracked PR is still draft; an unchanged listing answers 304, which does not count against GitHub's rate limit.
+`bin/fm-pr-flip.sh` flips a PR to ready and, on a registered repository, queues the round's `ocr-pr` wake and records the flipped head as seen in the same turn, so a flip it performs never waits for the poll.
 Arming the shim alone makes no GitHub calls; the poll stays inert until `repos` lists at least one valid entry.
 
 The poll lists each registered repository's open PRs under the ambient gh auth, ETag-conditionally so unchanged listings cost no rate limit, and records `(number, head SHA, draft)` per PR in private durable state under `state/ocrbot/`.
@@ -2527,6 +2529,7 @@ FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 FM_INACTIVE_RECONCILE_SECS=900  # 60..1800-second watcher cadence and inactivity threshold; locked session start also requests an immediate scan in the deferred worker
 FM_INACTIVE_RECONCILE_BUDGET_SECS=10  # 1..30-second scan deadline; wedged-scan kill backstop follows one second later
 FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls, custom checks, or Relay dispatch)
+FM_OCRBOT_CHECK_INTERVAL=60   # seconds between OCR review bot polls, run apart from the slow-check sweep; capped at FM_CHECK_INTERVAL, and invalid values use 60
 FM_TASK_INBOX_GRACE_SECS=90   # seconds an unhandled steering-inbox message may sit before the watcher attempts doorbell delivery on an idle pane; also the minimum spacing between attempts
 FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledgement before the task surfaces as a stale wake for recovery
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script

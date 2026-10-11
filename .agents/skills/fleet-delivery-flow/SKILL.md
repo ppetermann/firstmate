@@ -29,11 +29,12 @@ such section is NOT on this flow yet - resolve it at registration
 1. Local ladder green on the exact push head (fm-local-gate).
 2. Push once; PR opens DRAFT, always. Drafts run no CI and get no review rounds.
 3. Landing queue: one ready PR per repo. On merge: refresh clone -> next draft rebases
-   onto new main -> ladder on rebased head -> `gh-axi pr ready <n>`. The flip is the
+   onto new main -> ladder on rebased head -> `bin/fm-pr-flip.sh <task-id|PR url>`, which
+   flips and, on an OCR bot repo, queues the bot round in the same turn. The flip is the
    sole CI + review trigger. Shared-file overlap governs simultaneous readiness only.
 4. Gauntlet: one CI run + one review round on the flip head. Post-flip verify within
-   ~5 min: `gh-axi pr checks <n>` must list the CI context(s) and ocr-review. If
-   ocr-review is missing (resident bot missed the flip):
+   ~2 min: `gh-axi pr checks <n>` must list the CI context(s) and ocr-review. If
+   ocr-review is missing (the flip went around fm-pr-flip.sh, or it exited 3):
    `sed -i '/^<n> /d' $FM_HOME/state/ocrbot/seen/ppetermann__<repo>` AND
    `rm -f $FM_HOME/state/ocrbot/etag/ppetermann__<repo>`, then it re-detects next
    poll (retires with ocr-review-service). The etag half is load-bearing: the poll
@@ -44,7 +45,8 @@ such section is NOT on this flow yet - resolve it at registration
    now skips its cached ETag whenever the seen-state still has a tracked PR recorded
    draft, so an ordinary flip no longer needs this manual recovery; the sed+rm remains
    the fallback for any other reason ocr-review is missing. Flip-CI failure: fix via
-   ladder + one push; longer work: `gh-axi pr ready <n> --undo`, iterate, re-flip.
+   ladder + one push; longer work: `gh-axi pr ready <n> --undo`, iterate, re-flip
+   through fm-pr-flip.sh.
    Converging cascade = stop and merge. Every thread resolved or rejected in-thread.
    REVIEWER ORDER, where two bind (maia, eve-members) - captain, 2026-09-06: the bot's
    rounds run FIRST and iterate; CodeRabbit is asked ONCE, only after the bot has cleared
@@ -105,8 +107,9 @@ A intake: registry mode/yolo -> PR shape -> plan-first if sizeable -> trigger au
 B pre-push: ladder green (gate-pass head= matches) -> pushed once -> DRAFT opened ->
   merge watch AND PR-readiness watch armed (bin/fm-pr-check.sh <id> <PR url>; readiness recipe in process-event-sources) -> zero Actions runs fired ->
   backlog updated.
-C flip: landing turn -> rebased -> ladder green -> flip -> verify CI + ocr-review on
-  this head (else seen-state recovery) -> CodeRabbit in flight where applicable.
+C flip: landing turn -> rebased -> ladder green -> flip via bin/fm-pr-flip.sh (bot round
+  starts now) -> within ~2 min verify CI + ocr-review on this head (else seen-state
+  recovery) -> CodeRabbit in flight where applicable.
 D merge-ready: the six legs, live -> `bin/fm-maia-notify.sh send merge-ready --id merge-ready:<PR url>:<head sha> project=<repo> task=<id> pr_url=<PR url> pr_number=<n> title="<PR title>"` (a no-op unless config/maia-notify exists; the watcher now sends it automatically once a task PR is approved and green, so this line is the backstop and a repeat is dropped by its id; docs/maia-notify.md).
 E post-merge: clone refreshed -> `bin/fm-review-tally.sh record <PR url>` (read the
   candidates it prints; re-run with --judge for any CodeRabbit finding the bot read and

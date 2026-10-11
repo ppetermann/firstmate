@@ -1103,9 +1103,8 @@ EOF
 #   state/ocrbot-watch.check.sh - byte-static identity shim; the watcher
 #                                 validates its bytes and dispatches trusted
 #                                 bin/fm-ocrbot-poll.sh directly
-# The bot defines no cadence override: the home's current watcher cadence
-# (default 300s) applies, so arming or disarming takes effect on the next
-# check sweep with no watcher restart. On opt-out (directory removed) it
+# The watcher polls it on its own FM_OCRBOT_CHECK_INTERVAL (default 60s), so
+# arming or disarming takes effect within a minute with no watcher restart. On opt-out (directory removed) it
 # removes any such artifact and says so only when it actually removed
 # something. Absent the directory AND the shim it is a complete no-op. The
 # poll itself stays inert until config/ocr-bot/repos lists repositories, so
@@ -1120,7 +1119,7 @@ ocrbot_setup() {
     # something was actually removed.
     if x_mode_artifact_present "$shim"; then
       if x_mode_remove_artifact "$shim"; then
-        echo "OCRBOT: OCR review bot off - removed the poll shim; the current watcher cadence applies on the next check sweep"
+        echo "OCRBOT: OCR review bot off - removed the poll shim; the watcher stops polling on its next bot cycle"
       else
         echo "OCRBOT: OCR review bot off - failed to remove the poll shim"
       fi
