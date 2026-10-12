@@ -9,6 +9,8 @@
 # APPROVED without a line of the diff being read. Container build files are
 # where pinned versions, base images, and privilege decisions live, so an
 # exclusion there is the most expensive kind.
+# On 2026-10-12 the maia#556 round excluded env.example and
+# CHANGELOG-features.txt the same way, both documented surfaces its PRs change.
 #
 # The verdict here comes entirely from what the `ocr` binary emits, which is a
 # vendor surface that changes without notice: its supported-extension table
@@ -17,8 +19,9 @@
 # the stub, so this runs against the real tool. The two properties it pins are
 # independent and fail for different reasons:
 #
-#   selection    - `include` is additive, so the container patterns must turn
-#                  an excluded Dockerfile into a reviewable one.
+#   selection    - `include` is additive, so the container, example, and
+#                  changelog patterns must turn an excluded file of each class
+#                  into a reviewable one.
 #   displacement - `rules` is first-match-wins and a matching custom pattern
 #                  REPLACES the system group rather than adding to it, so every
 #                  file the rule file does not claim must keep the group it had
@@ -56,6 +59,9 @@ printf 'FROM scratch\n'                     > "$REPO/Dockerfile"
 printf 'FROM scratch\n'                     > "$REPO/prod.Dockerfile"
 printf 'FROM scratch\n'                     > "$REPO/Containerfile"
 printf 'FROM scratch\n'                     > "$REPO/Containerfile.dev"
+printf 'MODEL=ollama\n'                     > "$REPO/env.example"
+printf 'MODEL=ollama\n'                     > "$REPO/.env.example"
+printf '# hdr\n2026-10-12 | area | text\n'  > "$REPO/CHANGELOG-features.txt"
 git -C "$REPO" add -A
 git -C "$REPO" commit -qm base
 git -C "$REPO" branch -q baseref
@@ -85,6 +91,28 @@ for f in Dockerfile Dockerfile.runner prod.Dockerfile Containerfile Containerfil
   [ "$src" = custom ] || fail "$f resolved to the '$src' group, so its include pattern does not cover that spelling"
 done
 pass 'every container build file spelling resolves to the container rule'
+
+# The maia#556 spellings, driven one file per pattern, dotfile included.
+for f in env.example .env.example CHANGELOG-features.txt; do
+  group="$(ocr delegate rule --repo "$REPO" --rule "$RULE" -f json "$f")"
+  src="$(printf '%s' "$group" | python3 -c 'import json,sys; print(json.load(sys.stdin)["groups"][0]["source"])')"
+  [ "$src" = custom ] || fail "$f resolved to the '$src' group, so its include pattern does not cover that spelling"
+done
+pass 'every example and changelog spelling resolves to its custom rule'
+
+# The maia#556 reproduction: a change whose ONLY files are the example
+# configuration and the changelog.
+printf 'MODEL=openai\n'                            > "$REPO/env.example"
+printf 'MODEL=openai\n'                            > "$REPO/.env.example"
+printf '# hdr\n2026-10-13 | area | more text\n'    > "$REPO/CHANGELOG-features.txt"
+git -C "$REPO" add -A
+git -C "$REPO" commit -qm example-and-changelog-only
+
+preview="$(ocr delegate preview --repo "$REPO" --from HEAD^ --to HEAD --rule "$RULE" -f json)"
+count="$(printf '%s' "$preview" | field reviewable_count)"
+[ "$count" = 3 ] || fail "an example-and-changelog-only diff previewed $count reviewable files, expected 3 (maia#556 regression: both named files came back unsupported_ext and were reviewed unread)"
+assert_not_contains "$preview" 'unsupported_ext' 'nothing in an example-and-changelog-only diff is excluded as an unsupported extension'
+pass 'an example-and-changelog-only change previews as reviewable'
 
 # --- displacement -----------------------------------------------------------
 #
