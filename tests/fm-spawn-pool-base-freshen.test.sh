@@ -773,11 +773,12 @@ test_refused_launch_leaves_the_pool_for_a_retry_and_a_second_task() {
   rec=$(make_case refused-retry "$id")
   read_case_record "$rec"
   fm_test_spawn_brief "$HOME_DIR" "$other"
-  mkdir -p "$CASE_DIR/publisher/.polytoken"
-  printf '[]\n' > "$CASE_DIR/publisher/.polytoken/hooks.json"
-  git -C "$CASE_DIR/publisher" add .polytoken/hooks.json
-  git -C "$CASE_DIR/publisher" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm project-hooks
-  git -C "$CASE_DIR/publisher" push --quiet origin "$DEFAULT_BRANCH"
+  # This fleet freshens a pooled slot to the project's own local default
+  # branch with no fetch, so the project's hook layer is committed there.
+  mkdir -p "$PROJECT_DIR/.polytoken"
+  printf '[]\n' > "$PROJECT_DIR/.polytoken/hooks.json"
+  git -C "$PROJECT_DIR" add .polytoken/hooks.json
+  git -C "$PROJECT_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm project-hooks
   slot_root="$CASE_DIR/slots"
   mkdir -p "$slot_root/1" "$slot_root/2"
   git -C "$PROJECT_DIR" worktree move "$POOL_DIR" "$slot_root/1/project"
@@ -835,11 +836,12 @@ test_refused_launch_spares_per_id_paths_under_a_contended_spawn_lock() {
   rm -rf "/tmp/fm-$id"
   rec=$(make_case refused-contended "$id")
   read_case_record "$rec"
-  mkdir -p "$CASE_DIR/publisher/.polytoken"
-  printf '[]\n' > "$CASE_DIR/publisher/.polytoken/hooks.json"
-  git -C "$CASE_DIR/publisher" add .polytoken/hooks.json
-  git -C "$CASE_DIR/publisher" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm project-hooks
-  git -C "$CASE_DIR/publisher" push --quiet origin "$DEFAULT_BRANCH"
+  # This fleet freshens a pooled slot to the project's own local default
+  # branch with no fetch, so the project's hook layer is committed there.
+  mkdir -p "$PROJECT_DIR/.polytoken"
+  printf '[]\n' > "$PROJECT_DIR/.polytoken/hooks.json"
+  git -C "$PROJECT_DIR" add .polytoken/hooks.json
+  git -C "$PROJECT_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm project-hooks
   slot_root="$CASE_DIR/slots"
   mkdir -p "$slot_root/1"
   git -C "$PROJECT_DIR" worktree move "$POOL_DIR" "$slot_root/1/project"
@@ -891,21 +893,23 @@ SH
 test_non_polytoken_refused_launch_keeps_its_window() {
   local rec id out status slot_root world
   id='pool-refused-codex-r1'
-  rec=$(make_originless_case refused-codex "$id")
+  rec=$(make_case refused-codex "$id")
   read_case_record "$rec"
   slot_root="$CASE_DIR/slots"
   mkdir -p "$slot_root/1"
   git -C "$PROJECT_DIR" worktree move "$POOL_DIR" "$slot_root/1/project"
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$slot_root/1/project" \
     > "$slot_root/treehouse-state.json"
-  git -C "$slot_root/1/project" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+  # This fleet's freshen never fetches, so the post-claim refusal here is the
+  # clean-worktree check rather than an unusable origin.
+  printf 'scratch\n' > "$slot_root/1/project/leftover.txt"
   world="$CASE_DIR/tmux-world"
   install_pool_world_tmux "$FAKEBIN_DIR" "$world" "$slot_root"
 
   out=$(run_spawn "$id" --harness codex --mode direct-PR --yolo off)
   status=$?
-  [ "$status" -ne 0 ] || fail "a codex launch on a slot with an unusable origin should refuse"
-  assert_contains "$out" "could not fetch origin" "the codex refusal message changed"$'\n'"$out"
+  [ "$status" -ne 0 ] || fail "a codex launch on a dirty slot should refuse"
+  assert_contains "$out" "is not clean; refusing to discard uncommitted work" "the codex refusal message changed"$'\n'"$out"
   [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "the refused codex launch published a task record"
   [ -e "$world/fm-$id.id" ] || fail "a non-polytoken refusal closed its window, unlike main"
   [ ! -e "$slot_root/1/.fm-slot-owner" ] || fail "the refused codex launch left its slot claim"

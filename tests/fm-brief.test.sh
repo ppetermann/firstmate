@@ -238,9 +238,10 @@ test_forge_selection_renders_correct_cli() {
   brief="$home/data/brief-forge-default/brief.md"
   assert_grep "3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations." "$brief" \
     "a brief with no --forge must render the exact pre-existing gh-axi Rule 3 line"
+  # Fork patch (always-draft delivery flow): direct-PR opens a DRAFT with gh.
   # shellcheck disable=SC2016 # Backticks are literal generated brief text.
-  assert_grep 'open a PR with `gh-axi`' "$brief" \
-    "a direct-PR brief with no --forge must still tell the worker to open the PR with gh-axi"
+  assert_grep 'open the PR as a DRAFT - `gh pr create --draft`' "$brief" \
+    "a direct-PR brief with no --forge must still tell the worker to open a draft PR with gh"
   grep -qx "Delivery contract: mode=direct-PR" "$brief" \
     || fail "a brief with no --forge must keep the bare delivery contract line"
 
@@ -249,17 +250,14 @@ test_forge_selection_renders_correct_cli() {
   brief="$home/data/brief-forge-forgejo/brief.md"
   assert_grep "3. Use tea for Forgejo operations and chrome-devtools-axi for browser operations." "$brief" \
     "--forge forgejo must render the tea Rule 3 line"
+  # Fork patch (always-draft delivery flow): a Forgejo draft is a WIP: title.
   # shellcheck disable=SC2016 # Backticks are literal generated brief text.
-  assert_grep 'open a PR with `tea`' "$brief" \
-    "--forge forgejo's direct-PR DOD must tell the worker to open the PR with tea"
+  assert_grep 'open the PR as a DRAFT - `tea pulls create` with a `WIP:` title prefix' "$brief" \
+    "--forge forgejo's direct-PR DOD must tell the worker to open the draft PR with tea"
+  assert_no_grep 'gh pr create' "$brief" \
+    "--forge forgejo's direct-PR DOD must not send the worker to gh to open the PR"
   grep -qx "Delivery contract: mode=direct-PR forge=forgejo" "$brief" \
     || fail "--forge forgejo must mark the delivery contract line for the spawn's registry check"
-  # shellcheck disable=SC2016 # Backticks and braces are literal generated brief text.
-  assert_grep 'confirm it is not a draft (`tea api --repo <owner>/<repo> /repos/{owner}/{repo}/pulls/<number>` must show `draft` as false' "$brief" \
-    "--forge forgejo's direct-PR DOD must read the draft state back with tea"
-  # shellcheck disable=SC2016 # Backticks are literal generated brief text.
-  assert_grep 'remove that prefix with `tea pulls edit <number>' "$brief" \
-    "--forge forgejo's direct-PR DOD must clear a draft with tea"
   assert_no_grep 'gh-axi pr view' "$brief" \
     "--forge forgejo's direct-PR DOD must not send the worker to gh-axi for the draft read-back"
   assert_no_grep 'gh-axi pr ready' "$brief" \
@@ -295,7 +293,7 @@ a shape on forgejo|--mode direct-PR --forge forgejo --shape squash|--shape appli
 forgejo on a scout|--scout --forge forgejo|apply only to ship briefs
 ROWS
 
-  pass "fm-brief.sh: --forge forgejo names tea in Rule 3, the direct-PR DOD, and the draft read-back, marks the delivery contract, and the closed set refuses everything else"
+  pass "fm-brief.sh: --forge forgejo names tea in Rule 3, the direct-PR DOD, and the no-mistakes draft read-back, marks the delivery contract, and the closed set refuses everything else"
 }
 
 # --forge external renders the external review rail from bin/fm-dod-lib.sh: a
@@ -488,7 +486,7 @@ test_pr_based_dod_draft_contract() {
         ;;
       no-mistakes)
         # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
-        assert_grep 'confirm it is not a draft (`gh pr view <url> --json isDraft` must print false)' "$brief" \
+        assert_grep 'confirm it is not a draft (`gh-axi pr view <number>` must print `draft: no`' "$brief" \
           "$mode: done must require reading the PR back from the forge as non-draft"
         ;;
     esac
