@@ -1351,11 +1351,12 @@ test_main_only_close_after_handled_turn_delivers_restore_failure() {
 }
 
 # A handled stale event for the idle worker, in the given posture, after the
-# handled paused and resolved signals
+# handled paused and resolved signals (a signal reason carries its files' verbs
+# after a " |" separator)
 stale_handled_after_resolved() {  # <home> <posture>
   awk -F '\t' -v posture="posture=$2" '
     $2 != "handled" { next }
-    /signal: .*\/demo\.status$/ { signals++; next }
+    /signal: .*\/demo\.status( \|.*)?$/ { signals++; next }
     signals >= 2 && index($0, posture) && /stale: firstmate:fm-demo$/ { found = 1 }
     END { exit !found }
   ' "$1/state/.supervision-host.log" 2>/dev/null

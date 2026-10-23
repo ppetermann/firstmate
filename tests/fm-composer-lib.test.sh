@@ -942,11 +942,14 @@ test_matrix_opencode_leftbar_cwd_furniture() {
   assert_screen "opencode 1.18.31 cwd furniture on herdr" empty "$CAPS_STYLED" "$composer"
   assert_screen "opencode 1.18.31 cwd furniture on zellij" empty "$CAPS_STYLED_NOID" "$composer"
   assert_screen "opencode 1.18.31 cwd furniture on cmux/orca" empty "$CAPS_PLAIN" "$composer"
-  # Non-vacuousness: the fragments really survive ghost stripping (RGB 128 has
-  # luminance exactly 128, not below the ceiling) and the run really reaches the
-  # top furniture row, so the verdict above cannot come from blank rows alone.
+  # Non-vacuousness: this fleet's ghost ceiling is INCLUSIVE (fm_composer_strip_ghost),
+  # so the RGB 128 fragments are stripped and the verdicts above could come from
+  # blank rows alone. Under an exclusive ceiling (127 for these integer lumas)
+  # the fragments survive, the run reaches the top furniture row, and the
+  # structural recognition still reads the composer empty.
+  FM_COMPOSER_GHOST_LUMA_MAX=127 assert_screen "opencode 1.18.31 surviving cwd furniture on tmux" empty "$CAPS_TMUX" "$screen" 14
   expected_fragment="$(printf '~')/.treehouse/harness-engineering-"
-  strip=$(printf '%s\n' "$(_fm_composer_screen_row 2 "$composer")" | fm_composer_strip_ghost)
+  strip=$(printf '%s\n' "$(_fm_composer_screen_row 2 "$composer")" | FM_COMPOSER_GHOST_LUMA_MAX=127 fm_composer_strip_ghost)
   fm_composer_normalize_trim_var strip
   case "$strip" in
     '┃'*) strip=${strip#┃} ;;
@@ -954,7 +957,7 @@ test_matrix_opencode_leftbar_cwd_furniture() {
   fm_composer_normalize_trim_var strip
   [ "$strip" = "$expected_fragment" ] \
     || fail "the top furniture fragment must survive ghost stripping intact, got '$strip'"
-  start=$(_fm_composer_leftbar_cwd_start "$composer" 0 5)
+  start=$(FM_COMPOSER_GHOST_LUMA_MAX=127 _fm_composer_leftbar_cwd_start "$composer" 0 5)
   [ "$start" = 2 ] || fail "the fixture's furniture run must be recognised from its top row, got '$start'"
 
   # Position decides, never shape alone: the same furniture with a LEFT-EDGE
@@ -1050,8 +1053,10 @@ test_matrix_opencode_leftbar_cwd_furniture() {
   assert_screen "opencode 1.18.31 short cwd furniture on herdr" empty "$CAPS_STYLED" "$composer"
   assert_screen "opencode 1.18.31 short cwd furniture on zellij" empty "$CAPS_STYLED_NOID" "$composer"
   assert_screen "opencode 1.18.31 short cwd furniture on cmux/orca" empty "$CAPS_PLAIN" "$composer"
+  # Under the exclusive ceiling, as above: this fleet's inclusive one strips
+  # the RGB 128 fragment.
   expected_fragment="$(printf '~')/.treehouse/anvil-99d6f9/2/anvil:fm/"
-  strip=$(printf '%s\n' "$(_fm_composer_screen_row 4 "$composer")" | fm_composer_strip_ghost)
+  strip=$(printf '%s\n' "$(_fm_composer_screen_row 4 "$composer")" | FM_COMPOSER_GHOST_LUMA_MAX=127 fm_composer_strip_ghost)
   fm_composer_normalize_trim_var strip
   case "$strip" in
     '┃'*) strip=${strip#┃} ;;
@@ -1059,7 +1064,7 @@ test_matrix_opencode_leftbar_cwd_furniture() {
   fm_composer_normalize_trim_var strip
   [ "$strip" = "$expected_fragment" ] \
     || fail "the short fixture's one fragment must survive ghost stripping intact, got '$strip'"
-  start=$(_fm_composer_leftbar_cwd_start "$composer" 0 5)
+  start=$(FM_COMPOSER_GHOST_LUMA_MAX=127 _fm_composer_leftbar_cwd_start "$composer" 0 5)
   [ "$start" = 4 ] || fail "the short fixture's run must start on the row directly above the footer, got '$start'"
   typed="$(head -n 2 <<< "$composer")"$'\n'"${typed_row}"$'\n'"$(tail -n 3 <<< "$composer")"
   assert_screen "opencode lone slash typed above the short cwd rail stays pending on tmux" pending "$CAPS_TMUX" "$typed" 2

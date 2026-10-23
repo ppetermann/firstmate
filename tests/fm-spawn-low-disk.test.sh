@@ -28,7 +28,13 @@ printf '%s\n' "$*" >> "$FM_FAKE_CALL_LOG"
 case "$*" in
   *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
-case "${1:-}" in display-message) printf 'firstmate\n' ;; esac
+# The task window exists once spawn creates it, so a tmux target check after
+# new-window finds it.
+case "${1:-}" in
+  display-message) printf 'firstmate\n' ;;
+  list-windows) [ ! -s "${FM_FAKE_CALL_LOG%/*}/windows" ] || cat "${FM_FAKE_CALL_LOG%/*}/windows" ;;
+  new-window) printf 'fm-task-a\n' > "${FM_FAKE_CALL_LOG%/*}/windows" ;;
+esac
 exit 0
 SH
   fm_fakebin_write "$fakebin/treehouse" <<'SH'

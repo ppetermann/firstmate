@@ -73,7 +73,7 @@ case "${1:-}" in
     fi
     exit 0 ;;
   list-windows)
-    printf 'foreign:%s\nfm-mpf-lane-m8\nfm-lane-key\nfm-lane-ok\n' \
+    printf 'foreign:%s\nfm-mpf-lane-m8\nfm-lane-key\nfm-lane-clr\nfm-lane-stk\nfm-lane-ok\n' \
       "${FM_FAKE_TMUX_WINDOW:-fm-lost}"
     exit 0 ;;
 esac

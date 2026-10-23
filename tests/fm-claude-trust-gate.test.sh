@@ -136,8 +136,12 @@ case "$*" in
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
-  has-session|new-session|new-window|kill-window|set-window-option) exit 0 ;;
+  # The task window exists once spawn creates it, so a tmux target check after
+  # new-window finds it.
+  list-windows) [ ! -s "${FM_FAKE_CLAUDE_STATE%/*}/windows" ] || cat "${FM_FAKE_CLAUDE_STATE%/*}/windows"; exit 0 ;;
+  new-window) printf 'fm-%s\n' "$FM_FAKE_TASK_ID" > "${FM_FAKE_CLAUDE_STATE%/*}/windows"; exit 0 ;;
+  kill-window) rm -f "${FM_FAKE_CLAUDE_STATE%/*}/windows"; exit 0 ;;
+  has-session|new-session|set-window-option) exit 0 ;;
   send-keys)
     prev=
     literal=
