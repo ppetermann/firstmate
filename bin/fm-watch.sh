@@ -2318,9 +2318,17 @@ handle_paused_stale() {  # <window> <task> <hash>
       reason="paused ${age}s, awaiting external - the declared time is beyond the recheck cadence; confirm the wait still holds"
     else
       # The declared time has passed: recheck now, once per declaration, then
-      # hold the cadence.
-      detail="paused, declared time reached"
-      reason="paused ${age}s, awaiting external - the declared clearing time has passed, rechecked on a long cadence not a wedge; confirm the wait cleared"
+      # hold the cadence. An elapsed pause explains nothing, so a captain call
+      # held in the backlog, which the worker's line never shows, names the wait
+      # here as it does on the wedge timer (wedge_wait_evidence); this fleet's
+      # live-agent branch in pause_state_class routes a working paused lane here.
+      if task_captain_call_open "$task"; then
+        detail="paused, declared time reached, held in the backlog"
+        reason="paused ${age}s, awaiting the captain - held in the backlog once the declared clearing time passed, rechecked on a long cadence not a wedge; answer the held decision or release the hold"
+      else
+        detail="paused, declared time reached"
+        reason="paused ${age}s, awaiting external - the declared clearing time has passed, rechecked on a long cadence not a wedge; confirm the wait cleared"
+      fi
       declaration="$declaration:due"
       min_age=0
     fi
