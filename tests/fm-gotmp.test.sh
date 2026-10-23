@@ -105,6 +105,8 @@ SH
   ln -s "$ROOT/bin/fm-parent-channel-lib.sh" "$fake/bin/fm-parent-channel-lib.sh"
   # fm-task-tmp-lib.sh: teardown's guarded removal of a relocated temp root.
   ln -s "$ROOT/bin/fm-task-tmp-lib.sh" "$fake/bin/fm-task-tmp-lib.sh"
+  # fm-pool-disk-lib.sh: teardown's pooled-slot free-disk report.
+  ln -s "$ROOT/bin/fm-pool-disk-lib.sh" "$fake/bin/fm-pool-disk-lib.sh"
   # fm-guard.sh: stub (teardown calls it with `|| true`).
   fm_fakebin_write "$fake/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
@@ -209,6 +211,7 @@ SH
   ln -s "$ROOT/bin/fm-parent-channel-lib.sh" "$fake/bin/fm-parent-channel-lib.sh"
   # fm-task-tmp-lib.sh: teardown's guarded removal of a relocated temp root.
   ln -s "$ROOT/bin/fm-task-tmp-lib.sh" "$fake/bin/fm-task-tmp-lib.sh"
+  ln -s "$ROOT/bin/fm-pool-disk-lib.sh" "$fake/bin/fm-pool-disk-lib.sh"
   fm_fakebin_write "$fake/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0

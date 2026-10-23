@@ -507,11 +507,10 @@ test_flip_failures_queue_nothing() {
 # Arm the bot shim directly from the library, so a watcher run sees exactly the
 # bytes bootstrap would write without running bootstrap's other steps.
 arm_shim() {
-  local home=$1
+  local home=$1 shim=$1/state/ocrbot-watch.check.sh
   mkdir -p "$home/state"
-  ( . "$ROOT/bin/fm-ocrbot-lib.sh" && ocrbot_poll_shim_content "$home" "$ROOT" ) \
-    > "$home/state/ocrbot-watch.check.sh"
-  chmod 700 "$home/state/ocrbot-watch.check.sh"
+  ( . "$ROOT/bin/fm-ocrbot-lib.sh" && ocrbot_poll_shim_content "$home" "$ROOT" ) > "$shim"
+  chmod 700 "$shim"
 }
 
 run_watch() {
