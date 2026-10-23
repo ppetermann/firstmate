@@ -32,17 +32,25 @@
 #   omp-ext          omp (Oh My Pi) per-task extension (agent_start/agent_end without willContinue)
 #   opencode-plugin  OpenCode per-task plugin (session.status)
 #   claude-hook      Claude lifecycle hooks (UserPromptSubmit/Stop/StopFailure/SessionEnd)
+#   devin-hook       Devin UserPromptSubmit / Stop / SessionEnd hooks; manual
+#                    cancellation emits no Stop, so control invalidates to unknown.
+#   commandcode-mod  Command Code per-task mod (run_start opens; run_end, including
+#                    an Escape interrupt, and session end close)
 #   gemini-hook      Gemini agent hooks (BeforeAgent opens; AfterAgent and
 #                    SessionEnd close)
+#   polytoken-hook   Polytoken pre_user_prompt / pre_model_turn open and stop
+#                    closes; a REST turn cancel emits no stop (verified live),
+#                    so the control plane writes the close itself
 #   codex-hook, codex-appserver  reserved: Codex, gated by
 #                    fm_busy_codex_semantic_source
 #   kimi-wire, kimi-hook  reserved: standalone Kimi, gated by fm_busy_kimi_verified
 # Firstmate-owned sources accepted for every converted adapter:
 #   fm-spawn         the launch-brief turn seeded at spawn
-#   fm-interrupt     the legacy Claude fm-send --key Escape idle event
+#   fm-interrupt     the legacy Claude fm-send --key Escape idle event, and the
+#                    unknown invalidation fm-control writes after a Devin interrupt
 #   fm-recovery      a documented recovery reset after relaunch
 # Classifier-only sources (never written into a record):
-#   endpoint-gone, herdr-native, grok-regex, rovo-regex, agy-regex, muse-session-log,
+#   endpoint-gone, herdr-native, rex-native, grok-regex, rovo-regex, agy-regex, muse-session-log,
 #   cursor-transcript, missing, malformed, gen-mismatch, source-mismatch,
 #   kimi-unverified, codex-unverified, capture-failed, no-target, launch-prompt
 #
@@ -228,6 +236,9 @@ fm_busy_sources_for_harness() {  # <harness>
       ;;
     opencode*) adapter=opencode-plugin ;;
     gemini*) adapter=gemini-hook ;;
+    devin) adapter=devin-hook ;;
+    commandcode) adapter=commandcode-mod ;;
+    polytoken) adapter=polytoken-hook ;;
     pi|pi-signed) adapter=pi-ext ;;
     omp) adapter=omp-ext ;;
     kimi*)
@@ -1071,17 +1082,22 @@ fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
       return 0
       ;;
   esac
-  # No record at all. A native herdr busy verdict is semantic enough to trust
-  # for BUSY (streaming means a turn is running); native idle is narrower
-  # than turn state (a long foreground tool call reads idle) and stays
-  # unknown here.
-  if [ "$backend" = herdr ] && command -v fm_backend_busy_state >/dev/null 2>&1; then
-    native=$(fm_backend_busy_state "$backend" "$target" 2>/dev/null || true)
-    if [ "$native" = busy ]; then
-      printf 'busy herdr-native'
-      return 0
-    fi
-  fi
+  # No record at all. A native herdr or rex busy verdict is semantic enough to
+  # trust for BUSY (streaming means a turn is running; rex trusts an OSC 7501
+  # working record only while its reporting process is still in the block's
+  # foreground chain); native idle is narrower than turn state (a long
+  # foreground tool call reads idle) and stays unknown here.
+  case "$backend" in
+    herdr|rex)
+      if command -v fm_backend_busy_state >/dev/null 2>&1; then
+        native=$(fm_backend_busy_state "$backend" "$target" 2>/dev/null || true)
+        if [ "$native" = busy ]; then
+          printf 'busy %s-native' "$backend"
+          return 0
+        fi
+      fi
+      ;;
+  esac
   case "$harness" in
     muse*)
       # Semantic, on demand: fold this task's bound session log. An open run is

@@ -221,6 +221,139 @@ test_ship_modes_generate_clean_briefs() {
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
 }
 
+# --forge forgejo is the Forgejo value of the project's registered forge binding
+# (bin/fm-project-mode.sh --forge), passed at intake exactly like --mode. It
+# names tea instead of gh-axi in the ship brief's forge-CLI rule and in the
+# direct-PR Definition of done's own open-a-PR line, and it marks the delivery
+# contract line so bin/fm-spawn.sh can check it against the registry. A brief
+# with no --forge renders the unchanged gh-axi wording. The forge is a ship
+# input only, and the closed set refuses anything else.
+test_forge_selection_renders_correct_cli() {
+  local home brief out rc
+  home="$TMP_ROOT/forge-home"
+  mkdir -p "$home/data"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-forge-default some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "a ship brief with no --forge should still scaffold"
+  brief="$home/data/brief-forge-default/brief.md"
+  assert_grep "3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations." "$brief" \
+    "a brief with no --forge must render the exact pre-existing gh-axi Rule 3 line"
+  # shellcheck disable=SC2016 # Backticks are literal generated brief text.
+  assert_grep 'open a PR with `gh-axi`' "$brief" \
+    "a direct-PR brief with no --forge must still tell the worker to open the PR with gh-axi"
+  grep -qx "Delivery contract: mode=direct-PR" "$brief" \
+    || fail "a brief with no --forge must keep the bare delivery contract line"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-forge-forgejo some-proj --mode direct-PR --forge forgejo >/dev/null 2>&1 \
+    || fail "--forge forgejo should scaffold a direct-PR ship brief"
+  brief="$home/data/brief-forge-forgejo/brief.md"
+  assert_grep "3. Use tea for Forgejo operations and chrome-devtools-axi for browser operations." "$brief" \
+    "--forge forgejo must render the tea Rule 3 line"
+  # shellcheck disable=SC2016 # Backticks are literal generated brief text.
+  assert_grep 'open a PR with `tea`' "$brief" \
+    "--forge forgejo's direct-PR DOD must tell the worker to open the PR with tea"
+  grep -qx "Delivery contract: mode=direct-PR forge=forgejo" "$brief" \
+    || fail "--forge forgejo must mark the delivery contract line for the spawn's registry check"
+  # shellcheck disable=SC2016 # Backticks and braces are literal generated brief text.
+  assert_grep 'confirm it is not a draft (`tea api --repo <owner>/<repo> /repos/{owner}/{repo}/pulls/<number>` must show `draft` as false' "$brief" \
+    "--forge forgejo's direct-PR DOD must read the draft state back with tea"
+  # shellcheck disable=SC2016 # Backticks are literal generated brief text.
+  assert_grep 'remove that prefix with `tea pulls edit <number>' "$brief" \
+    "--forge forgejo's direct-PR DOD must clear a draft with tea"
+  assert_no_grep 'gh-axi pr view' "$brief" \
+    "--forge forgejo's direct-PR DOD must not send the worker to gh-axi for the draft read-back"
+  assert_no_grep 'gh-axi pr ready' "$brief" \
+    "--forge forgejo's direct-PR DOD must not send the worker to gh-axi to clear a draft"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-forge-nm some-proj --mode no-mistakes --forge forgejo >/dev/null 2>&1 \
+    || fail "--forge forgejo should scaffold a no-mistakes ship brief"
+  brief="$home/data/brief-forge-nm/brief.md"
+  assert_grep "3. Use tea for Forgejo operations and chrome-devtools-axi for browser operations." "$brief" \
+    "a no-mistakes --forge forgejo brief must render the tea Rule 3 line"
+  grep -qx "Delivery contract: mode=no-mistakes forge=forgejo" "$brief" \
+    || fail "a no-mistakes --forge forgejo brief must mark the delivery contract line"
+  # shellcheck disable=SC2016 # Backticks and braces are literal generated brief text.
+  assert_grep 'confirm it is not a draft (`tea api --repo <owner>/<repo> /repos/{owner}/{repo}/pulls/<number>` must show `draft` as false' "$brief" \
+    "a no-mistakes --forge forgejo DOD must read the draft state back with tea"
+  assert_no_grep 'gh-axi pr view' "$brief" \
+    "a no-mistakes --forge forgejo DOD must not send the worker to gh-axi for the draft read-back"
+  assert_no_grep 'gh-axi pr ready' "$brief" \
+    "a no-mistakes --forge forgejo DOD must not send the worker to gh-axi to clear a draft"
+
+  while IFS='|' read -r label args expect; do
+    [ -n "$label" ] || continue
+    # shellcheck disable=SC2086 # The row's arguments must split into words.
+    out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-forge-bad some-proj $args 2>&1); rc=$?
+    expect_code 1 "$rc" "$label must be refused"
+    assert_contains "$out" "$expect" "$label was refused without its reason"
+    [ ! -e "$home/data/brief-forge-bad/brief.md" ] || fail "$label left a brief behind"
+  done <<'ROWS'
+a value outside the closed set|--mode direct-PR --forge gitlab|expected none, gerrit, forgejo, or external
+the removed github value|--mode direct-PR --forge github|expected none, gerrit, forgejo, or external
+forgejo on local-only|--mode local-only --forge forgejo|cannot ship mode=local-only
+a shape on forgejo|--mode direct-PR --forge forgejo --shape squash|--shape applies only with --forge gerrit
+forgejo on a scout|--scout --forge forgejo|apply only to ship briefs
+ROWS
+
+  pass "fm-brief.sh: --forge forgejo names tea in Rule 3, the direct-PR DOD, and the draft read-back, marks the delivery contract, and the closed set refuses everything else"
+}
+
+# --forge external renders the external review rail from bin/fm-dod-lib.sh: a
+# first rule that forbids every task push, the review-tool contract, and the
+# home's adapter body. It is direct-PR only, carries no base branch, and needs
+# config/external-review.md; an adapter that tries to carry its own delivery
+# contract line is refused.
+test_forge_external_renders_the_review_rail() {
+  local home brief out rc
+  home="$TMP_ROOT/forge-external-home"
+  mkdir -p "$home/data" "$home/config"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-ext-noadapter some-proj --mode direct-PR --forge external 2>&1); rc=$?
+  expect_code 1 "$rc" "--forge external without an adapter must be refused"
+  assert_contains "$out" "external-review.md" "the missing-adapter refusal did not name the file"
+  [ ! -e "$home/data/brief-ext-noadapter/brief.md" ] || fail "a refused external scaffold left a brief behind"
+
+  printf '%s\n' 'Delivery contract: mode=direct-PR' > "$home/config/external-review.md"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-ext-contract some-proj --mode direct-PR --forge external 2>&1); rc=$?
+  expect_code 1 "$rc" "an adapter carrying a delivery contract line must be refused"
+  assert_contains "$out" "must not carry a 'Delivery contract: mode=' line" "the adapter contract refusal did not say why"
+
+  # shellcheck disable=SC2016 # Backticks are literal adapter text.
+  printf '%s\n' 'Run `review-tool upload --draft`.' > "$home/config/external-review.md"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-ext some-proj --mode direct-PR --forge external >/dev/null 2>&1 \
+    || fail "--forge external should scaffold a direct-PR ship brief"
+  brief="$home/data/brief-ext/brief.md"
+  grep -qx "Delivery contract: mode=direct-PR forge=external" "$brief" \
+    || fail "--forge external must mark the delivery contract line for the spawn's registry check"
+  # shellcheck disable=SC2016 # Backticks are literal generated brief text.
+  assert_grep '1. Never push to `origin`' "$brief" "--forge external must forbid the origin push in rule 1"
+  assert_grep "Publish only through the review tool your Definition of done names" "$brief" \
+    "--forge external must not send the worker to a forge CLI in rule 3"
+  assert_grep "## Review tool instructions (home configuration)" "$brief" "--forge external must render the adapter section"
+  assert_grep "review-tool upload --draft" "$brief" "--forge external must render the adapter body"
+  assert_no_grep "personal backup remote" "$brief" "--forge external offered a backup nobody configured"
+
+  printf 'backup\n' > "$home/config/external-review-backup"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-ext-backup some-proj --mode direct-PR --forge external >/dev/null 2>&1 \
+    || fail "--forge external with a backup should scaffold"
+  # shellcheck disable=SC2016 # Backticks are literal generated brief text.
+  assert_grep '`git push backup HEAD:refs/heads/backup/brief-ext-backup`' "$home/data/brief-ext-backup/brief.md" \
+    "--forge external with a backup must name the durable copy"
+
+  while IFS='|' read -r label args expect; do
+    [ -n "$label" ] || continue
+    # shellcheck disable=SC2086 # The row's arguments must split into words.
+    out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-ext-bad some-proj $args 2>&1); rc=$?
+    expect_code 1 "$rc" "$label must be refused"
+    assert_contains "$out" "$expect" "$label was refused without its reason"
+    [ ! -e "$home/data/brief-ext-bad/brief.md" ] || fail "$label left a brief behind"
+  done <<'ROWS'
+external on no-mistakes|--mode no-mistakes --forge external|ships direct-PR only for now
+external on local-only|--mode local-only --forge external|cannot ship mode=local-only
+external with a base branch|--mode direct-PR --forge external --base-branch release|not supported on forge=external
+ROWS
+  pass "fm-brief.sh: --forge external renders the no-push rule, the review contract, and the adapter, and refuses every impossible shape"
+}
+
 # A ship task's delivery mode is firstmate's per-task decision, so a missing or
 # unusable value must stop the scaffold instead of silently defaulting. The
 # no-mistakes-prod-only row is the conditional registry policy: it is never a task
@@ -1170,6 +1303,37 @@ test_rule6_teaches_keyed_decisions() {
   pass "fm-brief.sh: rule 6 teaches keyed decisions and ask-user routing"
 }
 
+# Contract: the inbox listing the brief tells a worker to run succeeds silently
+# on an empty or absent inbox and lists messages in numeric order, in bash and zsh.
+test_inbox_listing_command_is_safe_on_empty_inbox() {
+  local home brief cmd inbox shell_name out status
+  home="$TMP_ROOT/inbox-listing-home"
+  mkdir -p "$home/data" "$home/config"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-inbox-list some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "fm-brief.sh ship scaffold exited non-zero"
+  brief="$home/data/brief-inbox-list/brief.md"
+  # shellcheck disable=SC2016
+  cmd=$(sed -n 's/.*list them with `\(find [^`]*\)`.*/\1/p' "$brief" | head -1)
+  [ -n "$cmd" ] || fail "the brief does not give a find-based inbox listing command"
+  inbox="$home/state/brief-inbox-list.inbox"
+  for shell_name in bash zsh; do
+    command -v "$shell_name" >/dev/null 2>&1 || continue
+    rm -rf "$inbox"
+    status=0
+    out=$("$shell_name" -c "$cmd" 2>&1) || status=$?
+    [ "$status" -eq 0 ] && [ -z "$out" ] || fail "$shell_name: absent inbox listing was not silent success (exit $status): $out"
+    mkdir -p "$inbox"
+    status=0
+    out=$("$shell_name" -c "$cmd" 2>&1) || status=$?
+    [ "$status" -eq 0 ] && [ -z "$out" ] || fail "$shell_name: empty inbox listing was not silent success (exit $status): $out"
+    : > "$inbox/1000.msg"
+    : > "$inbox/999.msg"
+    out=$("$shell_name" -c "$cmd" 2>&1 | sed 's#.*/##' | tr '\n' ' ')
+    [ "$out" = "999.msg 1000.msg " ] || fail "$shell_name: messages not listed in numeric order: $out"
+  done
+  pass "fm-brief: inbox listing is silent on empty/absent inbox and numerically ordered"
+}
+
 # Contract: a waiting worker spends no turns. A decision wait ends the turn, an
 # external wait sleeps in one bounded blocking shell command sized per harness,
 # and a waiting worker neither polls its inbox nor polls a pipeline between holds.
@@ -1383,6 +1547,158 @@ test_base_branch_is_rendered_and_bounded() {
   pass "fm-brief.sh: --base-branch records the base, targets the PR at it, and is refused where no PR carries it"
 }
 
+# (a) An unregistered/default project - no --branch-prefix passed at all - must
+# keep every generated ship mode's branch on the legacy "fm/<task-id>" name, byte
+# for byte, so every existing firstmate installation is unaffected.
+test_ship_branch_prefix_defaults_to_legacy_fm() {
+  local home id mode brief
+  home="$TMP_ROOT/branch-prefix-default-home"
+  mkdir -p "$home/data"
+  for id_mode in "brief-branch-nm-e1:no-mistakes" "brief-branch-dp-e2:direct-PR" "brief-branch-lo-e3:local-only"; do
+    id=${id_mode%%:*}
+    mode=${id_mode##*:}
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1
+    brief="$home/data/$id/brief.md"
+    # shellcheck disable=SC2016  # literal backticks around the branch name must stay unexpanded
+    assert_grep "\`git checkout -b fm/$id --\`" "$brief" \
+      "$mode: omitting --branch-prefix must still create the legacy fm/<task-id> branch"
+  done
+  pass "fm-brief.sh: --branch-prefix omitted defaults every ship mode to fm/<task-id>"
+}
+
+# (b) + (c) A configured override must replace "fm/" everywhere the branch name is
+# rendered - the branch-creation command, the never-push rule text, the
+# definition-of-done text, and the status-message text - never partially.
+test_ship_branch_prefix_override_is_consistent_across_modes() {
+  local home id brief
+  home="$TMP_ROOT/branch-prefix-override-home"
+  mkdir -p "$home/data"
+
+  id="brief-branch-override-nm-e4"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes --branch-prefix 'contrib/' >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  # shellcheck disable=SC2016
+  assert_grep "\`git checkout -b contrib/$id --\`" "$brief" \
+    "no-mistakes: branch-creation command did not use the configured override"
+  assert_no_grep "fm/$id" "$brief" \
+    "no-mistakes: brief mixed the legacy fm/ prefix in with the configured override"
+
+  id="brief-branch-override-dp-e5"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR --branch-prefix 'contrib/' >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  # shellcheck disable=SC2016
+  assert_grep "\`git checkout -b contrib/$id --\`" "$brief" \
+    "direct-PR: branch-creation command did not use the configured override"
+  # shellcheck disable=SC2016
+  assert_grep "push only your \`contrib/$id\` branch" "$brief" \
+    "direct-PR: never-push rule text did not use the configured override"
+  assert_no_grep "fm/$id" "$brief" \
+    "direct-PR: brief mixed the legacy fm/ prefix in with the configured override"
+
+  id="brief-branch-override-lo-e6"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode local-only --branch-prefix 'contrib/' >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  # shellcheck disable=SC2016
+  assert_grep "\`git checkout -b contrib/$id --\`" "$brief" \
+    "local-only: branch-creation command did not use the configured override"
+  # shellcheck disable=SC2016
+  assert_grep "Work only on your \`contrib/$id\` branch" "$brief" \
+    "local-only: never-push rule text did not use the configured override"
+  # shellcheck disable=SC2016
+  assert_grep "committed on your branch \`contrib/$id\`" "$brief" \
+    "local-only: definition-of-done text did not use the configured override"
+  # shellcheck disable=SC2016
+  assert_grep "\`done [at=<epoch>]: ready in branch contrib/$id\`" "$brief" \
+    "local-only: status-message text did not use the configured override"
+  assert_no_grep "fm/$id" "$brief" \
+    "local-only: brief mixed the legacy fm/ prefix in with the configured override"
+  pass "fm-brief.sh: a --branch-prefix override renders identically across every generated section"
+}
+
+# An empty override must still resolve to a valid, sensible branch name: the bare
+# task id, never a leading slash and never an empty branch name.
+test_ship_branch_prefix_empty_override_yields_bare_task_id() {
+  local home id brief
+  home="$TMP_ROOT/branch-prefix-bare-home"
+  mkdir -p "$home/data"
+  id="brief-branch-bare-e7"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode local-only --branch-prefix '' >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  # shellcheck disable=SC2016
+  assert_grep "\`git checkout -b $id --\`" "$brief" \
+    "an empty --branch-prefix must yield a bare <task-id> branch"
+  assert_no_grep "checkout -b /$id" "$brief" \
+    "an empty --branch-prefix produced a leading-slash branch name"
+  assert_no_grep "fm/$id" "$brief" \
+    "an empty --branch-prefix left the legacy fm/ prefix in place"
+  pass "fm-brief.sh: an empty --branch-prefix override resolves to a bare <task-id> branch"
+}
+
+test_branch_prefix_is_refused_where_it_does_not_apply() {
+  local home out status label args expect
+  home="$TMP_ROOT/branch-prefix-refused-home"
+  mkdir -p "$home/data"
+  while IFS='|' read -r label args expect; do
+    [ -n "$label" ] || continue
+    # shellcheck disable=SC2086  # args is an intentional word-split arg list
+    out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" $args 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] || fail "$label: expected a non-zero exit"
+    assert_contains "$out" "$expect" "$label: refusal did not explain why"
+    assert_absent "$home/data/${args%% *}/brief.md" "$label: refused scaffold still wrote a brief"
+  done <<'ROWS'
+branch-prefix on a scout brief|brief-branchref-f1 some-proj --scout --branch-prefix fix/|--branch-prefix applies only to ship briefs
+branch-prefix on a secondmate charter|brief-branchref-f2 --secondmate --no-projects --branch-prefix fix/|--branch-prefix applies only to ship briefs
+ROWS
+  pass "fm-brief.sh: --branch-prefix is refused on scout and secondmate scaffolds"
+}
+
+# A branch prefix is embedded verbatim into a `git checkout -b` command in the
+# generated brief, so a space or a leading dash could corrupt or hijack that
+# command; both must be rejected loudly rather than silently accepted.
+test_branch_prefix_value_is_validated() {
+  local home out status
+  home="$TMP_ROOT/branch-prefix-validated-home"
+  mkdir -p "$home/data"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-branchval-g1 some-proj --mode no-mistakes --branch-prefix 'bad prefix/' 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a space-containing --branch-prefix should be refused"
+  assert_contains "$out" "must not contain a space" "space-containing --branch-prefix did not explain why"
+  assert_absent "$home/data/brief-branchval-g1/brief.md" "refused space-containing --branch-prefix still wrote a brief"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-branchval-g2 some-proj --mode no-mistakes --branch-prefix=-oops 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a dash-leading --branch-prefix should be refused"
+  assert_contains "$out" "must not start with '-'" "dash-leading --branch-prefix did not explain why"
+  assert_absent "$home/data/brief-branchval-g2/brief.md" "refused dash-leading --branch-prefix still wrote a brief"
+
+  pass "fm-brief.sh: --branch-prefix value is validated against embedded spaces and a leading dash"
+}
+
+test_branch_prefix_command_is_shell_safe() {
+  local home id prefix marker brief command repo branch
+  home="$TMP_ROOT/branch-prefix-shell-safe-home"
+  marker="$TMP_ROOT/branch-prefix-shell-safe-marker"
+  id='brief-branch-safe-g3'
+  prefix="\$(touch\${IFS}$marker)"
+  mkdir -p "$home/data"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode local-only --branch-prefix "$prefix" >/dev/null 2>&1 \
+    || fail "a ref-format-valid metacharacter prefix should scaffold safely"
+  brief="$home/data/$id/brief.md"
+  # shellcheck disable=SC2016 # The sed expression intentionally contains literal backticks.
+  command=$(sed -n 's/^1\. First action: create your branch: `\(.*\)`$/\1/p' "$brief")
+  [ -n "$command" ] || fail "generated brief exposed no branch-creation command"
+  repo="$TMP_ROOT/branch-prefix-shell-safe-repo"
+  git init -q "$repo" || fail "could not initialize shell-safety fixture repository"
+  ( cd "$repo" && eval "$command" ) || fail "generated branch-creation command did not run"
+  assert_absent "$marker" "generated branch command executed the prefix's command substitution"
+  branch=$(git -C "$repo" branch --show-current)
+  [ "$branch" = "$prefix$id" ] \
+    || fail "generated branch command did not create the literal configured branch (got '$branch')"
+  pass "fm-brief.sh: ref-format-valid shell metacharacters stay literal in generated branch commands"
+}
+
 test_worker_role_scope
 
 # Rule 2 governs file edits rather than pool administration, so every crewmate
@@ -1432,6 +1748,13 @@ test_crewmate_scaffolds_forbid_pool_administration() {
   [ "$ship_rule" = "$scout_rule" ] \
     || fail "ship and scout shared-infrastructure rules have drifted apart"
 
+  ship_cd_rule=$(awk '/^8\. Never start a shell command with/,/^$/' "$home/data/brief-pool-no-mistakes/brief.md")
+  scout_cd_rule=$(awk '/^8\. Never start a shell command with/,/^$/' "$brief")
+  [ -n "$ship_cd_rule" ] || fail "ship brief emitted no leading-cd rule"
+  [ "$ship_cd_rule" = "$scout_cd_rule" ] \
+    || fail "scout brief leading-cd rule is missing or differs from the ship brief"
+  assert_grep "every sub-agent you launch" "$brief" "scout brief did not pass the leading-cd rule to sub-agents"
+
   # The daemon half of the rule survived the fold.
   assert_grep "no-mistakes" "$brief" "scout brief lost the shared no-mistakes daemon rule"
   # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
@@ -1454,6 +1777,8 @@ test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
 test_ship_modes_generate_clean_briefs
+test_forge_selection_renders_correct_cli
+test_forge_external_renders_the_review_rail
 test_ship_mode_is_required_and_closed_set
 test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
@@ -1476,9 +1801,16 @@ test_ship_and_scout_teach_validation_round_pause
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
 test_scout_lavish_line_follows_presentation_floor
+test_inbox_listing_command_is_safe_on_empty_inbox
 test_workers_wait_without_spending_turns
 test_wait_no_turns_absent_keeps_the_previous_brief
 test_home_brief_include_is_appended_last
+test_ship_branch_prefix_defaults_to_legacy_fm
+test_ship_branch_prefix_override_is_consistent_across_modes
+test_ship_branch_prefix_empty_override_yields_bare_task_id
+test_branch_prefix_is_refused_where_it_does_not_apply
+test_branch_prefix_value_is_validated
+test_branch_prefix_command_is_shell_safe
 test_pr_briefs_state_required_review_merge_bar
 test_local_only_dod_carries_no_review_language
 test_shared_terminal_rule_reaches_generated_briefs

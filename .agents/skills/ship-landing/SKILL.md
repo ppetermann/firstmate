@@ -14,7 +14,8 @@ For PR-based ship tasks, the ready signal is `done: PR <url>` once the draft PR 
 Run `bin/fm-pr-check.sh <id> <PR url>` with the URL copied from that ready signal - it records `pr=` and the forge's `pr_head=` when available in the task's meta and arms the watcher's merge poll.
 `bin/fm-dod-lib.sh` owns the named-head gate on that ready signal: a ship `done:` whose named head exists only in the worker's disposable copy is not ready (`bin/fm-crew-state.sh` reports blocked, `bin/fm-pr-check.sh` refuses to register, and a secondmate does not publish that done upstream).
 That blocked reading is the gate working, not a stuck worker, so steer the worker on the commit the refusal names rather than waiting.
-A direct-PR worker pushes that commit to its PR branch, and a local-only worker commits it on its `fm/<id>` branch.
+A `forge=external` task reports `done [at=<epoch>]: review <url> uploaded for review` instead: run `bin/fm-review-check.sh <id> <review url>` rather than `bin/fm-pr-check.sh`, which arms no merge watch, then always escalate the review URL to the captain whatever the yolo setting, because firstmate can neither observe nor perform its approval or merge.
+A direct-PR worker pushes that commit to its PR branch, and a local-only worker commits it on its ship branch.
 In the same step, load `process-event-sources` and arm its PR-readiness watch for that task, so readiness wakes firstmate instead of waiting for a heartbeat to notice it.
 The landing queue is PER REPOSITORY, not one queue across the fleet: at most one ready PR per repo, and a draft on a repo with no ready PR may be flipped immediately rather than waiting behind another repo's work.
 Tell the captain the PR's full `https://...` URL copied from the worker's ready line or the task's `pr=` metadata, never assembled from memory, and a concise outcome summary.

@@ -86,6 +86,8 @@ Claude's `.claude/settings.json` Stop `asyncRewake` hook (`bin/fm-claude-stop-au
 Do not run the hook as a manual arm from a tool turn: a short-lived tool process cannot own its park; its header and help own the invocation contract.
 The hook fires on every Stop.
 On each Stop, an eligible primary with supervision need admits one home-scoped owner, which foregrounds `bin/fm-watch-arm.sh` inside the hook-owned process tree.
+If a session exits mid-cycle and leaves an orphaned Stop hook, the replacement session's first eligible Stop supersedes its claim, attaches to the running watcher through `bin/fm-watch-arm.sh`, and delivers the cycle's close.
+[`turnend-guard.md`](turnend-guard.md#auto-arm-generation-claim) owns the open-claim definition.
 While supervision is still needed and away mode remains inactive, an actionable close wakes the idle session through exit 2.
 
 ### Claude session-lock ownership
@@ -196,8 +198,12 @@ Under the away-supervisor daemon (`state/.afk` present) the watcher restarts as 
 A restart that lands between an announce and that drain - the crash window - deliberately reopens one fresh generation and re-presents it once (the reopen-announced contract `fm-wake-lib.sh` owns), so a lost announcement cannot silence a still-open decision.
 The ordinary persistent-arm path leaves the marker `announced:downtime` after emitting, so its arm layer can establish a successor and transition handling via `--handling-delivered`; each crash-replay re-arm re-surfaces the same generation until that successor is confirmed, and a handling successor never re-announces.
 The recovery-episode contract below owns once-per-generation announcement.
-A handling successor does not re-announce.
+A handling successor does not re-announce the predecessor-delivered wake while its handling handoff remains open.
 It enters its poll loop immediately and keeps scanning signals, stale panes, and checks.
+After the supervision host finishes a handled turn, it settles the successor handoff under the durable-queue and recovery-marker locks.
+Any row left for main then becomes a recoverable downtime episode, including one appended after the predecessor closed but before the successor initialized or the host confirmed its handoff.
+The successor closes once with the recovery wake only while that row is still queued; this is how a captain inbox note reaches main during handling-successor startup or while the host is parked on the handled wake's successor.
+When the host instead hands the accepted close back to main and leaves that successor running, it republishes the episode as announced downtime, because the close it hands back is that episode's delivery; the successor therefore does not announce it again, while a later durable append still opens a pending episode it recovers.
 
 ### Manual recovery and other harnesses
 
@@ -227,11 +233,13 @@ The first recovery marks that generation announced, and later empty-queue arms l
 A non-successor watcher start checks the durable queue and recovery marker under their locks.
 If an announced-but-unacknowledged episode has an empty queue, the arm leaves that generation announced, making repeated empty-queue arms idempotent while a long-poll source is merely alive.
 If a durable row arrived after the announcement, the arm opens a fresh pending downtime generation so buried work still resurfaces once.
+A Codex foreground checkpoint skips the announced-episode reopen transition, so an already-announced generation stays announced while the checkpoint continues its bounded supervision.
+Its ordinary arm check still announces a never-announced generation, including one made pending by a durable queue append during the checkpoint.
 
 ### Generation reuse
 
 An ordinary watcher close attempts to publish downtime, and every durable queue append publishes it.
-A handling successor closing to resurface recovery preserves the existing marker instead.
+A watcher closing to resurface the recovery it found at its start preserves the existing marker instead, while a handling successor resurfacing a later row publishes downtime like any close.
 If EXIT cleanup cannot acquire the downtime-marker lock within its bound, it retains the stale singleton for the next arm to publish the missing downtime before clearing that lock (see [Grace, beacon, and stop signals](#grace-beacon-and-stop-signals)).
 A downtime republication of a pending episode reuses its generation.
 A watcher close leaves an announced downtime episode announced, while a successful durable append opens a fresh pending generation so a live watcher can recover the new work.
@@ -476,6 +484,7 @@ They also prove that a legacy or handoff-phase watcher marker from an absent rep
 
 - The once-per-generation announcement bound with the real Pi extension against a refused handling handshake.
 - A handling successor that must surface a real crew event instead of going blind.
+- A handling successor that resurfaces a row appended between its predecessor's close and its own startup handoff.
 
 `tests/fm-wake-daemon-lifecycle-e2e.test.sh` covers the away-supervisor daemon's one-shot watcher restart cycle, including a rearm-resurface idempotent per recovery generation so the tight restart loop cannot re-fire it, while a fresh downtime generation still resurfaces once.
 
@@ -502,6 +511,8 @@ It checks that a newly appended keyed decision is classified without rereading e
 - Stale and live session owners.
 - Unchanged AFK and need boundaries.
 - Single-flight.
+- Supersession of a dead session's orphaned claim by the replacement session's first Stop, including a resumed session that carries the dead one's conversation id, and a claim with no readable session lock.
+- A recycled background bridge keeping its live claim on the trusted session id pinned to the lock holder's recorded pid-identity.
 - Bounded failure retries.
 - Benign live-watcher cycle ends.
 - One-notice failure episodes.

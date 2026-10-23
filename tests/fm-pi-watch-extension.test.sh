@@ -2925,6 +2925,108 @@ EOF
   pass "Pi watcher arm distinguishes all session lock ownership states"
 }
 
+# A Pi command started from inside the live session, such as the `pi --help`
+# capability probe, auto-loads this extension too and passes the ancestor walk
+# in lockOwnership. Its pid dies at once, so the marker must stay on the live
+# session above it, generation line included, while a dead or foreign marker pid
+# is still replaced.
+test_pi_extension_keeps_marker_of_live_ancestor_session() {
+  local repo home plugin marker_case out status
+  repo="$TMP_ROOT/pi-marker-guard-root"
+  home="$TMP_ROOT/pi-marker-guard-home"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  for marker_case in nested dead foreign fresh; do
+    rm -f "$home/state/.pi-watch-extension-loaded"
+    out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" MARKER_CASE="$marker_case" node --input-type=module 2>&1 <<'EOF'
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const marker = `${process.env.FM_HOME}/state/.pi-watch-extension-loaded`;
+const version = `sha256:${createHash("sha256").update(readFileSync(process.env.PLUGIN)).digest("hex")}`;
+// The lock names the parent of this process: a live strict ancestor, exactly where
+// the real session sits above a nested `pi --help`.
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.ppid}\n`);
+
+const pi = {
+  on() {},
+  registerCommand() {},
+  registerTool() {},
+  sendUserMessage: async () => {},
+};
+async function load() {
+  const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+  mod.default(pi);
+}
+function expectBoundToThisProcess(label) {
+  const lines = readFileSync(marker, "utf8").split("\n");
+  if (
+    lines.length !== 4 || lines[3] !== "" ||
+    lines[0] !== version ||
+    lines[1] !== String(process.pid) ||
+    !/^generation=[1-9][0-9]* phase=active$/.test(lines[2])
+  ) {
+    throw new Error(`${label}: marker was not bound to this process: ${JSON.stringify(lines.join("\n"))}`);
+  }
+}
+function pidAlive(pid) {
+  try {
+    process.kill(Number(pid), 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+switch (process.env.MARKER_CASE) {
+  case "nested": {
+    const before = `${version}\n${process.ppid}\ngeneration=7 phase=active\n`;
+    writeFileSync(marker, before);
+    await load();
+    const after = readFileSync(marker, "utf8");
+    if (after !== before) throw new Error(`nested load replaced the marker of the live session: ${JSON.stringify(after)}`);
+    break;
+  }
+  case "dead": {
+    const dead = spawnSync(process.execPath, ["-e", "0"], { stdio: "ignore" }).pid;
+    if (!dead || pidAlive(dead)) throw new Error(`could not produce a dead pid (got ${dead})`);
+    writeFileSync(marker, `${version}\n${dead}\ngeneration=7 phase=active\n`);
+    await load();
+    expectBoundToThisProcess("marker on a dead pid");
+    break;
+  }
+  case "foreign": {
+    const foreign = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    try {
+      writeFileSync(marker, `${version}\n${foreign.pid}\ngeneration=7 phase=active\n`);
+      await load();
+      expectBoundToThisProcess("marker on a live non-ancestor pid");
+    } finally {
+      foreign.kill("SIGTERM");
+    }
+    break;
+  }
+  case "fresh": {
+    if (existsSync(marker)) throw new Error("fresh case started with a marker present");
+    await load();
+    expectBoundToThisProcess("fresh load");
+    break;
+  }
+  default:
+    throw new Error(`unknown marker case: ${process.env.MARKER_CASE}`);
+}
+EOF
+)
+    status=$?
+    [ "$status" = 0 ] || fail "Pi watch marker guard failed for the '$marker_case' case (exit $status): $out"
+    [ -z "$out" ] || fail "Pi watch marker guard '$marker_case' case printed output: $out"
+  done
+  pass "Pi watch extension: a nested load keeps the live session's watch marker"
+}
+
 test_pi_session_transition_generation_owner() {
   local repo home plugin child_pid_file child_marker_file marker_root arm_log fail_once out status
   repo="$TMP_ROOT/pi-session-transition-root"
@@ -3451,6 +3553,10 @@ await waitFor(
 if (replacement.prompts.filter((message) => message.includes("signal: streaming queued actionable outcome")).length !== 1) {
   throw new Error(`replacement did not replay the unconsumed follow-up exactly once: ${replacement.prompts.join(" | ")}`);
 }
+replacement.handlers.get("before_agent_start")?.({
+  messageType: "custom",
+  message: { role: "custom", customType: "fixture", content: replacement.prompts[0], display: true },
+}, {});
 await replacement.handlers.get("session_shutdown")?.({ type: "session_shutdown", reason: "new" }, {});
 
 const finalMod = await import(`${pathToFileURL(process.env.PLUGIN).href}?replacement=idle-followup`);
@@ -3470,8 +3576,15 @@ await waitFor(
 if (finalSession.prompts.filter((message) => message.includes("signal: streaming queued actionable outcome")).length !== 1) {
   throw new Error(`second replacement did not replay the idle queued follow-up exactly once: ${finalSession.prompts.join(" | ")}`);
 }
-finalSession.handlers.get("before_agent_start")?.({ prompt: finalSession.prompts[0] }, {});
+finalSession.handlers.get("before_agent_start")?.({ messageType: "user", prompt: finalSession.prompts[0] }, {});
 await new Promise((resolve) => setTimeout(resolve, 20));
+await finalSession.handlers.get("session_shutdown")?.({ type: "session_shutdown", reason: "new" }, {});
+const consumedMod = await import(`${pathToFileURL(process.env.PLUGIN).href}?replacement=consumed-user`);
+const consumed = makePi();
+consumedMod.default(consumed.pi);
+await consumed.handlers.get("session_start")?.({ type: "session_start", reason: "new" }, {});
+if (consumed.prompts.length !== 0) throw new Error("a consumed user wake replayed after replacement");
+await consumed.handlers.get("session_shutdown")?.({ type: "session_shutdown", reason: "exit" }, {});
 process.exit(0);
 EOF
 )
@@ -3530,7 +3643,7 @@ const pi = {
     prompts.push(message);
     if (streaming) return;
     beforeAgentStarts += 1;
-    handlers.get("before_agent_start")?.({ prompt: message }, {});
+    handlers.get("before_agent_start")?.({ messageType: "user", prompt: message }, {});
   },
   events: { on() {}, emit() {} },
 };
@@ -3565,6 +3678,17 @@ if (wakes("signal: streaming chain wake 2") !== 1) throw new Error(`wrong second
 await waitFor(() => arms() === 3, "successor after the second streaming-time delivery");
 if (beforeAgentStarts !== 0) throw new Error(`streaming follow-ups raised before_agent_start ${beforeAgentStarts} times`);
 
+// Pi 1.2 emits an idle custom-message trigger without prompt. Its content
+// matching a queued user wake must not mark that wake consumed.
+await handlers.get("before_agent_start")?.({
+  type: "before_agent_start",
+  messageType: "custom",
+  message: {
+    role: "custom", customType: "fixture", content: prompts[1],
+    display: false, timestamp: Date.now(),
+  },
+  systemPrompt: "fixture", systemPromptOptions: {},
+}, {});
 // The run reaches the first queued follow-up; the second is still queued when
 // the captain replaces the session, so only the second rides the handoff.
 consumeQueued(prompts[0]);
@@ -3991,7 +4115,7 @@ if (!prompts[1].includes("signal: persistence failure actionable outcome")) {
 if (!prompts[1].includes("could not persist a replacement-session actionable wake")) {
   throw new Error(`replacement did not surface the persistence failure: ${prompts[1]}`);
 }
-handlers.get("before_agent_start")?.({ prompt: prompts[1] }, {});
+handlers.get("before_agent_start")?.({ messageType: "user", prompt: prompts[1] }, {});
 process.exit(0);
 EOF
 )
@@ -4125,6 +4249,7 @@ test_opencode_plugin_package_boundary_is_explicit_esm() {
   cp "$ROOT/.opencode/plugins/package.json" "$fixture/plugins/package.json"
   cp "$ROOT/.opencode/plugins/fm-primary-watch-arm.js" "$plugin"
   cp "$ROOT/.opencode/plugins/lib/fm-operational-input.js" "$fixture/plugins/lib/fm-operational-input.js"
+  cp "$ROOT/.opencode/plugins/lib/fm-opencode2.js" "$fixture/plugins/lib/fm-opencode2.js"
   out=$(PLUGIN="$plugin" node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 await import(pathToFileURL(process.env.PLUGIN).href);
@@ -4185,6 +4310,193 @@ EOF
   expect_code 0 "$status" "OpenCode watch plugin must use FM_HOME state outside the repo root"
   [ -z "$out" ] || fail "OpenCode effective-state test printed output: $out"
   pass "OpenCode watcher plugin uses the effective FM_HOME state"
+}
+
+test_opencode2_watch_plugin_arms_on_interrupted_turn_but_not_shutdown() {
+  local plugin repo home log out status
+  plugin="$ROOT/.opencode/plugins/fm-primary-watch-arm.js"
+  repo="$TMP_ROOT/opencode2-terminal-root"
+  home="$TMP_ROOT/opencode2-terminal-home"
+  log="$TMP_ROOT/opencode2-terminal.log"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  git init -q "$repo"
+  : > "$repo/AGENTS.md"
+  cp "$ROOT/bin/fm-supervision-lib.sh" "$repo/bin/fm-supervision-lib.sh"
+  : > "$home/state/task.meta"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'armed\n' >> "${FM_ARM_LOG:?}"
+printf 'watcher: healthy pid=1 (beacon 0s)\n'
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  # The OpenCode 2.0.x plugin context carries the project only as
+  # ctx.location.project.directory, so this fixture deliberately omits every
+  # other directory field.
+  out=$(PLUGIN="$plugin" WORKTREE="$repo" FM_HOME="$home" FM_ARM_LOG="$log" node 2>&1 <<'EOF'
+import { existsSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const queue = [];
+let wake = null;
+const push = (event) => { queue.push(event); if (wake) { wake(); wake = null; } };
+async function* stream() {
+  for (;;) {
+    while (queue.length) yield queue.shift();
+    await new Promise((resolve) => { wake = resolve; });
+  }
+}
+const ctx = {
+  location: { project: { directory: process.env.WORKTREE } },
+  event: { subscribe: () => stream() },
+  session: { prompt: async () => {} },
+};
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default.setup(ctx);
+push({ type: "session.execution.interrupted", data: { sessionID: "ses-shutdown", reason: "shutdown" } });
+await sleep(1000);
+if (existsSync(process.env.FM_ARM_LOG)) {
+  console.error("a shutdown terminal event armed the watcher");
+  process.exit(1);
+}
+push({ type: "session.execution.interrupted", data: { sessionID: "ses-root" } });
+for (let i = 0; i < 250 && !existsSync(process.env.FM_ARM_LOG); i += 1) await sleep(20);
+if (!existsSync(process.env.FM_ARM_LOG)) {
+  console.error("an interrupted turn did not arm the watcher");
+  process.exit(1);
+}
+process.exit(0);
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "OpenCode 2 watch plugin must arm on an interrupted turn and ignore shutdown: $out"
+  [ -z "$out" ] || fail "OpenCode 2 terminal-event test printed output: $out"
+  pass "OpenCode 2 watch plugin arms on an interrupted turn from the project location and ignores shutdown"
+}
+
+test_opencode2_sessionstart_nudge_prompts_with_flat_session_shape() {
+  local plugin repo home out status
+  plugin="$ROOT/.opencode/plugins/fm-primary-sessionstart-nudge.js"
+  repo="$TMP_ROOT/opencode2-nudge-root"
+  home="$TMP_ROOT/opencode2-nudge-home"
+  mkdir -p "$repo/bin" "$home/state"
+  git init -q "$repo"
+  cat > "$repo/bin/fm-sessionstart-nudge.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'NUDGE_TEXT\n'
+SH
+  chmod +x "$repo/bin/fm-sessionstart-nudge.sh"
+  out=$(PLUGIN="$plugin" WORKTREE="$repo" node 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+
+const calls = [];
+async function* stream() {
+  yield { type: "session.created", data: { sessionID: "ses-1" } };
+  await new Promise(() => {});
+}
+const ctx = {
+  location: { project: { directory: process.env.WORKTREE } },
+  event: { subscribe: () => stream() },
+  session: { prompt: async (arg) => { calls.push(arg); } },
+};
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default.setup(ctx);
+for (let i = 0; i < 250 && calls.length === 0; i += 1) await new Promise((r) => setTimeout(r, 20));
+const first = calls[0];
+if (!first || first.sessionID !== "ses-1" || first.text !== "NUDGE_TEXT") {
+  console.error(JSON.stringify(calls));
+  process.exit(1);
+}
+process.exit(0);
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "OpenCode 2 session-start nudge must prompt with { sessionID, text }: $out"
+  pass "OpenCode 2 session-start nudge resolves the project location and prompts with the flat session shape"
+}
+
+test_opencode2_seatbelts_block_only_the_shell_tool() {
+  local repo out status plugin owner
+  repo="$TMP_ROOT/opencode2-seatbelt-root"
+  mkdir -p "$repo/bin"
+  git init -q "$repo"
+  for owner in fm-cd-pretool-check.sh fm-arm-pretool-check.sh; do
+    cat > "$repo/bin/$owner" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = --command ] || exit 0
+case "${2:-}" in
+  *DENY_ME*) printf 'seatbelt denied\n' >&2; exit 2 ;;
+esac
+exit 0
+SH
+    chmod +x "$repo/bin/$owner"
+  done
+  for plugin in fm-primary-cd-check.js fm-primary-pretool-check.js; do
+    out=$(PLUGIN="$ROOT/.opencode/plugins/$plugin" WORKTREE="$repo" node 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+
+let hook = null;
+const ctx = {
+  location: { project: { directory: process.env.WORKTREE } },
+  tool: { hook: (name, fn) => { if (name === "execute.before") hook = fn; } },
+};
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default.setup(ctx);
+const call = (tool, command) => hook({ tool, sessionID: "ses-1", id: "call-1", input: { command } });
+let blocked = false;
+try {
+  await call("shell", "echo DENY_ME");
+} catch (error) {
+  blocked = String(error.message).includes("seatbelt denied");
+}
+if (!blocked) {
+  console.error("the shell tool was not blocked");
+  process.exit(1);
+}
+await call("shell", "echo allowed");
+await call("mcp_runner", "echo DENY_ME");
+await call("read", "echo DENY_ME");
+process.exit(0);
+EOF
+)
+    status=$?
+    expect_code 0 "$status" "OpenCode 2 $plugin must block the shell tool and never a non-shell tool carrying a command: $out"
+  done
+  pass "OpenCode 2 seatbelts block only the shell tool, never a non-shell or MCP tool carrying a command"
+}
+
+test_opencode2_prompt_session_never_resends_after_a_failed_attempt() {
+  local out status
+  out=$(LIB="$ROOT/.opencode/plugins/lib/fm-opencode2.js" node 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+
+const { promptSession } = await import(pathToFileURL(process.env.LIB).href);
+const calls = [];
+const ctx = { session: { prompt: async (arg) => { calls.push(["prompt", arg]); throw new Error("timeout after delivery"); } } };
+const client = { session: { promptAsync: async (arg) => { calls.push(["promptAsync", arg]); } } };
+let threw = false;
+try {
+  await promptSession(ctx, client, "ses-1", "wake");
+} catch {
+  threw = true;
+}
+if (!threw || calls.length !== 1 || calls[0][1].sessionID !== "ses-1" || calls[0][1].text !== "wake") {
+  console.error(JSON.stringify(calls));
+  process.exit(1);
+}
+calls.length = 0;
+await promptSession(null, client, "ses-2", "wake");
+if (calls.length !== 1 || calls[0][1].path.id !== "ses-2" || calls[0][1].body.parts[0].text !== "wake") {
+  console.error(JSON.stringify(calls));
+  process.exit(1);
+}
+process.exit(0);
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "OpenCode promptSession must send once and never retry another shape: $out"
+  pass "OpenCode promptSession sends one prompt shape and never resends after a failed attempt"
 }
 
 test_opencode_primary_watch_plugin_sources_effective_config() {
@@ -5194,6 +5506,59 @@ EOF
   pass "OpenCode healthy arm output does not suppress the turn-end guard"
 }
 
+# Both OpenCode plugin writes to a child's stdin can fail with EPIPE, because
+# the child is free to exit without reading. An unhandled stdin error is a
+# thrown 'error' event that takes the whole host process down with it. Here the
+# guard's own blind-turn text is larger than a pipe buffer, so the write to an
+# encoder that exits without reading cannot complete: the guard must report the
+# encoder's refusal by staying silent, not by killing the session.
+test_opencode_turnend_guard_survives_an_encoder_that_never_reads_stdin() {
+  local guard_plugin repo guard_log out status
+  guard_plugin="$ROOT/.opencode/plugins/fm-primary-turnend-guard.js"
+  repo="$TMP_ROOT/opencode-guard-encoder-root"
+  guard_log="$TMP_ROOT/opencode-guard-encoder-guard.log"
+  mkdir -p "$repo/bin"
+  cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'guard\n' >> "${FM_GUARD_LOG:?}"
+printf 'watcher: FAILED - %s\n' "$(head -c 200000 /dev/zero | tr '\0' 'x')" >&2
+exit 2
+SH
+  cat > "$repo/bin/fm-operational-input.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'operational-input: refused\n' >&2
+exit 1
+SH
+  chmod +x "$repo/bin/fm-turnend-guard.sh" "$repo/bin/fm-operational-input.sh"
+  out=$(GUARD_PLUGIN="$guard_plugin" WORKTREE="$repo" FM_GUARD_LOG="$guard_log" node 2>&1 <<'EOF'
+import { existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const guardMod = await import(pathToFileURL(process.env.GUARD_PLUGIN).href);
+let prompts = 0;
+const client = { session: { promptAsync: async () => { prompts += 1; } } };
+const guardHooks = await guardMod.FmPrimaryTurnendGuard({
+  client,
+  directory: process.env.WORKTREE,
+  worktree: process.env.WORKTREE,
+});
+await guardHooks.event({ event: { type: "session.idle", properties: { sessionID: "session-test" } } });
+if (!existsSync(process.env.FM_GUARD_LOG)) {
+  console.error("turn-end guard did not run");
+  process.exit(1);
+}
+if (prompts !== 0) {
+  console.error(`guard prompted ${prompts} times despite an encoder that refused the input`);
+  process.exit(1);
+}
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "OpenCode turn-end guard must survive an encoder that never reads its stdin ($out)"
+  [ -z "$out" ] || fail "OpenCode guard encoder test printed output: $out"
+  pass "OpenCode turn-end guard survives an encoder that never reads stdin"
+}
+
 test_pi_extension_reports_external_healthy_watcher
 test_pi_tool_returns_agent_tool_result
 test_pi_redundant_tool_call_is_owned_noop
@@ -5227,6 +5592,7 @@ test_pi_empty_close_retries_instead_of_disappearing
 test_pi_established_empty_close_honors_retry_limit
 test_pi_actionable_close_rechecks_session_lock
 test_pi_arm_distinguishes_session_lock_ownership
+test_pi_extension_keeps_marker_of_live_ancestor_session
 test_pi_session_transition_generation_owner
 test_pi_session_replacement_carries_inflight_actionable_close
 test_pi_streaming_followup_is_replayed_after_replacement
@@ -5239,6 +5605,10 @@ test_pi_process_exit_cleanup_listener_lifecycle
 test_pi_process_exit_cleanup_stops_arm_child
 test_opencode_plugin_package_boundary_is_explicit_esm
 test_opencode_primary_watch_plugin_uses_effective_state_home
+test_opencode2_watch_plugin_arms_on_interrupted_turn_but_not_shutdown
+test_opencode2_sessionstart_nudge_prompts_with_flat_session_shape
+test_opencode2_seatbelts_block_only_the_shell_tool
+test_opencode2_prompt_session_never_resends_after_a_failed_attempt
 test_opencode_primary_watch_plugin_sources_effective_config
 test_opencode_primary_watch_plugin_requires_session_lock
 test_opencode_watch_arm_coordinator_respects_primary_scope
@@ -5254,3 +5624,4 @@ test_opencode_established_empty_close_honors_retry_limit
 test_opencode_actionable_close_rechecks_session_lock
 test_opencode_watch_arm_coordinates_with_turnend_guard
 test_opencode_healthy_arm_output_does_not_suppress_guard
+test_opencode_turnend_guard_survives_an_encoder_that_never_reads_stdin

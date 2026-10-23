@@ -3,14 +3,10 @@
 #
 # Drives the public argv and environment interface with a fake curl on PATH
 # that records argv, the request body it read from stdin, and the header it
-# read from file descriptor 3, and answers with a canned typesafe.ai response.
+# read from file descriptor 3, and answers with a canned provider response.
 # A fake quota-axi serves the selected schema-5 fixture. No case touches the
 # network, and the absent-key case proves the tool makes no call
-# at all. A second block of cases drives the same interface with
-# FM_JEV_OPENROUTER_API_KEY to prove the OpenRouter transport switch: endpoint,
-# model, and active key selection, transport precedence when both keys are
-# present, and acceptance of the OpenRouter superset response shape (extra
-# `id`/`provider`/`usage.cost` fields, either token-count naming).
+# at all.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -109,13 +105,13 @@ write_response() {  # <path> <choice> <confidence>
 JSON
 }
 
-fm_fakebin_write "$FAKEBIN/curl" <<'SH'
+cat > "$FAKEBIN/curl" <<'SH'
 #!/usr/bin/env bash
 # Fake curl: records argv (minus the -o target), the stdin body, and the header
 # read from fd 3, then answers with FAKE_CURL_RESPONSE and FAKE_CURL_HTTP.
 set -u
-if [ -n "${TYPESAFE_API_KEY+x}" ] || [ -n "${TYPESAFE_API_KEY_PRIVATE+x}" ] \
-  || [ -n "${FM_JEV_OPENROUTER_API_KEY+x}" ] || [ -n "${FM_JEV_OPENROUTER_API_KEY_PRIVATE+x}" ]; then
+if [ -n "${TYPESAFE_API_KEY+x}" ] || [ -n "${TYPESAFE_API_KEY_PRIVATE+x}" ] ||
+  [ -n "${OPENROUTER_API_KEY+x}" ] || [ -n "${OPENROUTER_API_KEY_PRIVATE+x}" ]; then
   printf 'curl:secret-present\n' >> "${CHILD_ENV_LOG:?}"
 else
   printf 'curl:clean\n' >> "${CHILD_ENV_LOG:?}"
@@ -140,11 +136,11 @@ printf '%s' "${FAKE_CURL_HTTP:-200}"
 SH
 chmod +x "$FAKEBIN/curl"
 
-fm_fakebin_write "$FAKEBIN/quota-axi" <<'SH'
+cat > "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
 set -u
-if [ -n "${TYPESAFE_API_KEY+x}" ] || [ -n "${TYPESAFE_API_KEY_PRIVATE+x}" ] \
-  || [ -n "${FM_JEV_OPENROUTER_API_KEY+x}" ] || [ -n "${FM_JEV_OPENROUTER_API_KEY_PRIVATE+x}" ]; then
+if [ -n "${TYPESAFE_API_KEY+x}" ] || [ -n "${TYPESAFE_API_KEY_PRIVATE+x}" ] ||
+  [ -n "${OPENROUTER_API_KEY+x}" ] || [ -n "${OPENROUTER_API_KEY_PRIVATE+x}" ]; then
   printf 'quota-axi:secret-present\n' >> "${CHILD_ENV_LOG:?}"
 else
   printf 'quota-axi:clean\n' >> "${CHILD_ENV_LOG:?}"
@@ -189,18 +185,13 @@ run_without_curl() {
 KEY='test-key-9f1c2d3e-never-on-argv'
 code='' out='' err=''
 
-# The absent-key case cannot run under an ambient live key (the .env-loaded
-# FM_JEV_OPENROUTER_API_KEY reaches this suite's environment); sandbox it away
-# for the whole suite so every case's key state is explicit below.
-unset FM_JEV_OPENROUTER_API_KEY FM_JEV_OPENROUTER_API_KEY_PRIVATE
-
 # --- absent key: off, silent on stdout, no network, no quota read -----------
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "absent key exits 0"
 assert_equals '' "$out" "absent key prints nothing on stdout"
-assert_contains "$err" 'dispatch-resolve: off (TYPESAFE_API_KEY and FM_JEV_OPENROUTER_API_KEY both absent from the environment and' "absent key explains itself on stderr"
+assert_contains "$err" 'dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and' "absent key explains itself on stderr"
 assert_absent "$LOG/argv" "absent key never calls curl"
 assert_absent "$LOG/quota-axi.calls" "absent key never reads quota-axi"
 pass "absent key is off: one stderr line, exit 0, no network call"
@@ -245,6 +236,7 @@ assert_contains "$argv" '@/dev/fd/3' "the header is read from a file descriptor"
 assert_equals "Authorization: Bearer $KEY" "$(cat "$LOG/header")" "curl receives the bearer header on fd 3"
 assert_equals $'curl:clean\nquota-axi:clean' "$(cat "$LOG/child-env")" "the API key is absent from every child environment"
 body=$(cat "$LOG/body")
+printf '%s\n' "$body" > "$TMP_ROOT/typesafe-body.json"
 assert_equals 'jev-latest' "$(jq -r .model <<<"$body")" "default model is jev-latest"
 assert_equals 'pager' "$(jq -r .state.task.project <<<"$body")" "project rides in the state"
 assert_contains "$(jq -r .state.task.brief <<<"$body")" 'off-by-one in the pager' "a brief without task headings rides whole in the state"
@@ -257,69 +249,84 @@ assert_not_contains "$body" 'spendPriority' "quota never leaves the machine"
 assert_not_contains "$body" 'cursor-grok' "use profiles never leave the machine"
 pass "clear: one rule Choice request, key on the fd header only, spendPriority argmax over every candidate"
 
-# --- OpenRouter transport: env-var-gated switch, superset response ------------
-OR_KEY='or-test-key-2e6a1f9b-never-on-argv'
-write_or_response() {  # <path> <choice> <confidence> [usage-field-style]
-  local style=${4:-typesafe}
-  local usage
-  if [ "$style" = openai ]; then
-    usage='"prompt_tokens": 700, "completion_tokens": 55'
-  else
-    usage='"input_tokens": 812, "output_tokens": 60'
-  fi
-  cat > "$1" <<JSON
-{ "id": "gen-test-id", "provider": "TypeSafe", "model": "typesafe/jev-1.13",
-  "answers": { "rule": { "type": "choice", "choice": "$2", "confidence": $3,
-    "probabilities": { "rule_1": 0.01, "rule_2": 0.01, "rule_3": 0.01, "rule_4": 0.96, "default": 0.01 } } },
-  "usage": { $usage, "cost": 0.0000341 } }
-JSON
+# --- OpenRouter uses the same Choice validation and resolution path ---------
+OR_KEY='test-openrouter-key-never-in-child-env-or-argv'
+OR_RESPONSE="$TMP_ROOT/openrouter-response.json"
+write_openrouter_response() {
+  write_response "$OR_RESPONSE" "$1" "$2"
+  jq '.model = "typesafe/jev-1.13"' "$OR_RESPONSE" > "$TMP_ROOT/or-response.tmp"
+  mv "$TMP_ROOT/or-response.tmp" "$OR_RESPONSE"
 }
-
 reset_log
-write_or_response "$RESPONSE" rule_4 0.9
-FM_JEV_OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF" --project pager
-expect_code 0 "$code" "OpenRouter transport clear exits 0"
-assert_contains "$out" '  status: clear' "OpenRouter transport resolves clear"
-assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'" "OpenRouter transport picks the same argmax profile"
-argv=$(cat "$LOG/argv")
-assert_contains "$argv" 'https://openrouter.ai/api/alpha/decisions' "OpenRouter transport uses the alpha Decisions endpoint"
-assert_not_contains "$argv" 'api.typesafe.ai' "OpenRouter transport never calls the direct endpoint"
-assert_not_contains "$argv" "$OR_KEY" "the OpenRouter key never appears on curl argv"
-assert_equals "Authorization: Bearer $OR_KEY" "$(cat "$LOG/header")" "curl receives the OpenRouter bearer header on fd 3"
-assert_equals $'curl:clean\nquota-axi:clean' "$(cat "$LOG/child-env")" "the OpenRouter key is absent from every child environment"
-body=$(cat "$LOG/body")
-assert_equals '~typesafe/jev-latest' "$(jq -r .model <<<"$body")" "OpenRouter transport sends the router alias model slug"
-assert_contains "$out" '  model: typesafe/jev-1.13' "the superset id/provider/model fields render without error"
-assert_contains "$out" 'tokens: 812/60' "typesafe-style usage field names are read on the OpenRouter transport too"
-pass "OpenRouter transport: correct endpoint, model, and key when FM_JEV_OPENROUTER_API_KEY is the only key present"
-
+write_openrouter_response rule_4 0.9
+OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF"
+assert_equals '' "$out" "an OpenRouter key alone does not select the provider"
+assert_contains "$err" 'TYPESAFE_API_KEY absent' "unset provider retains the typesafe off gate"
+assert_absent "$LOG/argv" "an OpenRouter key alone sends nothing"
 reset_log
-write_or_response "$RESPONSE" rule_4 0.9 openai
-FM_JEV_OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF" --project pager
-expect_code 0 "$code" "OpenAI-style usage naming still resolves clear"
-assert_contains "$out" '  status: clear' "OpenAI-style usage naming still resolves clear"
-assert_contains "$out" 'tokens: 700/55' "prompt_tokens/completion_tokens normalize into the printed tokens field"
-pass "OpenRouter transport accepts OpenAI-style usage field names and normalizes them"
+FM_DISPATCH_PROVIDER=openrouter FM_DISPATCH_MODEL=typesafe/jev-1.13 \
+  OPENROUTER_API_KEY=$OR_KEY FAKE_CURL_RESPONSE=$OR_RESPONSE run code out err "$BRIEF" --project pager
+expect_code 0 "$code" "OpenRouter clear exits 0"
+assert_contains "$out" '  status: clear' "OpenRouter clear status"
+assert_contains "$out" '  probabilities: rule_1=0.01 rule_2=0.01 rule_3=0.01 rule_4=0.96 default=0.01' "OpenRouter preserves per-rule probabilities"
+assert_contains "$out" '  profile: --harness '\''cursor'\'' --model '\''cursor-grok-4.6-medium'\''' "OpenRouter uses the shared quota argmax"
+assert_contains "$(cat "$LOG/argv")" 'https://openrouter.ai/api/alpha/decisions' "OpenRouter endpoint"
+assert_contains "$(cat "$LOG/argv")" $'--max-time\n10' "OpenRouter timeout"
+assert_not_contains "$(cat "$LOG/argv")" "$OR_KEY" "OpenRouter key never appears in curl argv"
+assert_equals "Authorization: Bearer $OR_KEY" "$(cat "$LOG/header")" "OpenRouter key reaches curl only through fd 3"
+assert_equals $'curl:clean\nquota-axi:clean' "$(cat "$LOG/child-env")" "OpenRouter key is absent from child environments"
+assert_equals 'typesafe/jev-1.13' "$(jq -r .model "$LOG/body")" "OpenRouter model is explicit"
+assert_equals 'pager' "$(jq -r .state.task.project "$LOG/body")" "project reaches the model"
+assert_equals 'choice' "$(jq -r .questions.rule.type "$LOG/body")" "OpenRouter uses the native Choice request"
+assert_equals "$(jq -Sc 'del(.model)' "$TMP_ROOT/typesafe-body.json")" "$(jq -Sc 'del(.model)' "$LOG/body")" "providers send identical Choice inputs apart from model"
+assert_not_contains "$(cat "$LOG/body")" 'SECRET-WHY-TEXT' "OpenRouter never sends rule why text"
+pass "OpenRouter clear uses the same output contract and keeps its key out of argv and child environments"
 
-printf '%s\n' '# local secrets' "export FM_JEV_OPENROUTER_API_KEY=\"$OR_KEY\"" > "$HOME_DIR/.env"
+printf '%s\n' 'FM_DISPATCH_PROVIDER=openrouter' 'FM_DISPATCH_MODEL=typesafe/jev-1.13' "OPENROUTER_API_KEY=$OR_KEY" > "$HOME_DIR/.env"
 reset_log
-write_or_response "$RESPONSE" rule_4 0.9
-run code out err "$BRIEF" --project pager
-assert_contains "$out" '  status: clear' ".env FM_JEV_OPENROUTER_API_KEY activates the OpenRouter transport"
-assert_equals "Authorization: Bearer $OR_KEY" "$(cat "$LOG/header")" ".env FM_JEV_OPENROUTER_API_KEY reaches curl on the fd header"
+FAKE_CURL_RESPONSE=$OR_RESPONSE run code out err "$BRIEF"
+assert_contains "$out" '  status: clear' "OpenRouter provider, model, and key work from .env"
+assert_equals "Authorization: Bearer $OR_KEY" "$(cat "$LOG/header")" ".env OpenRouter key uses fd 3"
+reset_log
+OPENROUTER_API_KEY=env-wins FAKE_CURL_RESPONSE=$OR_RESPONSE run code out err "$BRIEF"
+assert_equals 'Authorization: Bearer env-wins' "$(cat "$LOG/header")" "OpenRouter environment key wins over .env"
 rm -f "$HOME_DIR/.env"
-pass "FM_JEV_OPENROUTER_API_KEY= in .env activates the tool on the OpenRouter transport"
+reset_log
+printf '%s\n' 'pager' > "$HOME_DIR/config/dispatch-never-send"
+FM_DISPATCH_PROVIDER=openrouter FM_DISPATCH_MODEL=typesafe/jev-1.13 \
+  OPENROUTER_API_KEY=$OR_KEY FAKE_CURL_RESPONSE=$OR_RESPONSE run code out err "$BRIEF" --project pager
+assert_equals '' "$out" "OpenRouter never-send match withholds the request"
+assert_contains "$err" 'nothing sent)' "OpenRouter never-send reports withholding"
+assert_absent "$LOG/argv" "OpenRouter never-send makes no network call"
+rm -f "$HOME_DIR/config/dispatch-never-send"
 
 reset_log
-write_response "$RESPONSE" rule_4 0.9
-TYPESAFE_API_KEY=$KEY FM_JEV_OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF" --project pager
-expect_code 0 "$code" "both keys present still resolves clear"
-argv=$(cat "$LOG/argv")
-assert_contains "$argv" 'https://api.typesafe.ai/v1/systemone' "TYPESAFE_API_KEY wins the transport when both keys are present"
-assert_not_contains "$argv" 'openrouter.ai' "the direct transport never calls OpenRouter when both keys are present"
-assert_equals "Authorization: Bearer $KEY" "$(cat "$LOG/header")" "the direct key, not the OpenRouter key, reaches curl when both are present"
-assert_contains "$err" 'TYPESAFE_API_KEY and FM_JEV_OPENROUTER_API_KEY both present; TYPESAFE_API_KEY (direct) wins' "both-present is explained on stderr"
-pass "both keys present: TYPESAFE_API_KEY (direct) wins, with one stderr note"
+write_openrouter_response rule_4 0.5
+FM_DISPATCH_PROVIDER=openrouter FM_DISPATCH_MODEL=typesafe/jev-1.13 \
+  OPENROUTER_API_KEY=$OR_KEY FAKE_CURL_RESPONSE=$OR_RESPONSE run code out err "$BRIEF"
+assert_contains "$out" '  status: ambiguous' "OpenRouter low confidence is ambiguous"
+assert_not_contains "$out" '  profile:' "OpenRouter ambiguous response has no profile"
+reset_log
+printf '%s\n' '{"answers":{"rule":{"choice":"rule_4"}}}' > "$OR_RESPONSE"
+FM_DISPATCH_PROVIDER=openrouter FM_DISPATCH_MODEL=typesafe/jev-1.13 \
+  OPENROUTER_API_KEY=$OR_KEY FAKE_CURL_RESPONSE=$OR_RESPONSE run code out err "$BRIEF"
+assert_contains "$out" '  status: error' "malformed OpenRouter response is an error"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "malformed OpenRouter response names the Choice contract"
+reset_log
+FM_DISPATCH_PROVIDER=openrouter FM_DISPATCH_MODEL=typesafe/jev-1.13 \
+  OPENROUTER_API_KEY=$OR_KEY FAKE_CURL_RESPONSE=$OR_RESPONSE FAKE_CURL_HTTP=429 run code out err "$BRIEF"
+assert_contains "$out" '  status: error' "OpenRouter HTTP error is reported"
+assert_contains "$out" '  reason: http 429 after' "OpenRouter HTTP status is reported"
+assert_not_contains "$out$err" "$OR_KEY" "OpenRouter HTTP error never includes the key"
+reset_log
+FM_DISPATCH_PROVIDER=openrouter OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF"
+expect_code 2 "$code" "OpenRouter missing model is a configuration error"
+assert_contains "$err" 'FM_DISPATCH_MODEL required when FM_DISPATCH_PROVIDER=openrouter' "missing model is actionable"
+assert_absent "$LOG/argv" "missing model makes no network call"
+FM_DISPATCH_PROVIDER=unknown OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF"
+expect_code 2 "$code" "unknown provider is a configuration error"
+assert_contains "$err" 'unknown FM_DISPATCH_PROVIDER' "unknown provider is actionable"
+pass "OpenRouter ambiguous, malformed, HTTP, and missing-model paths are handled"
 
 # --- never-send list: a match or a bad list withholds the request -------------
 NEVER_SEND="$HOME_DIR/config/dispatch-never-send"
@@ -414,15 +421,6 @@ TYPESAFE_API_KEY=$KEY run code out err "$PRIVATE_BRIEF" --project pager
 assert_contains "$out" '  status: clear' "no list resolves exactly as before"
 assert_contains "$(jq -r .state.task.brief "$LOG/body")" 'Acme-Ledger' "no list sends the task text as before"
 pass "never-send list withholds the request on a match or a bad list, and never prints the value"
-
-# The never-send check sits on the shared request builder, so the OpenRouter
-# transport withholds a matching request exactly as the direct one does.
-printf '%s\n' 'acme-ledger' > "$NEVER_SEND"
-reset_log
-FM_JEV_OPENROUTER_API_KEY=$OR_KEY run code out err "$PRIVATE_BRIEF" --project pager
-expect_withheld "a match on the OpenRouter transport" "brief text matches $NEVER_SEND line 1" 'acme-ledger' 'Acme-Ledger'
-rm -f "$NEVER_SEND"
-pass "never-send list withholds the request on the OpenRouter transport too"
 
 # --- rules are snapshotted and line output is injection-safe -------------------
 MUTATED_RULES="$TMP_ROOT/mutated-rules.json"
