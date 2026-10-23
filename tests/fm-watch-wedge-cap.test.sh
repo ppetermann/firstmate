@@ -193,7 +193,7 @@ log_tmux_inventory_calls() {
   local fakebin=$1 log=$2
   : > "$log"
   mv "$fakebin/tmux" "$fakebin/tmux-real"
-  cat > "$fakebin/tmux" <<'PROBEWRAP'
+  fm_fakebin_write "$fakebin/tmux" <<'PROBEWRAP'
 #!/usr/bin/env bash
 [ "${1:-}" = list-windows ] && printf 'probe\n' >> "${FM_FAKE_TMUX_INVENTORY_LOG:-/dev/null}"
 exec "$FM_FAKE_TMUX_REAL" "$@"
@@ -1035,7 +1035,7 @@ test_wedge_cap_unwritable_counter_reset_fails_safe() {
   # unwritable at exactly that point, and only once the marker it must not
   # defeat already stands.
   real_rm=$(command -v rm)
-  cat > "$fakebin/rm" <<SHIM
+  fm_fakebin_write "$fakebin/rm" <<SHIM
 #!/usr/bin/env bash
 for arg in "\$@"; do
   if [ "\$arg" = "$state/.stale-since-$key" ] \

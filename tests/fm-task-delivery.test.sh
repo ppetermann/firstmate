@@ -1534,7 +1534,7 @@ EOF
 
   sendroot="$TMP_ROOT/forge-forgejo/sendroot"
   mkdir -p "$sendroot/bin"
-  cat > "$sendroot/bin/fm-send.sh" <<'STUB'
+  fm_fakebin_write "$sendroot/bin/fm-send.sh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s' "$2" > "$FM_TEST_CAPTURE"
 STUB

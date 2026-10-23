@@ -411,7 +411,7 @@ EOF
 # answers within the test's budget.
 install_item_ssh() {
   local fakebin=$1
-  cat > "$fakebin/fake-ssh" <<'SH'
+  fm_fakebin_write "$fakebin/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 set -u
 log=${FM_FAKE_SSH_LOG:?}
@@ -716,7 +716,7 @@ test_kill_during_remote_call_keeps_the_reread_owed() {
     marker="$CF_HOME/state/.secondmate-nudge-pending/sm.pending"
     if [ "$script" = fm-bootstrap.sh ]; then
       started='fm-remote-secondmate-control.sh sync'
-      cat > "$CF_FAKEBIN/mktemp" <<SH
+      fm_fakebin_write "$CF_FAKEBIN/mktemp" <<SH
 #!/usr/bin/env bash
 case "\$*" in *fm-bootstrap-par.XXXXXX*) exit 1 ;; esac
 exec '$REAL_MKTEMP' "\$@"

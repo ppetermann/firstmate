@@ -239,7 +239,7 @@ SH
     gated-actionable)
       # Cycle whose watcher closes only when the test releases it, so a second
       # session can fire its Stop while the cycle is still under way.
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 while [ ! -e "$FM_HOME/state/arm-release" ]; do sleep 0.02; done

@@ -431,7 +431,7 @@ test_cli_json_keeps_stderr_out_of_parsed_output() {
   local dir out status
   dir="$TMP_ROOT/cli-json-stderr"
   mkdir -p "$dir/fakebin"
-  cat >"$dir/fakebin/paseo" <<'SH'
+  fm_fakebin_write "$dir/fakebin/paseo" <<'SH'
 #!/bin/sh
 echo "Electron warning: fake" >&2
 printf '{"workspaceId":"wks_bbbbbbbbbbbbbbbb"}\n'
@@ -1001,7 +1001,7 @@ test_secondmate_spawn_refuses_explicit_paseo_only() {
   dir="$TMP_ROOT/secondmate-refuse"
   mkdir -p "$dir/state" "$dir/data" "$dir/config" "$dir/config-paseo" "$dir/projects" "$dir/fakebin"
   printf 'paseo\n' >"$dir/config-paseo/backend"
-  printf '#!/bin/sh\necho Linux\n' >"$dir/fakebin/uname"
+  fm_fakebin_write "$dir/fakebin/uname" < <(printf '#!/bin/sh\necho Linux\n')
   chmod +x "$dir/fakebin/uname"
 
   out=$(paseo_secondmate_spawn "$dir" "$dir/config" '' --backend paseo)

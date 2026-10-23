@@ -659,7 +659,7 @@ if section_enabled early-bind; then
 SHELL_ROOT="$TMP_ROOT/lifecycle shell root"
 mkdir -p "$SHELL_ROOT/bin"
 cp "$HOST" "$SHELL_ROOT/bin/fm-extension.mjs"
-cat > "$SHELL_ROOT/bin/fm-procevent.sh" <<'SH'
+fm_fakebin_write "$SHELL_ROOT/bin/fm-procevent.sh" <<'SH'
 [[ -n "$BASH_VERSION" ]] || exit 98
 if [[ "${*: -1}" = reject ]]; then
   printf 'fixture refused\n' >&2

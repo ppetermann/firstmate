@@ -809,7 +809,7 @@ test_teardown_closes_a_gitlab_task_with_its_merge_request_url_as_a_note() {
   # nor a Forgejo pull request, so this case keeps reproducing whatever the
   # installed release accepts.
   real_tasks_axi=$(command -v tasks-axi)
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 previous=
 for arg in "\$@"; do
@@ -1361,7 +1361,7 @@ test_squash_merged_rebased_branch_allows() {
 # read through "tea api" with the supplied merged flag and head.
 add_tea_pull_for_head() {
   local case_dir=$1 merged=$2 head=$3
-  cat > "$case_dir/fakebin/tea" <<SH
+  fm_fakebin_write "$case_dir/fakebin/tea" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$case_dir/tea.log"
 if [ "\${1:-} \${2:-}" = "login list" ]; then
@@ -1734,7 +1734,7 @@ test_mixed_refusal_diagnostic() {
 # Treehouse's return runs `git clean -fd` (one -f). A nested repository stays.
 add_treehouse_clean_fd() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = return ]; then
   shift
@@ -1758,7 +1758,7 @@ SH
 # have removed. The post-return check must name that residue.
 add_treehouse_that_leaves_residue() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = return ]; then
   shift
@@ -1840,7 +1840,7 @@ test_ship_nested_clone_is_refused_and_bytes_stay() {
   before=$(cksum "$wt/scratch-clone/payload.txt")
   head=$(git -C "$wt" rev-parse HEAD)
   : > "$case_dir/treehouse.log"
-  cat > "$case_dir/fakebin/treehouse" <<EOF
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
 exit 0
@@ -1898,7 +1898,7 @@ test_dirty_return_warns_even_when_a_later_step_refuses() {
   write_meta "$case_dir" no-mistakes scout "$wt"
   prepare_scout_teardown "$case_dir"
   add_treehouse_that_leaves_residue "$case_dir"
-  cat > "$case_dir/fakebin/tmux" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   kill-window) exit 1 ;;
@@ -1959,7 +1959,7 @@ test_forced_secondmate_child_scout_nested_clone_returns_clean() {
 # Return succeeds but leaves no readable worktree behind to verify.
 add_treehouse_that_removes_copy() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/treehouse" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = return ]; then
   for a in "$@"; do wt=$a; done
@@ -5687,7 +5687,7 @@ prepare_status_archive_presentation() {
 install_status_archive_publish_probe() {
   local case_dir=$1 command
   for command in ln mv; do
-    cat > "$case_dir/fakebin/$command" <<'SH'
+    fm_fakebin_write "$case_dir/fakebin/$command" <<'SH'
 #!/usr/bin/env bash
 case "${*: -1}" in
   */status.log)
@@ -5799,7 +5799,7 @@ test_status_archive_pruning_failure_warns_and_completes() {
     mkdir -p "$case_dir/data/unrelated-old"
     printf 'expired\n' > "$case_dir/data/unrelated-old/status.log"
     touch -t 200001010000 "$case_dir/data/unrelated-old/status.log"
-    cat > "$case_dir/fakebin/$operation" <<'SH'
+    fm_fakebin_write "$case_dir/fakebin/$operation" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in */unrelated-old|*/unrelated-old/status.log) exit 1 ;; esac

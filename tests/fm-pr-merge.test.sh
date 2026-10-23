@@ -432,7 +432,7 @@ write_mr_json() {
 # mock's own exit status.
 add_tea_mock() {
   local case_dir=$1
-  cat > "$case_dir/fakebin/tea" <<'SH'
+  fm_fakebin_write "$case_dir/fakebin/tea" <<'SH'
 #!/usr/bin/env bash
 set -u
 log_dir=$(dirname "$FM_TEST_TEA_LOG")

@@ -695,13 +695,13 @@ add_case_origin() {
 install_pool_world_tmux() {  # <fakebin> <world-dir> <slot-root>
   local fakebin=$1 world=$2 slots=$3
   mkdir -p "$world"
-  cat > "$fakebin/tmux" <<SH
+  fm_fakebin_write "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
 world='$world'
 slots='$slots'
 SH
-  cat >> "$fakebin/tmux" <<'SH'
+  fm_fakebin_write --append "$fakebin/tmux" <<'SH'
 window_name() {  # <target>
   local t=${1#=}
   t=${t#*:}
@@ -789,7 +789,7 @@ test_refused_launch_leaves_the_pool_for_a_retry_and_a_second_task() {
   claim2="$slot_root/2/.fm-slot-owner"
   world="$CASE_DIR/tmux-world"
   install_pool_world_tmux "$FAKEBIN_DIR" "$world" "$slot_root"
-  cat > "$FAKEBIN_DIR/polytoken" <<'SH'
+  fm_fakebin_write "$FAKEBIN_DIR/polytoken" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"print models"*) printf 'zai/glm-5.3-flash\nzai/glm-5.3-flash(low)\n' ;;
@@ -850,7 +850,7 @@ test_refused_launch_spares_per_id_paths_under_a_contended_spawn_lock() {
   world="$CASE_DIR/tmux-world"
   install_pool_world_tmux "$FAKEBIN_DIR" "$world" "$slot_root"
   mv "$FAKEBIN_DIR/tmux" "$FAKEBIN_DIR/tmux.world"
-  cat > "$FAKEBIN_DIR/tmux" <<SH
+  fm_fakebin_write "$FAKEBIN_DIR/tmux" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = kill-window ] && [ ! -e '$CASE_DIR/holder.pid' ]; then
   FM_HOME='$HOME_DIR' nohup bash -c '. "\$1"; fm_lock_try_acquire "\$2" || exit 1; : > "\$3"; exec /bin/sleep 60' _ \\
@@ -863,7 +863,7 @@ fi
 exec '$FAKEBIN_DIR/tmux.world' "\$@"
 SH
   chmod +x "$FAKEBIN_DIR/tmux"
-  cat > "$FAKEBIN_DIR/polytoken" <<'SH'
+  fm_fakebin_write "$FAKEBIN_DIR/polytoken" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"print models"*) printf 'zai/glm-5.3-flash\nzai/glm-5.3-flash(low)\n' ;;
@@ -924,7 +924,7 @@ test_non_polytoken_refused_launch_keeps_its_window() {
 install_isolation_flip_git() {  # <fakebin> <worktree>
   local fakebin=$1 wt=$2 real_git
   real_git=$(command -v git)
-  cat > "$fakebin/git" <<SH
+  fm_fakebin_write "$fakebin/git" <<SH
 #!/usr/bin/env bash
 if [ "\$1" = -C ] && [ "\$2" = '$wt' ] && [ "\$3" = rev-parse ] && [ "\$4" = --show-toplevel ]; then
   n=\$(cat '$fakebin/.toplevel-reads' 2>/dev/null || echo 0)
@@ -966,7 +966,7 @@ test_treehouse_isolation_refusal_points_at_what_survives() {
   read_case_record "$rec"
   fm_test_fake_sleep_noop "$FAKEBIN_DIR"
   install_isolation_flip_git "$FAKEBIN_DIR" "$POOL_DIR"
-  cat > "$FAKEBIN_DIR/polytoken" <<'SH'
+  fm_fakebin_write "$FAKEBIN_DIR/polytoken" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"print models"*) printf 'zai/glm-5.3-flash\nzai/glm-5.3-flash(low)\n' ;;

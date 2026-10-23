@@ -4323,7 +4323,7 @@ test_opencode2_watch_plugin_arms_on_interrupted_turn_but_not_shutdown() {
   : > "$repo/AGENTS.md"
   cp "$ROOT/bin/fm-supervision-lib.sh" "$repo/bin/fm-supervision-lib.sh"
   : > "$home/state/task.meta"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'armed\n' >> "${FM_ARM_LOG:?}"
 printf 'watcher: healthy pid=1 (beacon 0s)\n'
@@ -4382,7 +4382,7 @@ test_opencode2_sessionstart_nudge_prompts_with_flat_session_shape() {
   home="$TMP_ROOT/opencode2-nudge-home"
   mkdir -p "$repo/bin" "$home/state"
   git init -q "$repo"
-  cat > "$repo/bin/fm-sessionstart-nudge.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-sessionstart-nudge.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'NUDGE_TEXT\n'
 SH
@@ -4422,7 +4422,7 @@ test_opencode2_seatbelts_block_only_the_shell_tool() {
   mkdir -p "$repo/bin"
   git init -q "$repo"
   for owner in fm-cd-pretool-check.sh fm-arm-pretool-check.sh; do
-    cat > "$repo/bin/$owner" <<'SH'
+    fm_fakebin_write "$repo/bin/$owner" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = --command ] || exit 0
 case "${2:-}" in
@@ -5518,13 +5518,13 @@ test_opencode_turnend_guard_survives_an_encoder_that_never_reads_stdin() {
   repo="$TMP_ROOT/opencode-guard-encoder-root"
   guard_log="$TMP_ROOT/opencode-guard-encoder-guard.log"
   mkdir -p "$repo/bin"
-  cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'guard\n' >> "${FM_GUARD_LOG:?}"
 printf 'watcher: FAILED - %s\n' "$(head -c 200000 /dev/zero | tr '\0' 'x')" >&2
 exit 2
 SH
-  cat > "$repo/bin/fm-operational-input.sh" <<'SH'
+  fm_fakebin_write "$repo/bin/fm-operational-input.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'operational-input: refused\n' >&2
 exit 1

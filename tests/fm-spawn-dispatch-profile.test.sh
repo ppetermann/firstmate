@@ -63,7 +63,7 @@ if [ "${1:-}" = --list-models ]; then
 fi
 exit 0
 SH
-  cat > "$fakebin/opencode" <<'SH'
+  fm_fakebin_write "$fakebin/opencode" <<'SH'
 #!/usr/bin/env bash
 # fm-spawn probes `opencode --version` to resolve the installed major. Report a
 # deterministic version so launch-shape assertions never depend on whatever

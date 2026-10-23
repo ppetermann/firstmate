@@ -1294,7 +1294,7 @@ SH
   chmod +x "$home/engine-delayed"
   if [ "$mode" = refuse ]; then
     real_mktemp=$(command -v mktemp)
-    cat > "$home/fakebin/mktemp" <<SH
+    fm_fakebin_write "$home/fakebin/mktemp" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *'/.watcher-down.tmp.'*) [ ! -e "\$FM_HOME/fail-downtime-write" ] || exit 1 ;;
@@ -1375,7 +1375,7 @@ assert_returned_driver_is_caught() {  # <attended|away>
   wait_until 150 watcher_live "$home" || fail "returned driver: no watcher started"
   append_status "$home" 'measurement driver running' paused
   wait_until 250 handled_at_least "$home" 1 || fail "returned driver: the paused signal was not handled"
-  cat > "$home/fakebin/tmux" <<'SH'
+  fm_fakebin_write "$home/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) printf 'fm-demo\n'; exit 0 ;;

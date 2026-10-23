@@ -2038,7 +2038,7 @@ test_forgejo_merge_watch() {
   dir=$(make_case forgejo-merge-watch)
   state="$dir/home/state"
   url=https://forgejo.example/o/r/pulls/7
-  cat > "$dir/fakebin/tea" <<'SH'
+  fm_fakebin_write "$dir/fakebin/tea" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_TEA_LOG"
 if [ "${1:-} ${2:-}" = "login list" ]; then
@@ -2124,7 +2124,7 @@ JSON
     || fail "the per-object fixture does not put a whole login on one line"
   printf '[{"name":"a","url":"https://git.example.com"},{"name":"b","url":"https://git.example.com:3000/x"}]\n' \
     > "$dir/tea-ambiguous.json"
-  cat > "$dir/fakebin/tea" <<'SH'
+  fm_fakebin_write "$dir/fakebin/tea" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-} ${2:-}" = "login list" ]; then
   cat "$FM_TEST_TEA_LOGINS"

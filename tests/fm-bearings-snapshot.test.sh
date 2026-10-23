@@ -1442,7 +1442,7 @@ test_include_prs_maps_custom_branch_prefix_to_task() {
     "branch=fix/ship-task" \
     "pr=https://github.com/kunchenguid/firstmate/pull/9"
   fakebin=$(make_fakebin "$home"); : > "$home/net.log"
-  cat > "$fakebin/gh" <<'SH'
+  fm_fakebin_write "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 echo "gh $*" >> "$NET_LOG"
 if [ "${FAKE_GH_FAIL:-0}" = 1 ]; then exit 1; fi

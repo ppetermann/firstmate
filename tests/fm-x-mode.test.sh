@@ -982,7 +982,7 @@ test_bootstrap_preserves_nonrelay_watcher_tuning() {
   copy="$TMP_ROOT/boot-nonrelay-watcher-tuning"; home="$copy/home"
   mkdir -p "$home/config" "$home/state"
   cp -R "$ROOT/bin" "$copy/bin"
-  cat > "$copy/bin/fm-watch.sh" <<'SH'
+  fm_fakebin_write "$copy/bin/fm-watch.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${FM_PAUSE_RESURFACE_SECS:-unset}" > "$FM_HOME/watcher-saw"
 SH

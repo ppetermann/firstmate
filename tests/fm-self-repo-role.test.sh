@@ -495,6 +495,7 @@ test_secondmate_inherits_only_resolved_primary_role() {
 test_dod_block_renders_and_bounds_consent() {
   local out rc
   # This fleet's direct-PR block names its local gate under FM_ROOT.
+  # shellcheck disable=SC2034  # read by fm_dod_block through dynamic scope
   local FM_ROOT=$ROOT
   # shellcheck source=/dev/null
   . "$ROOT/bin/fm-dod-lib.sh"
@@ -572,7 +573,7 @@ test_brief_self_repo_pre_gate() {
 # exits 1 so an authorized spawn stops at launch rather than a worktree.
 SPAWN_FAKEBIN="$TMP_ROOT/spawn-fakebin"
 mkdir -p "$SPAWN_FAKEBIN"
-printf '#!/bin/sh\nexit 1\n' > "$SPAWN_FAKEBIN/tmux"
+fm_fakebin_write "$SPAWN_FAKEBIN/tmux" < <(printf '#!/bin/sh\nexit 1\n')
 chmod +x "$SPAWN_FAKEBIN/tmux"
 
 write_ship_brief() {  # <home> <id> [<contract-extras>]

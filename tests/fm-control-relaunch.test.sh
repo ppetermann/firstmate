@@ -827,7 +827,7 @@ test_refused_relaunch_onto_polytoken_keeps_the_project_hook_layer() {
   printf 'polytoken' > "$dir/fake/becomes"
   # Profile validation precedes the hook-layer refusal, so the fixture must
   # advertise its explicit pin without requiring a real Polytoken installation.
-  cat > "$dir/fakebin/polytoken" <<'SH'
+  fm_fakebin_write "$dir/fakebin/polytoken" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   'print models') printf '%s\n' 'zai/glm-5.3-flash' 'zai/glm-5.3-flash(low)' ;;
@@ -856,7 +856,7 @@ test_refused_polytoken_profile_leaves_the_running_agent() {
   dir=$(new_case polytokenprofile rl47)
   add_ship_task "$dir" rl47 claude
   printf 'polytoken' > "$dir/fake/becomes"
-  cat > "$dir/fakebin/polytoken" <<'SH'
+  fm_fakebin_write "$dir/fakebin/polytoken" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   'print models') printf '%s\n' 'zai/glm-5.3-flash' 'zai/glm-5.3-flash(low)' ;;
@@ -1094,7 +1094,7 @@ test_secondmate_account_pin_follows_relaunch_and_refuses_before_stop() {
     dir=$(new_case "sm-account-$harness" "$id")
     add_ship_task "$dir" "$id" "$harness"
     make_claude_auth_stub "$dir"
-    cat > "$dir/fakebin/pi" <<'SH'
+    fm_fakebin_write "$dir/fakebin/pi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   --help) printf 'Options: --tui-mode\n' ;;
