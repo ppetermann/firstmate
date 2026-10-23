@@ -33,6 +33,7 @@ The local measurements had left the serial lane less aggregate headroom under th
 The session-start hint retains its pre-optimization maximum until CI measures the shorter fixture-only home-summary bound; do not discount a local speedup from CI packing weights.
 This fork develops locally with workflows disabled, so it has no CI run to refresh its own suites from: the serial hints for the 25 fork-only scripts that the upstream tables above do not list keep the slowest local figure recorded for them.
 On 2026-10-01 the full portable run (every lane in its own private `/tmp`) raised eleven of those hints to the slower passing sample it measured; a hint for a script that failed or gate-skipped in that run keeps its earlier figure.
+On 2026-10-23 the upstream take-in through `8818a804` raised the host suite to the 1192918 ms weight above, which left the nine shards without room for the default weight of every unhinted script, so the 23 serial scripts that had no hint then carry the passing sample from that take-in's full portable run (or, for `tests/fm-project-mode.test.sh` and `tests/fm-spawn-low-disk.test.sh`, which failed there, from one passing isolated run).
 Replace each with a CI-derived sample as soon as one exists; a local sample is a better balance input than the default weight, not an equal one.
 
 ## Parallel lanes
