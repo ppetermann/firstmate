@@ -3761,9 +3761,16 @@ while :; do
     FM_HOME="$FM_HOME" run_check_capture "$FM_ROOT/bin/fm-ocrbot-poll.sh" || exit 1
     touch "$STATE/.last-ocrbot-check"
     if [ -n "$FM_CHECK_RESULT" ]; then
-      reason="check: $ocrbot_check: $(check_payload_bounded "$ocrbot_check" "$FM_CHECK_RESULT")"
-      fm_wake_append check "$ocrbot_check" "$reason" || exit 1
-      wake "$reason"
+      # One queued wake per output line, keyed per PR (ocrbot_wake_key), so the
+      # drain's kind+key dedupe cannot collapse several PRs' rounds into one.
+      while IFS= read -r ocrbot_line; do
+        [ -n "$ocrbot_line" ] || continue
+        fm_wake_append check "$(ocrbot_wake_key "$ocrbot_check" "$ocrbot_line")" \
+          "check: $ocrbot_check: $(check_payload_bounded "$ocrbot_check" "$ocrbot_line")" || exit 1
+      done <<EOF
+$FM_CHECK_RESULT
+EOF
+      wake "check: $ocrbot_check: $(check_payload_bounded "$ocrbot_check" "$FM_CHECK_RESULT")"
     fi
   fi
   if [ "$(age_of "$STATE/.last-check")" -ge "$CHECK_INTERVAL" ]; then

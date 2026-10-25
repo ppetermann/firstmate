@@ -9,8 +9,9 @@
 #   1. runs `gh pr ready` on the PR (nothing else happens if that fails);
 #   2. reads the PR's head SHA and draft flag back from GitHub;
 #   3. queues the same `ocr-pr <owner/repo>#<number> <head_sha>` check wake the
-#      poll would emit, under the same key, so ocr-bot-review's ordinary wake
-#      handling spawns the round with no new logic;
+#      poll would emit, under the same per-PR key (ocrbot_wake_key), so
+#      ocr-bot-review's ordinary wake handling spawns the round with no new
+#      logic and several flips in one turn each keep their own wake;
 #   4. records the PR as seen and ready at that head in the poll's seen-state,
 #      so the poll does not wake for the same flip a second time.
 # Wake first, record after, as the poll does: a failure between the two can
@@ -96,7 +97,7 @@ case "${SHA:-}" in ''|*[!A-Za-z0-9]*) not_queued "cannot parse the PR's head SHA
 # Key and payload match what bin/fm-watch.sh queues for the poll's own output.
 SHIM="$STATE/ocrbot-watch.check.sh"
 LINE=$(ocrbot_wake_line "$REPO" "$NUMBER" "$SHA")
-fm_wake_append check "$SHIM" "check: $SHIM: $LINE" || not_queued "cannot queue the review wake"
+fm_wake_append check "$(ocrbot_wake_key "$SHIM" "$LINE")" "check: $SHIM: $LINE" || not_queued "cannot queue the review wake"
 ocrbot_seen_upsert "$STATE" "$REPO" "$NUMBER" "$SHA" 0 \
   || echo "fm-pr-flip.sh: review queued, but the seen-state was not recorded; the poll may wake for this head once more" >&2
 echo "review queued: $LINE"

@@ -25,6 +25,12 @@
 #   ocrbot_seen_line <number> <head_sha> <draft:0|1> - one seen-state record
 #   ocrbot_wake_line <owner/repo> <number> <head_sha> - one reviewable-PR wake
 #                                line, the format ocr-bot-review handles
+#   ocrbot_wake_key <shim> <wake-line> - the durable wake-queue key for one
+#                                poll output line: "<shim> <owner/repo>#<n>"
+#                                for an ocr-pr line, so the drain's kind+key
+#                                dedupe keeps one wake per PR and a flip and a
+#                                poll for the same PR still collapse; the bare
+#                                shim path for any other line
 #   ocrbot_seen_upsert <state-root> <owner/repo> <number> <head_sha> <draft>
 #                              - replace that PR's seen-state record, keeping
 #                                every other PR's, through the guarded writer
@@ -116,6 +122,17 @@ ocrbot_seen_line() {
 
 ocrbot_wake_line() {
   printf 'ocr-pr %s#%s %s\n' "$1" "$2" "$3"
+}
+
+ocrbot_wake_key() {
+  local shim=$1 line=$2 pr
+  case $line in
+    'ocr-pr '?*' '?*)
+      pr=${line#ocr-pr }
+      printf '%s %s\n' "$shim" "${pr%% *}"
+      ;;
+    *) printf '%s\n' "$shim" ;;
+  esac
 }
 
 ocrbot_seen_upsert() {

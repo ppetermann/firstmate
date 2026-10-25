@@ -441,6 +441,12 @@ queued_wakes() {
   awk -F '\t' '{ print $3 "|" $5 }' "$1/state/.wake-queue" 2>/dev/null
 }
 
+# Print the deduplicated rows the real drain presents, one per line.
+drained_wakes() {
+  FM_STATE_OVERRIDE="$1/state" "$ROOT/bin/fm-wake-drain.sh" 2>/dev/null \
+    | awk -F '\t' 'NF >= 5 { print $3 "|" $5 }'
+}
+
 test_flip_queues_round_and_records_seen() {
   local home fakebin out rc
   home="$TMP_ROOT/flip-bot"; make_home "$home"
@@ -466,6 +472,46 @@ test_flip_queues_round_and_records_seen() {
   expect_code 0 "$rc" "post-flip poll exit"
   [ -z "$out" ] || fail "the poll must not wake a second time for a flip the helper queued (got: $out)"
   pass "fm-pr-flip queues one ocr-pr round and records the flipped head as seen"
+}
+
+test_flip_burst_keeps_every_round() {
+  local home fakebin rc n specs="" expected="" sha
+  home="$TMP_ROOT/flip-burst"; make_home "$home"
+  for n in 1 2 3 4 5 6; do specs="$specs $n:sha00$n:true"; done
+  # shellcheck disable=SC2086 # one listing spec per word
+  set_listing "$home" $specs
+  fakebin=$(make_fake_gh "$home")
+  run_poll "$home" "$fakebin" >/dev/null
+  # Six flips in one turn, as the landing turn does for six drafts at once.
+  for n in 1 2 3 4 5 6; do
+    sha=sha00$n
+    pr_json "$n" "$sha" false > "$home/ghfix/ppetermann__maia/pr-$n"
+    run_flip "$home" "$fakebin" "https://github.com/ppetermann/maia/pull/$n" >/dev/null 2>&1; rc=$?
+    expect_code 0 "$rc" "burst flip $n exit"
+    expected="$expected${expected:+
+}check|check: $home/state/ocrbot-watch.check.sh: ocr-pr ppetermann/maia#$n $sha"
+  done
+  [ "$(drained_wakes "$home")" = "$expected" ] \
+    || fail "six flips in one burst must survive the drain as six review wakes (got: $(drained_wakes "$home"))"
+  pass "fm-pr-flip keeps one review wake per PR when several flips land in one turn"
+}
+
+test_flip_and_poll_for_one_head_collapse() {
+  local home fakebin out rc
+  home="$TMP_ROOT/flip-poll-collapse"; make_home "$home"; arm_shim "$home"
+  set_listing "$home" 7:aaa111:false 9:ddd444:false
+  fakebin=$(make_fake_gh "$home")
+  out=$(run_watch "$home" "$fakebin" 10 FM_CHECK_INTERVAL=999999); rc=$?
+  expect_code 0 "$rc" "collapse watcher exit"
+  assert_contains "$out" "ocr-pr ppetermann/maia#9 ddd444" "the poll must wake for the ready PR"
+  # A flip racing the poll for the same PR head queues the same per-PR key.
+  pr_json 9 ddd444 false > "$home/ghfix/ppetermann__maia/pr-9"
+  run_flip "$home" "$fakebin" https://github.com/ppetermann/maia/pull/9 >/dev/null 2>&1; rc=$?
+  expect_code 0 "$rc" "collapse flip exit"
+  [ "$(drained_wakes "$home")" = "$(printf 'check|check: %s: ocr-pr ppetermann/maia#7 aaa111\ncheck|check: %s: ocr-pr ppetermann/maia#9 ddd444' \
+    "$home/state/ocrbot-watch.check.sh" "$home/state/ocrbot-watch.check.sh")" ] \
+    || fail "the poll must keep one wake per PR and a flip of the same head must collapse into it (got: $(drained_wakes "$home"))"
+  pass "the poll queues one wake per PR and a flip of the same head collapses into it"
 }
 
 test_flip_unregistered_repo_only_flips() {
@@ -597,7 +643,9 @@ test_bootstrap_rejects_linked_shim_destination
 test_flip_queues_round_and_records_seen
 test_flip_unregistered_repo_only_flips
 test_flip_failures_queue_nothing
+test_flip_burst_keeps_every_round
 test_watcher_polls_bot_on_its_own_interval
 test_watcher_shared_sweep_skips_bot
 test_watcher_bot_interval_capped_by_check_interval
 test_watcher_rejects_tampered_bot_shim
+test_flip_and_poll_for_one_head_collapse

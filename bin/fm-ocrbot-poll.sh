@@ -28,8 +28,9 @@
 #   - One stdout line "ocr-pr <owner/repo>#<number> <head_sha>" per reviewable
 #     PR: a PR never seen before, a new head SHA on a known PR, or a
 #     draft-to-ready transition. Draft PRs never wake.
-#     The watcher's wake payload joins lines with spaces, which stays
-#     unambiguous because every line carries its own "ocr-pr" prefix.
+#     The watcher queues each line as its own wake, keyed per PR
+#     (ocrbot_wake_key), so several reviewable PRs in one cycle all survive
+#     the drain's dedupe.
 #   - Seen-state advances only AFTER the wake lines print, so a crash between
 #     the two re-detects on the next cycle instead of losing a review.
 #   - Auth/config errors print one deduped diagnostic "ocrbot-error <first
