@@ -353,6 +353,10 @@
 # ledger. It runs before the task branch it attributes runs by is deleted and
 # before state/<id>.meta is removed, and is best effort: a failure warns and
 # never blocks cleanup.
+# Right after it, every ship and scout task's dispatch, ready, and landed times
+# are appended to the effort ledger by bin/fm-effort-ledger.sh, which owns the
+# record and its schema; it runs before state/<id>.meta and state/<id>.status
+# are removed, and a failure warns and never blocks cleanup.
 # Opt-in config/status-archive preserves retired status logs in
 # data/<id>/status.log, then status.<N>.log for reused IDs. The presentation
 # lock covers archive publication, cursor retirement, then the existing live
@@ -3884,6 +3888,11 @@ if [ "$KIND" = ship ] && teardown_owns_worktree && [ -e "$CONFIG/pipeline-spend"
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
     "$SCRIPT_DIR/fm-pipeline-spend.sh" record "$ID" >/dev/null \
     || echo "warning: could not record $ID's no-mistakes pipeline spend; cleanup continues" >&2
+fi
+if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+    "$SCRIPT_DIR/fm-effort-ledger.sh" record "$ID" >/dev/null 2>&1 \
+    || echo "warning: could not record $ID's effort in the effort ledger; cleanup continues" >&2
 fi
 
 # Fix 3 (see script header): sweep remote job workers abandoned by an already

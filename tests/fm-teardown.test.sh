@@ -910,8 +910,12 @@ test_local_only_merged_to_local_main_allows() {
 # Args: case_dir [extra args...]
 run_teardown_with_harness_homes() {
   local case_dir=$1; shift
+  # FM_DATA_OVERRIDE keeps teardown's backlog and effort-ledger writes in the
+  # case dir rather than the code root's own home.
+  mkdir -p "$case_dir/data"
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_DATA_OVERRIDE="$case_dir/data" \
   FM_CONFIG_OVERRIDE="$case_dir/config" \
   HOME="$case_dir/harness-home" \
   GROK_HOME="$case_dir/harness-home/.grok" \
@@ -4375,6 +4379,45 @@ test_teardown_records_unavailable_spend_for_a_gone_worktree() {
   pass "teardown records unavailable pipeline spend for an owned ship task whose copy is gone"
 }
 
+# Cleanup appends the task's dispatch, ready, and landed times, with the
+# planner's backlog estimate, to the effort ledger (bin/fm-effort-ledger.sh)
+# while the task record and status still exist.
+test_teardown_records_the_task_effort() {
+  local case_dir rc=0 ledger
+  case_dir=$(make_case effort-ledger)
+  write_meta "$case_dir" local-only ship
+  land_shippable_commit "$case_dir"
+  seed_backlog_in_flight "$case_dir"
+  tasks-axi update task-x1 --body "local-only. estimate=40m" --file "$case_dir/data/backlog.md" >/dev/null
+  printf 'working [at=1792900000]: setup\ndone [at=1792901200]: ready in branch\n' > "$case_dir/state/task-x1.status"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "effort-ledger: teardown should succeed"
+  ledger=$case_dir/data/effort-ledger.jsonl
+  assert_present "$ledger" "effort-ledger: teardown left no effort record"
+  jq -e '
+    .task == "task-x1" and .kind == "ship" and .mode == "local-only"
+    and .dispatched_at == "2026-10-25T03:46:40Z" and .ready_at == "2026-10-25T04:06:40Z"
+    and .ready_source == "done-status" and .landed_source == "teardown" and .estimate_min == 40
+  ' "$ledger" >/dev/null || fail "effort-ledger: the recorded effort is wrong: $(cat "$ledger")"
+  assert_absent "$case_dir/state/task-x1.meta" "effort-ledger: teardown kept the task record"
+  pass "teardown records the task's effort before removing its record"
+}
+
+# A ledger that cannot be written warns and never stops the cleanup.
+test_teardown_continues_when_the_effort_ledger_cannot_be_written() {
+  local case_dir rc=0
+  case_dir=$(make_case effort-ledger-unwritable)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  mkdir -p "$case_dir/data/effort-ledger.jsonl"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "effort-ledger-unwritable: teardown should succeed"
+  assert_grep "could not record task-x1's effort" "$case_dir/stderr" \
+    "effort-ledger-unwritable: teardown did not warn about the failed record"
+  assert_absent "$case_dir/state/task-x1.meta" "effort-ledger-unwritable: teardown kept the task record"
+  pass 'teardown continues when the effort ledger cannot be written'
+}
+
 test_parked_own_run_is_aborted_before_teardown() {
   local case_dir rc head
   case_dir=$(make_case parked-run-abort)
@@ -5987,6 +6030,8 @@ test_fractional_legacy_retry_wait_refuses_without_arithmetic_error
 test_teardown_records_the_task_pipeline_spend
 test_teardown_skips_pipeline_spend_when_disabled
 test_teardown_records_unavailable_spend_for_a_gone_worktree
+test_teardown_records_the_task_effort
+test_teardown_continues_when_the_effort_ledger_cannot_be_written
 test_parked_own_run_is_aborted_before_teardown
 test_parked_run_in_a_resolved_workspace_home_is_aborted
 test_parked_own_run_concludes_on_passed_with_override_after_abort

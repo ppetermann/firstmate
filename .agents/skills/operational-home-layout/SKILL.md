@@ -76,6 +76,7 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
   <id>/status.log <id>/status.<N>.log <id>/children/<child>/...  optional teardown archives; see docs/architecture.md "Task status archives"
   pipeline-spend.jsonl  optional per-task no-mistakes pipeline spend, written only when config/pipeline-spend is present; bin/fm-pipeline-spend.sh owns the schema
+  effort-ledger.jsonl   per-task dispatch, ready, and landed times plus any planner estimate, appended at teardown; bin/fm-effort-ledger.sh owns the schema and the stats planners size work from
 projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
 state/               runtime records and signals; gitignored
   <id>.status        append-only wake events, not current-state truth; bin/fm-classify-lib.sh owns their syntax

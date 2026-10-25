@@ -77,7 +77,7 @@ Each effective `FM_HOME` contains private operational directories.
 
 - Project and secondmate registries.
 - Captain preferences and optional shared captain preferences.
-- Learnings, backlog, briefs, scout reports, optional task status archives, and the optional per-task no-mistakes pipeline-spend ledger.
+- Learnings, backlog, briefs, scout reports, optional task status archives, the per-task effort ledger, and the optional per-task no-mistakes pipeline-spend ledger.
 - Explicitly installed content-addressed extension packages under `data/extensions/packages/`.
 
 `state/` holds runtime records:
@@ -745,6 +745,12 @@ The flag is a home-local preference and is not inherited by secondmate homes.
 The optional local, gitignored `config/pipeline-spend` presence flag opts this home into recording per-task no-mistakes pipeline spend in `data/pipeline-spend.jsonl` during teardown.
 When the flag is absent, teardown skips recording and the recorder exits before reading task metadata, no-mistakes state, or the spend ledger.
 An existing ledger is left untouched while recording is disabled.
+
+## Effort ledger (data/effort-ledger.jsonl)
+
+Every ship and scout teardown appends the task's dispatch, ready, and landed times, and any planner estimate, to the private, gitignored `data/effort-ledger.jsonl`; it needs no opt-in and a failed write never stops the cleanup.
+The planner's estimate is read from one `estimate=<N>m` token in the task's backlog note.
+`bin/fm-effort-ledger.sh stats` prints the medians and p90s planners size work from, and `bin/fm-effort-ledger.sh backfill` recovers earlier tasks from the markdown backlog; the script header owns the record schema and the time sources.
 
 ## No-mistakes home resolver (config/nm-home-resolver)
 

@@ -763,6 +763,9 @@ $WAIT_BLOCK$INBOX_SECTION
 # Definition of done
 Write your findings to \`$DATA/$ID/report.md\`.
 The report must stand alone: what you did, what you found, the evidence (commands run, output, file:line references), and what you recommend.
+If the report sizes work, size it in agent wall-clock minutes from dispatch to draft PR plus one CI and review round, never in human hours, anchored on this fleet's measured history: run \`FM_HOME='$FM_HOME' '$FM_ROOT/bin/fm-effort-ledger.sh' stats\` (add \`--kind ship\` or \`--project <name>\` to compare similar work) and cite the medians you used.
+If it prints \`effort ledger: no records yet\`, say the estimate is unanchored and start from the observed baseline that comparable focused builds have reached a draft PR in 8 to 15 minutes.
+Write each estimate as one \`estimate=<N>m\` token so firstmate can record it on the backlog item.
 $LAVISH_LINE
 Before reporting done, read and follow \`$FM_ROOT/.agents/skills/captain-hold-lifecycle/SKILL.md\` and pass its shared completion gate for the report and any visual review.
 When the report is complete, append \`done [at=<epoch>]: {one-line conclusion}\` to the status file and stop.

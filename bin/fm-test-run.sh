@@ -413,7 +413,7 @@ family_for_basename() {
     fm-teardown-endpoint-safety.test.sh)
       printf '%s\n' backend-dispatch
       ;;
-    fm-check-unregister.test.sh|fm-pipeline-spend.test.sh|fm-pr-check-security.test.sh|\
+    fm-check-unregister.test.sh|fm-pipeline-spend.test.sh|fm-effort-ledger.test.sh|fm-pr-check-security.test.sh|\
     fm-pr-health.test.sh|fm-pr-merge.test.sh|fm-pr-reviewers.test.sh|fm-pr-blockers.test.sh|fm-pr-state.test.sh|\
     fm-review-diff.test.sh|fm-teardown.test.sh|fm-x-mode.test.sh|\
     fm-ocrbot-token.test.sh|fm-ocrbot-poll.test.sh)
@@ -784,6 +784,7 @@ tests/fm-dispatch-facts.test.sh 1833
 tests/fm-dispatch-resolve.test.sh 10051
 tests/fm-documentation-audiences.test.sh 1301
 tests/fm-dod-lib.test.sh 2035
+tests/fm-effort-ledger.test.sh 2904
 tests/fm-extension-binding.test.sh 11105
 tests/fm-fleet-ledger.test.sh 19980
 tests/fm-fleet-snapshot-contribution-input.test.sh 340
@@ -1703,7 +1704,7 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-procevent-quota.test.sh"
       ;;
     bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-teardown.sh|bin/fm-review-diff.sh|\
-    bin/fm-x-*|bin/fm-check*|bin/fm-pipeline-spend.sh)
+    bin/fm-x-*|bin/fm-check*|bin/fm-pipeline-spend.sh|bin/fm-effort-ledger.sh)
       printf '%s\n' pr-forge
       ;;
     bin/fm-nm-run-lib.sh)

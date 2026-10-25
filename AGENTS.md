@@ -198,6 +198,7 @@ For a ship task whose project is this firstmate repository, pass the project dir
 An unregistered project or absent registry resolves to `direct-PR` with yolo off, and the registration gap goes to the captain.
 Record the resulting mode, `yolo` merge posture, the one-line reason for any deviation, and the current `bin/fm-dispatch-facts.sh` line in the backlog item note.
 That stamped line is what makes the clock and quota check of section 4 a dated fact in the record rather than a claim; a note without it was dispatched without one.
+Record any planner estimate in that note too, as one `estimate=<N>m` token in agent wall-clock minutes, never human hours; `bin/fm-effort-ledger.sh` owns the token and the ledger teardown fills from it.
 
 Treat file or subsystem overlap as a risk signal rather than an automatic reason to wait, and dispatch isolated work immediately with no concurrency cap when each change can be independently implemented and validated and the selected delivery path can reconcile ordinary rebases or conflicts.
 A project's declared machine capacity (`config/project-capacity`) still bounds that dispatch: a spawn beyond it exits 75 without launching, and its item stays queued rather than blocked.
