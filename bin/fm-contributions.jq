@@ -53,6 +53,11 @@ def reraise_event($thread; $now; $now_iso):
   | {token:("unanswered:" + $thread.key + ":" + $now_iso),type:"unanswered",thread:$thread.key,
      source:$thread.source,head:null,author:$thread.author,age:$age,
      body:("no reply from the contribution author for " + $age)};
+# One archive index entry per archived record: what poll and owned need for
+# ownership and finality without reading the archived record itself.
+def index_entries:
+  .task as $task | .records[]
+  | {task:$task,url,kind,state:(.observation.state // "-"),retired:(.retired != null)};
 def known($input; $saved):
   ([($input.tasks // [])[] | select(.kind != "secondmate")
      | select(.pr.url | canonical_url) | {task:.id,url:.pr.url}]

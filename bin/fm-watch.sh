@@ -2932,6 +2932,7 @@ FM_ACTIVE_CHECK_PID=
 FM_ACTIVE_CHECK_PGID=
 FM_CHECK_OUTPUT=
 FM_CHECK_RESULT=
+FM_CHECK_RC=0
 FM_CHECK_SIGNAL_PENDING=
 
 fm_check_output_cleanup() {
@@ -3019,11 +3020,31 @@ run_check_capture() {
     fm_check_output_cleanup
     return 1
   fi
-  wait "$FM_ACTIVE_CHECK_PID" 2>/dev/null || true
+  FM_CHECK_RC=0
+  wait "$FM_ACTIVE_CHECK_PID" 2>/dev/null || FM_CHECK_RC=$?
   FM_ACTIVE_CHECK_PID=
   fm_active_check_stop || return 1
   FM_CHECK_RESULT=$(cat "$FM_CHECK_OUTPUT" 2>/dev/null || true)
   fm_check_output_cleanup
+}
+
+# A check killed at CHECK_TIMEOUT prints nothing it had not already printed,
+# so its silence must not read as nothing to report. The first timed-out run
+# of an episode queues one durable check notification; the check's next run
+# that ends inside the bound closes the episode.
+check_timeout_episode() {  # <check-path> - after run_check_capture
+  local c=$1 marker
+  marker="$STATE/.check-timeout-$(basename "$c" .check.sh)"
+  if [ "${FM_CHECK_RC:-0}" -ne 124 ]; then
+    [ ! -e "$marker" ] || rm -f -- "$marker"
+    return 0
+  fi
+  triage_log "check $c timed out after ${CHECK_TIMEOUT}s"
+  [ ! -e "$marker" ] || return 0
+  fm_wake_append check "check-timeout-$(basename "$c")" \
+    "check: $c: timed out after ${CHECK_TIMEOUT}s$([ -n "$FM_CHECK_RESULT" ] || printf ' with no output')" || exit 1
+  : > "$marker"
+  timed_out_checks="$timed_out_checks $c"
 }
 
 FM_CAPTURE_OUTPUT=
@@ -3775,6 +3796,7 @@ EOF
   fi
   if [ "$(age_of "$STATE/.last-check")" -ge "$CHECK_INTERVAL" ]; then
     rejected_checks=
+    timed_out_checks=
     contribution_check_output=
     for c in "$STATE"/*.check.sh; do
       [ -e "$c" ] || continue
@@ -3831,6 +3853,7 @@ EOF
           continue
         fi
       fi
+      check_timeout_episode "$c"
       if [ -n "$out" ]; then
         if [ "$(basename "$c")" = contributions.check.sh ]; then
           contribution_check_output=
@@ -3909,6 +3932,11 @@ EOF
       reason="check: rejected unauthenticated state checks:$rejected_checks"
       touch "$STATE/.last-check"
       wake "$reason"
+    fi
+    if [ -n "$timed_out_checks" ]; then
+      # Each episode's durable row was appended when its check timed out.
+      touch "$STATE/.last-check"
+      wake "check: state checks timed out:$timed_out_checks"
     fi
     touch "$STATE/.last-check"
     if [ -n "$contribution_check_output" ]; then

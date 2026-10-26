@@ -39,6 +39,19 @@ record() { # home id number forge-state mergeability [hold]
         reviews:[],events:[]}}]}' > "$home/data/$id/contributions.json"
 }
 
+# A task's durable records wherever they live: the working copy of a pair
+# first, then the archive that a settled final or retired record moves to.
+saved_record() { # home task
+  local file
+  local -a files=()
+  for file in "$1/data/$2/contributions.json" "$1/data/$2/contributions-archive.json"; do
+    [ ! -f "$file" ] || files+=("$file")
+  done
+  [ "${#files[@]}" -gt 0 ] || return 1
+  jq -S -s '{schema:.[0].schema,task:.[0].task,
+    records:(reduce (.[].records[]) as $r ([]; if any(.[]; .url == $r.url) then . else . + [$r] end))}' "${files[@]}"
+}
+
 mutate_record() {
   jq "$3" "$1/data/$2/contributions.json" > "$1/update.json" || fail 'fixture mutation failed'
   mv "$1/update.json" "$1/data/$2/contributions.json"
@@ -1135,15 +1148,15 @@ test_terminal_contribution_settles() {
     [ -z "$out" ] || fail "a $mode observation printed: $out"
     jq -e --arg now "$NOW" --arg mode "$mode" '.records[0] | .checked_at == $now and .error == null and .observation.state == $mode' \
       "$home/data/delivery/contributions.json" >/dev/null || fail "a $mode observation was not recorded once without error"
-    cp "$home/data/delivery/contributions.json" "$home/prior.json"
+    saved_record "$home" delivery > "$home/prior.json"
     : > "$home/forge/calls"
     printf 'down\n' > "$home/forge/fault"
     out=$(with_home "$home" env FM_CONTRIBUTIONS_NOW="$later" "$ROOT/bin/fm-contributions.sh" poll) \
       || fail "poll after a $mode observation failed"
     [ -z "$out" ] || fail "a $mode contribution woke again when a later read would fail: $out"
     [ ! -s "$home/forge/calls" ] || fail "a $mode contribution was re-read: $(cat "$home/forge/calls")"
-    cmp -s "$home/prior.json" "$home/data/delivery/contributions.json" \
-      || fail "a $mode contribution record changed after it settled: $(cat "$home/data/delivery/contributions.json")"
+    [ "$(saved_record "$home" delivery)" = "$(cat "$home/prior.json")" ] \
+      || fail "a $mode contribution record changed after it settled: $(saved_record "$home" delivery)"
     [ ! -s "$home/state/.wake-queue" ] || fail "a $mode contribution enqueued a wake"
     NOW=$later bearings "$home" | jq -e '.contributions.checked == 1 and .contributions.counts.nobody == 1
       and .contributions.complete == true' >/dev/null \
@@ -1360,10 +1373,9 @@ test_unmeasured_url_does_not_starve_the_tail() {
       || fail "slow successful poll did not respect its elapsed budget: $elapsed seconds"
     [ -z "$out" ] || fail "slow successful reads printed a wake: $out"
     for task in closed-two late-owner; do
-      jq -e --slurpfile prior "$home/terminal.json" '.records[0] | .error == null
+      saved_record "$home" "$task" | jq -e --slurpfile prior "$home/terminal.json" '.records[0] | .error == null
         and .checked_at == $prior[0].records[0].checked_at
-        and .observation == $prior[0].records[0].observation' \
-        "$home/data/$task/contributions.json" >/dev/null \
+        and .observation == $prior[0].records[0].observation' >/dev/null \
         || fail "terminal settlement or freshness changed for $task"
     done
     if grep -Eq '^api repos/o/r/pulls/9[0-3]($|/)' "$home/forge/calls"; then
@@ -1380,6 +1392,93 @@ test_unmeasured_url_does_not_starve_the_tail() {
   done
   [ ! -s "$home/state/.wake-queue" ] || fail 'slow successful reads enqueued a wake'
   pass 'rotation preserves timed-out records and refreshes every slow PR on successive cycles'
+}
+
+# Settled final records, each carrying a review-sized history, as a live home
+# accumulates them; written without a process per record.
+final_history() { # home count
+  local i body
+  body=$(printf '%2000s' '' | tr ' ' x)
+  for ((i = 1; i <= $2; i++)); do
+    mkdir -p "$1/data/landed-$i"
+    printf '{"schema":"fm-contributions.v1","task":"landed-%s","records":[{"url":"https://github.com/o/r/pull/%s","kind":"pr","checked_at":"%s","error":null,"pending":[],"seen":[],"notified":[],"verdict":null,"observation":{"head":"%s","state":"merged","draft":false,"mergeable":"unknown","review_decision":"APPROVED","can_merge":false,"checks":[],"reviews":[],"events":[%s]}}]}\n' \
+      "$i" "$((1000 + i))" "$NOW" "$HEAD_A" \
+      "$(for e in 1 2 3 4 5 6 7 8; do printf '%s{"token":"comment:%s:x","type":"comment","author":"m","body":"%s"}' "$([ "$e" = 1 ] || printf ,)" "$e" "$body"; done)" \
+      > "$1/data/landed-$i/contributions.json"
+  done
+}
+
+test_history_cannot_starve_a_live_contribution_under_the_check_bound() {
+  local home out rc
+  home=$(new_home history-check-bound)
+  forge_home "$home"
+  final_history "$home" 300
+  jq -n '[{id:12,user:{login:"maintainer"},author_association:"OWNER",
+    body:"This will be closed by another change",html_url:"https://github.com/o/r/pull/8#issuecomment-12",
+    updated_at:"2026-09-16T08:01:00Z",submitted_at:"2026-09-16T08:01:00Z"}]' > "$home/forge/comments.json"
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" arm >/dev/null || fail 'could not arm the contribution check'
+  rc=0
+  out=$(with_home "$home" env FM_CHECK_TIMEOUT=15 timeout 15 bash "$home/state/contributions.check.sh") || rc=$?
+  [ "$rc" -eq 0 ] || fail "the check was killed at its time limit (rc $rc) behind 300 settled records: $out"
+  printf '%s\n' "$out" | grep -E '^contribution-wake: check: contributions delivery [0-9a-f]{64}$' >/dev/null \
+    || fail "the maintainer comment on the live contribution was not surfaced: $out"
+  saved_record "$home" delivery | jq -e --arg now "$NOW" '.records[0].checked_at == $now and (.records[0].pending | length) == 1' >/dev/null \
+    || fail 'the live contribution was not observed on the first bounded run'
+  pass 'settled history cannot starve a live contribution of its observation under the check bound'
+}
+
+test_settled_finals_leave_the_per_poll_working_set() {
+  local count home real_jq calls=()
+  real_jq=$(command -v jq)
+  for count in 3 30; do
+    home=$(new_home "settled-working-set-$count")
+    forge_home "$home"
+    final_history "$home" "$count"
+    printf -- '- [ ] landed-1 - Linked https://github.com/o/r/pull/1001 (repo: sample) (kind: ship)\n' >> "$home/data/backlog.md"
+    with_home "$home" "$ROOT/bin/fm-contributions.sh" poll >/dev/null || fail 'settling poll failed'
+    [ ! -e "$home/data/landed-1/contributions.json" ] || fail 'a settled final record stayed in the per-poll working set'
+    fm_fakebin_write "$home/fakebin/jq" < <(printf '#!/bin/sh\nprintf x >> "%s/jq-calls"\nexec "%s" "$@"\n' "$home" "$real_jq")
+    chmod +x "$home/fakebin/jq"
+    : > "$home/forge/calls"
+    with_home "$home" "$ROOT/bin/fm-contributions.sh" poll >/dev/null || fail 'poll over archived finals failed'
+    grep -Eq '^api repos/o/r/pulls/10[0-9][0-9]$' "$home/forge/calls" && fail 'an archived final contribution was read from the forge'
+    calls+=("$(wc -c < "$home/jq-calls" | tr -d '[:space:]')")
+    with_home "$home" "$ROOT/bin/fm-contributions.sh" owned | jq -e --argjson count "$count" '
+      length == $count + 1 and ([.[] | select(.final)] | length) == $count' >/dev/null \
+      || fail 'archived finals left the ownership view'
+    with_home "$home" "$ROOT/bin/fm-contributions.sh" enroll landed-2 https://github.com/o/r/pull/1002 >/dev/null \
+      || fail 'enrolling an archived final contribution failed'
+    [ ! -e "$home/data/landed-2/contributions.json" ] || fail 'enrolling an archived final contribution rediscovered it as new'
+    with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input > "$home/input.json" || fail 'contribution input failed'
+    with_home "$home" "$ROOT/bin/fm-contributions.sh" snapshot "$home/input.json" | jq -e --argjson count "$count" '
+      .known == $count + 1 and .counts.nobody == $count' >/dev/null \
+      || fail 'archived finals left measured coverage'
+  done
+  [ "${calls[0]}" = "${calls[1]}" ] \
+    || fail "settled final contributions still cost per-poll jq calls: ${calls[0]} with 3, ${calls[1]} with 30"
+  pass 'settled final records leave the per-poll working set yet stay owned, final and measured'
+}
+
+test_local_bookkeeping_overrun_is_reported_once_per_episode() {
+  local home out run real_jq
+  home=$(new_home bookkeeping-overrun)
+  forge_home "$home"
+  mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
+  real_jq=$(command -v jq)
+  # Local bookkeeping turns slow only while the slow marker exists.
+  fm_fakebin_write "$home/fakebin/jq" < <(printf '#!/bin/sh\ncase "$*" in *view.json*) [ ! -e "%s/slow" ] || sleep 5 ;; esac\nexec "%s" "$@"\n' "$home" "$real_jq")
+  chmod +x "$home/fakebin/jq"
+  for run in slow repeat recovered again; do
+    case "$run" in recovered) rm -f "$home/slow" ;; *) : > "$home/slow" ;; esac
+    out=$(with_home "$home" env FM_CHECK_TIMEOUT=10 "$ROOT/bin/fm-contributions.sh" poll) || fail "$run poll failed"
+    case "$run" in
+      slow|again)
+        printf '%s\n' "$out" | grep -E '^contributions: local bookkeeping used [0-9]+s of the 10s check bound, leaving [0-9]+s of forge budget for 1 owned contributions$' >/dev/null \
+          || fail "a $run bookkeeping overrun was not reported: $out" ;;
+      *) [ -z "$out" ] || fail "a $run poll reported again within one episode: $out" ;;
+    esac
+  done
+  pass 'local bookkeeping that cuts the forge budget is reported once per episode'
 }
 
 test_budget_is_cut_down_to_the_watcher_check_bound() {
@@ -1544,7 +1643,7 @@ test_late_owner_of_a_retired_final_contribution_is_not_retired() {
   [ ! -s "$home/forge/calls" ] || fail 'a known final contribution triggered a forge read'
   jq -e '.records[0] | .retired == null and .observation.state == "merged" and .error == null' \
     "$home/data/late/contributions.json" >/dev/null || fail 'a late owner inherited another task'"'"'s retirement'
-  jq -e '.records[0].retired.reason == "repository deleted"' "$home/data/delivery/contributions.json" >/dev/null \
+  saved_record "$home" delivery | jq -e '.records[0].retired.reason == "repository deleted"' >/dev/null \
     || fail 'settling a late owner changed the retired record'
   with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input > "$home/input.json" || fail 'contribution input failed'
   with_home "$home" "$ROOT/bin/fm-contributions.sh" snapshot "$home/input.json" --all | jq -e '.rows[0].tasks == ["duplicate","late"]' >/dev/null \
@@ -1849,7 +1948,7 @@ test_arm_plumbs_the_reply_age_into_the_check_shim() {
 }
 
 failures=0
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_http_500_once_retries_without_waking test_http_500_twice_records_the_failed_read test_http_404_is_not_retried test_real_gh_errors_drive_retry_and_summary test_next_url_does_not_inherit_a_forge_diagnostic test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs test_unanswered_thread_is_raised_again_under_hold test_resolved_thread_is_answered test_reply_rules test_reply_age_is_configurable_and_validated test_closed_pull_request_drops_its_threads test_unanswered_reraise_is_off_unless_configured test_arm_plumbs_the_reply_age_into_the_check_shim test_many_reviews_stay_readable; do
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_http_500_once_retries_without_waking test_http_500_twice_records_the_failed_read test_http_404_is_not_retried test_real_gh_errors_drive_retry_and_summary test_next_url_does_not_inherit_a_forge_diagnostic test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_history_cannot_starve_a_live_contribution_under_the_check_bound test_settled_finals_leave_the_per_poll_working_set test_local_bookkeeping_overrun_is_reported_once_per_episode test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs test_unanswered_thread_is_raised_again_under_hold test_resolved_thread_is_answered test_reply_rules test_reply_age_is_configurable_and_validated test_closed_pull_request_drops_its_threads test_unanswered_reraise_is_off_unless_configured test_arm_plumbs_the_reply_age_into_the_check_shim test_many_reviews_stay_readable; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"

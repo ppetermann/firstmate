@@ -18,6 +18,19 @@
 # by a structured backlog row or a task's pr= are owned.
 # Previously observed or enrolled URLs remain in data/<task>/contributions.json
 # after endpoint teardown. Repository-wide PR discovery never establishes ownership.
+# That file is the per-poll working set. poll moves a record whose observation is
+# merged or closed and settled error-free for every owner, or that is retired,
+# and has no pending signal, into data/<task>/contributions-archive.json (same
+# schema), and lists each archived pair (task, url, kind, state, retired) in
+# state/.contributions-archive.tsv, so its local cost scales with open
+# contributions rather than history. The archive is written first, then the
+# index, then the working file; an interrupted move leaves a duplicate whose
+# working copy wins. A missing or malformed index is rebuilt from the archives,
+# reading only those it lacks. poll, owned and arm read the index and never the
+# archived records; snapshot, enroll, verdict, ack and retire read both, so an
+# archived pair stays owned, final and measured, a retired one stays retired,
+# and enroll on an archived URL changes nothing. A write to an archived pair
+# lands in the working file and is archived again once settled.
 # enroll records one task's supported PR URL as an unobserved record, so a PR
 # the task opened is owned before any pr= exists; it changes nothing when the
 # task already has a record for that URL and fails when that record is
@@ -66,7 +79,13 @@
 # 1..25). A configured value rides the generated check shim into watcher runs
 # and is cut down to the watcher's own per-check bound (FM_CHECK_TIMEOUT,
 # default 30, read from the poll's environment because the watcher runs it as
-# a direct child) with a three-second margin. Every read, including one retry,
+# a direct child) with a three-second margin. That margin also bounds the whole
+# run from process start, local bookkeeping included: forge reads stop at the
+# earlier of now plus the budget and that run bound, and settlement and
+# archiving stop at the run bound. When local work passes its three seconds and
+# leaves less than the observation reserve, poll prints one "contributions: local
+# bookkeeping used ..." line per episode; a poll with its full reserve ends the
+# episode. Every read, including one retry,
 # is capped at five seconds. A first attempt killed at that bound or deadline is
 # budget refusal; a killed retry retains the genuine failure that caused it.
 # HTTP 5xx, 429, secondary-rate-limit 403, connection, DNS and TLS failures are
@@ -76,11 +95,12 @@
 # dependent waves: core, six independent reads (seven when FM_CONTRIBUTIONS_REPLY_AGE
 # is set), then the closing head read;
 # an issue has two waves. Before starting a URL, poll reserves the smaller of
-# the effective budget and 15 seconds for those waves. URLs needing forge
+# the effective budget and 15 seconds for those waves, never more than the time
+# the run bound left when reads began. URLs needing forge
 # reads are sorted by URL and rotated by the current five-minute epoch bucket
 # modulo their count, without stored scheduling state or freshness-based
-# reordering. Terminal URLs settle separately before the forge budget starts
-# and consume no rotation slots.
+# reordering. Terminal URLs consume no rotation slots; they settle and
+# archive after the forge reads, in whatever time the run bound leaves.
 # A deliberately smaller configured budget remains bounded and may be
 # unmeasured, rather than being mislabeled unavailable. Each distinct supported
 # URL is attempted at most once per poll and its observation applied to every owner.
@@ -187,6 +207,13 @@ case "$CHECK_TIMEOUT" in ''|*[!0-9]*|0) CHECK_TIMEOUT=30 ;; esac
 BUDGET_CAP=$((CHECK_TIMEOUT - 3))
 [ "$BUDGET_CAP" -ge 1 ] || BUDGET_CAP=1
 [ "$BUDGET" -le "$BUDGET_CAP" ] || BUDGET=$BUDGET_CAP
+# The whole run, local work included, ends by RUN_END; SECONDS counts from process start.
+START=$(( $(date +%s) - SECONDS ))
+RUN_END=$((START + BUDGET_CAP))
+ARCHIVE=contributions-archive.json
+INDEX="$STATE/.contributions-archive.tsv"
+STARVED="$STATE/.contributions-starved"
+INDEX_DIRTY=0
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-contributions.XXXXXX")
 LOCK_HELD=0
 cleanup() {
@@ -202,30 +229,103 @@ jq_lib() { # jq options/program via final argument
   jq -L "$SCRIPT_DIR" "$@" "include \"fm-contributions\"; $program"
 }
 
-read_saved() {
+read_record_file() { # file task: append the valid record to $TMP/records.jsonl
+  local dir
+  fm_dirname_to dir "$1"
+  # A file's task identity must match its durable directory, not arbitrary JSON.
+  [ ! -L "$1" ] && [ ! -L "$dir" ] && [ -f "$1" ] \
+    && [ "$(wc -c < "$1")" -le 1048576 ] \
+    && jq_lib -nc --arg task "$2" --slurpfile record "$1" '
+      if ($record | length) == 1 and ($record[0] | valid_record) and $record[0].task == $task
+      then $record[0] else error("invalid record") end' >> "$TMP/records.jsonl" 2>/dev/null
+}
+
+read_records() { # file-name output-json: every valid data/<task>/<file-name>
   local file dir task
-  : > "$TMP/saved.jsonl"
+  : > "$TMP/records.jsonl"
+  for file in "$DATA"/*/"$1"; do
+    [ -e "$file" ] || [ -L "$file" ] || continue
+    fm_dirname_to dir "$file"
+    fm_basename_to task "$dir"
+    read_record_file "$file" "$task" || ERRORS=$((ERRORS + 1))
+  done
+  jq -s . "$TMP/records.jsonl" > "$2"
+}
+
+read_saved() { # the working set: data/<task>/contributions.json
   ERRORS=0
   if [ -L "$DATA" ]; then
     ERRORS=1; printf '[]\n' > "$TMP/saved.json"; return 0
   fi
-  for file in "$DATA"/*/contributions.json; do
-    [ -e "$file" ] || [ -L "$file" ] || continue
-    fm_dirname_to dir "$file"
-    fm_basename_to task "$dir"
-    if [ -L "$file" ] || [ -L "$dir" ] || [ ! -f "$file" ] \
-      || [ "$(wc -c < "$file")" -gt 1048576 ] \
-      || ! jq_lib -ne --slurpfile record "$file" '($record | length) == 1 and ($record[0] | valid_record)' >/dev/null 2>&1; then
-      ERRORS=$((ERRORS + 1))
-      continue
-    fi
-    # A file's task identity must match its durable directory, not arbitrary JSON.
-    if ! jq -e --arg task "$task" '.task == $task' "$file" >/dev/null; then
-      ERRORS=$((ERRORS + 1)); continue
-    fi
-    jq -c . "$file" >> "$TMP/saved.jsonl"
-  done
-  jq -s . "$TMP/saved.jsonl" > "$TMP/saved.json"
+  read_records contributions.json "$TMP/saved.json"
+}
+
+read_all() { # working records, then archived records whose pair has no working copy
+  read_saved
+  [ ! -L "$DATA" ] || return 0
+  read_records "$ARCHIVE" "$TMP/archive.json"
+  jq -n --slurpfile working "$TMP/saved.json" --slurpfile archive "$TMP/archive.json" '
+    $working[0] + $archive[0] | group_by(.task)
+    | map({schema:"fm-contributions.v1",task:.[0].task,
+        records:(reduce (.[].records[]) as $r ([]; if any(.[]; .url == $r.url) then . else . + [$r] end))})' \
+    > "$TMP/all.json"
+  mv "$TMP/all.json" "$TMP/saved.json"
+}
+
+load_index() { # archived pairs into $TMP/index.json without reading indexed archives
+  local file dir task
+  : > "$TMP/archive-tasks"
+  if [ ! -L "$DATA" ]; then
+    for file in "$DATA"/*/"$ARCHIVE"; do
+      [ -e "$file" ] || [ -L "$file" ] || continue
+      fm_dirname_to dir "$file"
+      fm_basename_to task "$dir"
+      printf '%s\n' "$task" >> "$TMP/archive-tasks"
+    done
+  fi
+  if [ ! -f "$INDEX" ] || [ -L "$INDEX" ] || ! jq -Rn '[inputs | split("\t")
+      | if length == 5 and (.[4] | IN("0","1")) then {task:.[0],url:.[1],kind:.[2],state:.[3],retired:(.[4] == "1")}
+        else error("malformed index line") end]' < "$INDEX" > "$TMP/index.json" 2>/dev/null; then
+    printf '[]\n' > "$TMP/index.json"
+  fi
+  # Drop a task whose archive is gone; read only the archives the index lacks.
+  jq -Rn --slurpfile index "$TMP/index.json" '[inputs] as $tasks
+    | ($index[0] | map(.task) | unique) as $indexed
+    | {keep:[$index[0][] | select(.task | IN($tasks[]))],missing:($tasks - $indexed),
+       dirty:((($tasks - $indexed) + ($indexed - $tasks)) != [])}' < "$TMP/archive-tasks" > "$TMP/index-plan.json"
+  if jq -e '.dirty' "$TMP/index-plan.json" >/dev/null || [ ! -f "$INDEX" ]; then
+    INDEX_DIRTY=1
+  fi
+  [ "$INDEX_DIRTY" = 1 ] || return 0
+  : > "$TMP/records.jsonl"
+  while IFS= read -r task; do
+    read_record_file "$DATA/$task/$ARCHIVE" "$task" || ERRORS=$((ERRORS + 1))
+  done < <(jq -r '.missing[]' "$TMP/index-plan.json")
+  jq_lib -n --slurpfile plan "$TMP/index-plan.json" --slurpfile fresh <(jq -s . "$TMP/records.jsonl") '
+    $plan[0].keep + [$fresh[0][] | index_entries]' > "$TMP/index.json"
+}
+
+persist_index() { # under the observation lock
+  local device staged
+  device=$(fm_pr_file_device "$STATE")
+  fm_pr_regular_destination_on_device_or_absent "$INDEX" "$device" || fail 'unsafe archive index destination'
+  staged=$(umask 077; mktemp "$STATE/.contributions-archive.XXXXXX")
+  jq -r '.[] | [.task,.url,.kind,.state,(if .retired then "1" else "0" end)] | @tsv' "$TMP/index.json" > "$staged"
+  mv -f -- "$staged" "$INDEX"
+  INDEX_DIRTY=0
+}
+
+read_view() { # working records plus a stub per archived pair; archived records are not read
+  read_saved
+  INDEX_DIRTY=0
+  load_index
+  jq -n --slurpfile saved "$TMP/saved.json" --slurpfile index "$TMP/index.json" '
+    ([$saved[0][] | .task as $t | .records[] | {key:($t + "\t" + .url),value:true}] | from_entries) as $working
+    | $saved[0] + ([$index[0][] | select($working[.task + "\t" + .url] | not)] | group_by(.task)
+      | map({schema:"fm-contributions.v1",task:.[0].task,records:map({url,kind,
+          checked_at:null,error:null,verdict:null,seen:[],pending:[],notified:[],
+          observation:(if .state | IN("open","closed","merged") then {state} else null end),
+          retired:(if .retired then {actor:"captain"} else null end)})}))' > "$TMP/view.json"
 }
 
 get_input() {
@@ -257,26 +357,34 @@ acquire() {
   LOCK_HELD=1
 }
 
-write_record() { # task record-json-file
-  local task=$1 file dir device staged
+publish_task_file() { # task file-name content-file: atomically replace one durable task file
+  local task=$1 dir file device staged
   fm_pr_task_id_valid "$task" || fail 'invalid contribution task'
   dir="$DATA/$task"
   [ ! -L "$dir" ] || fail 'contribution directory is a symlink'
   mkdir -p "$dir"
-  file="$dir/contributions.json"
+  file="$dir/$2"
   device=$(fm_pr_file_device "$dir")
   fm_pr_regular_destination_on_device_or_absent "$file" "$device" || fail 'unsafe contribution record destination'
   staged=$(umask 077; mktemp "$dir/.contributions.XXXXXX")
-  # Preserve other contributions owned by this same task.
-  if [ -f "$file" ]; then
-    jq_lib -ne --arg task "$task" --slurpfile record "$file" '$record[0] | valid_record and .task == $task' >/dev/null || fail 'invalid stored contribution record'
-    jq --slurpfile row "$2" '.records = ([.records[] | select(.url != $row[0].url)] + $row)' "$file" > "$staged"
-  else
-    jq -n --arg task "$task" --slurpfile row "$2" '{schema:"fm-contributions.v1",task:$task,records:$row}' > "$staged"
-  fi
+  cat -- "$3" > "$staged"
   chmod 600 "$staged"
   fm_pr_regular_destination_on_device_or_absent "$file" "$device" || fail 'contribution destination changed'
   mv -f -- "$staged" "$file"
+}
+
+write_record() { # task record-json-file
+  local task=$1 file
+  fm_pr_task_id_valid "$task" || fail 'invalid contribution task'
+  file="$DATA/$task/contributions.json"
+  # Preserve other contributions owned by this same task.
+  if [ -f "$file" ] && [ ! -L "$DATA/$task" ]; then
+    jq_lib -ne --arg task "$task" --slurpfile record "$file" '$record[0] | valid_record and .task == $task' >/dev/null || fail 'invalid stored contribution record'
+    jq --slurpfile row "$2" '.records = ([.records[] | select(.url != $row[0].url)] + $row)' "$file" > "$TMP/file.json"
+  else
+    jq -n --arg task "$task" --slurpfile row "$2" '{schema:"fm-contributions.v1",task:$task,records:$row}' > "$TMP/file.json"
+  fi
+  publish_task_file "$task" contributions.json "$TMP/file.json"
 }
 
 forge_http_status() { # stderr-file
@@ -521,11 +629,23 @@ publish_pending() { # task canonical-url record-file
 
 settle_final() { # canonical-url task... : copy the URL's final observation to every owner
   local url=$1 task
+  local -a archived=()
   shift
   jq -n --slurpfile saved "$TMP/saved.json" --arg url "$url" '
     [$saved[0][] | .records[] | select(.url == $url
       and (.observation.state | IN("merged","closed")))] as $final
     | $final | sort_by([.retired != null, .error != null]) | first' > "$TMP/final.json"
+  if jq -e '. == null' "$TMP/final.json" >/dev/null; then
+    # The final observation was archived: read only the archives that hold it.
+    while IFS= read -r task; do
+      fm_pr_task_id_valid "$task" && archived+=("$DATA/$task/$ARCHIVE")
+    done < <(jq -r --arg url "$url" '.[] | select(.url == $url and (.state | IN("merged","closed"))) | .task' "$TMP/index.json")
+    [ "${#archived[@]}" -gt 0 ] || return 0
+    jq -n --arg url "$url" '[inputs | .records[] | select(.url == $url
+      and (.observation.state | IN("merged","closed")))]
+      | sort_by([.retired != null, .error != null]) | first' "${archived[@]}" > "$TMP/final.json" 2>/dev/null || return 0
+    jq -e '. != null' "$TMP/final.json" >/dev/null || return 0
+  fi
   for task in "$@"; do
     fm_pr_task_id_valid "$task" || { printf 'contributions: invalid durable task id\n'; continue; }
     jq -n --slurpfile saved "$TMP/saved.json" --arg task "$task" --arg url "$url" '
@@ -558,38 +678,113 @@ clear_unsupported_errors() {
     | [$task,.url] | @tsv')
 }
 
+archive_settled() { # move settled working rows into each task's archive while the run bound allows
+  local task file
+  local -a urls
+  [ -s "$TMP/archivable.tsv" ] || return 0
+  # Archive first, then the index, then the working file: an interrupted run
+  # leaves a duplicate whose working copy wins, never a pair with no record.
+  while IFS=$'\t' read -r -a urls; do
+    task=${urls[0]}; urls=("${urls[@]:1}")
+    [ "$(date +%s)" -lt "$RUN_END" ] || break
+    fm_pr_task_id_valid "$task" && [ ! -L "$DATA/$task" ] || continue
+    file="$DATA/$task/$ARCHIVE"
+    : > "$TMP/records.jsonl"
+    if [ -e "$file" ] || [ -L "$file" ]; then
+      read_record_file "$file" "$task" || continue
+    fi
+    jq -n --arg task "$task" --slurpfile prior "$TMP/records.jsonl" \
+      --slurpfile working "$DATA/$task/contributions.json" --args '
+      $ARGS.positional as $urls
+      | ($prior[0] // {schema:"fm-contributions.v1",task:$task,records:[]})
+      | .records = ([.records[] | select(.url | IN($urls[]) | not)]
+        + [$working[0].records[] | select(.url | IN($urls[]))])' "${urls[@]}" > "$TMP/archive-file.json" || continue
+    publish_task_file "$task" "$ARCHIVE" "$TMP/archive-file.json"
+    jq_lib -n --slurpfile index "$TMP/index.json" --slurpfile archive "$TMP/archive-file.json" --arg task "$task" '
+      [$index[0][] | select(.task != $task)] + [$archive[0] | index_entries]' > "$TMP/index.next.json"
+    mv "$TMP/index.next.json" "$TMP/index.json"
+    (IFS=$'\t'; printf '%s\t%s\n' "$task" "${urls[*]}") >> "$TMP/archived.tsv"
+  done < "$TMP/archivable.tsv"
+  [ -s "$TMP/archived.tsv" ] || return 0
+  persist_index
+  while IFS=$'\t' read -r -a urls; do
+    task=${urls[0]}; urls=("${urls[@]:1}")
+    [ "$(date +%s)" -lt "$RUN_END" ] || break
+    file="$DATA/$task/contributions.json"
+    fm_pr_regular_destination_or_absent "$file" && [ -f "$file" ] || continue
+    jq --args '$ARGS.positional as $urls | .records |= map(select(.url | IN($urls[]) | not))' \
+      "${urls[@]}" < "$file" > "$TMP/working-file.json" || continue
+    if jq -e '.records == []' "$TMP/working-file.json" >/dev/null; then
+      rm -f -- "$file"
+    else
+      publish_task_file "$task" contributions.json "$TMP/working-file.json"
+    fi
+  done < "$TMP/archived.tsv"
+}
+
 poll() {
-  local task url old kind error observed why
+  local task url old kind error observed why now live
   local -a row
   acquire
   get_input
-  read_saved
+  read_view
+  [ "$INDEX_DIRTY" = 0 ] || persist_index
   [ "$ERRORS" -eq 0 ] || printf 'contributions: %s unreadable durable record(s)\n' "$ERRORS"
   clear_unsupported_errors
-  # Only supported URLs enter final settlement and the forge-read rotation.
-  # One line per distinct URL: the URL, then every owning task.
-  jq_lib -nr --slurpfile input "$TMP/input.json" --slurpfile saved "$TMP/saved.json" '
-    known($input[0];$saved[0]) | map(select(.url | supported_url))
-    | group_by(.url) | map({url:.[0].url,tasks:(map(.task) | unique)})
-    | .[] | [.url] + .tasks | @tsv' > "$TMP/known.tsv"
-  : > "$TMP/live.tsv"
+  # Only supported URLs enter final settlement and the forge-read rotation, in
+  # one classification pass: L lists a live URL then its owners, S a URL with a
+  # final observation then the owners that still need it, and A a task then its
+  # working rows that are settled and leave the per-poll working set.
+  jq_lib -nr --slurpfile input "$TMP/input.json" --slurpfile view "$TMP/view.json" --slurpfile saved "$TMP/saved.json" '
+    ([$view[0][] | .task as $t | .records[] | {task:$t,url,error,
+        final:(.observation.state | IN("merged","closed"))}]
+     | group_by([.task,.url]) | map(.[0]) | INDEX(.task + "\t" + .url)) as $first
+    | [known($input[0];$view[0]) | map(select(.url | supported_url)) | group_by(.url)[]
+      | {url:.[0].url,tasks:(map(.task) | unique)}
+      | .url as $u | [.tasks[] | {task:.,row:$first[. + "\t" + $u]}] as $owners
+      | if any($owners[]; .row != null and .row.final) then
+          {kind:"S",url:$u,tasks:[$owners[] | select(.row == null or (.row.final | not) or .row.error != null) | .task]}
+        else {kind:"L",url:$u,tasks:[$owners[].task]} end] as $urls
+    | [$urls[] | select(.kind == "S" and .tasks != []) | .url] as $unsettled
+    | ($urls[] | select(.tasks != []) | [.kind,.url] + .tasks | @tsv),
+      ($saved[0][] | .task as $t
+        | [.records[] | select(.pending == [] and (.retired != null
+            or (.error == null and (.observation.state | IN("merged","closed"))
+              and (.url | supported_url) and (.url | IN($unsettled[]) | not))))
+          | .url] as $settled
+        | select($settled != []) | ["A",$t] + $settled | @tsv)' > "$TMP/classified.tsv"
+  : > "$TMP/live.tsv"; : > "$TMP/settle.tsv"; : > "$TMP/archivable.tsv"; : > "$TMP/archived.tsv"
   while IFS=$'\t' read -r -a row; do
-    [ "${#row[@]}" -ge 2 ] || continue
-    url=${row[0]}
-    # A contribution with a final observation is not re-read for any owner.
-    if jq -ne --slurpfile saved "$TMP/saved.json" --arg url "$url" --args \
-      'any($ARGS.positional[] as $task | [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first;
-        . != null and (.observation.state | IN("merged","closed")))' "${row[@]:1}" >/dev/null; then
-      settle_final "$url" "${row[@]:1}"
-    else
-      (IFS=$'\t'; printf '%s\n' "${row[*]}") >> "$TMP/live.tsv"
-    fi
-  done < "$TMP/known.tsv"
+    [ "${#row[@]}" -ge 3 ] || continue
+    case "${row[0]}" in
+      L) (IFS=$'\t'; printf '%s\n' "${row[*]:1}") >> "$TMP/live.tsv" ;;
+      S) (IFS=$'\t'; printf '%s\n' "${row[*]:1}") >> "$TMP/settle.tsv" ;;
+      A) (IFS=$'\t'; printf '%s\n' "${row[*]:1}") >> "$TMP/archivable.tsv" ;;
+    esac
+  done < "$TMP/classified.tsv"
   jq -Rnr --argjson bucket "$((EPOCH / 300))" '
     [inputs] | if length == 0 then . else ($bucket % length) as $offset | .[$offset:] + .[:$offset] end
     | .[]' < "$TMP/live.tsv" > "$TMP/known.tsv"
-  DEADLINE=$(( $(date +%s) + BUDGET ))
+  now=$(date +%s)
+  DEADLINE=$((now + BUDGET))
+  [ "$DEADLINE" -le "$RUN_END" ] || DEADLINE=$RUN_END
   OBSERVATION_RESERVE=$((BUDGET < 15 ? BUDGET : 15))
+  live=$(wc -l < "$TMP/known.tsv" | tr -d '[:space:]')
+  # Local work past its three-second margin that cut the forge budget below the
+  # observation reserve is reported once per episode; an uncut poll ends it.
+  if [ "$live" -gt 0 ] && [ $((DEADLINE - now)) -lt "$OBSERVATION_RESERVE" ] && [ $((now - START)) -gt 3 ]; then
+    if [ ! -e "$STARVED" ]; then
+      : > "$STARVED"
+      printf 'contributions: local bookkeeping used %ss of the %ss check bound, leaving %ss of forge budget for %s owned contributions\n' \
+        "$((now - START))" "$CHECK_TIMEOUT" "$(( DEADLINE > now ? DEADLINE - now : 0 ))" "$live"
+    fi
+  elif [ -e "$STARVED" ]; then
+    rm -f -- "$STARVED"
+  fi
+  # The reserve never exceeds what the run bound left, so the first URL still
+  # gets every remaining second.
+  [ $((DEADLINE - now)) -ge "$OBSERVATION_RESERVE" ] || OBSERVATION_RESERVE=$((DEADLINE - now))
+  [ "$OBSERVATION_RESERVE" -ge 1 ] || OBSERVATION_RESERVE=1
   while IFS=$'\t' read -r -a row; do
     [ $((DEADLINE - $(date +%s))) -ge "$OBSERVATION_RESERVE" ] || break
     url=${row[0]}
@@ -643,6 +838,14 @@ poll() {
       publish_pending "$task" "$url" "$TMP/row.json"
     done
   done < "$TMP/known.tsv"
+  # Final observations need no forge read, so settlement and archiving take
+  # only the time the forge phase left inside the run bound.
+  while IFS=$'\t' read -r -a row; do
+    [ "${#row[@]}" -ge 2 ] || continue
+    [ "$(date +%s)" -lt "$RUN_END" ] || break
+    settle_final "${row[@]}"
+  done < "$TMP/settle.tsv"
+  archive_settled
 }
 
 arm() {
@@ -650,9 +853,9 @@ arm() {
   local -a shim
   acquire
   if [ "${1:-}" = --if-owned ]; then
-    get_input; read_saved
+    get_input; read_view
     if [ "$ERRORS" -eq 0 ] && ! jq_lib -ne --slurpfile input "$TMP/input.json" \
-      --slurpfile saved "$TMP/saved.json" 'known($input[0];$saved[0]) | length > 0' >/dev/null; then
+      --slurpfile view "$TMP/view.json" 'known($input[0];$view[0]) | length > 0' >/dev/null; then
       return 0
     fi
   fi
@@ -679,17 +882,17 @@ arm() {
 case "${1:-}" in
   snapshot)
     [ "$#" -ge 2 ] && [ "$#" -le 3 ] || fail 'snapshot needs canonical input'
-    read_saved
+    read_all
     project "$2" "${3:-}"
     ;;
   poll) poll ;;
   arm) arm "${2:-}" ;;
   owned)
-    get_input; read_saved
+    get_input; read_view
     [ "$ERRORS" -eq 0 ] || fail "$ERRORS unreadable contribution record(s); ownership is unverified"
-    jq_lib -n --slurpfile input "$TMP/input.json" --slurpfile saved "$TMP/saved.json" '
-      [$saved[0][] | .records[] | select(.error == null and (.observation.state | IN("merged","closed"))) | .url] as $final
-      | known($input[0];$saved[0]) | map(select((.url | supported_url) and (.url | contains("/pull/"))))
+    jq_lib -n --slurpfile input "$TMP/input.json" --slurpfile view "$TMP/view.json" '
+      [$view[0][] | .records[] | select(.error == null and (.observation.state | IN("merged","closed"))) | .url] as $final
+      | known($input[0];$view[0]) | map(select((.url | supported_url) and (.url | contains("/pull/"))))
       | group_by(.url) | map({url:.[0].url,tasks:(map(.task) | unique),final:(.[0].url | IN($final[]))})'
     ;;
   enroll)
@@ -698,7 +901,7 @@ case "${1:-}" in
     fm_pr_task_id_valid "$task" || fail 'invalid contribution task'
     jq_lib -ne --arg url "$url" '$url | supported_url and contains("/pull/")' >/dev/null \
       || fail 'enroll needs a canonical github.com PR URL'
-    acquire; read_saved
+    acquire; read_all
     [ "$ERRORS" -eq 0 ] || fail "$ERRORS unreadable contribution record(s); enrollment is unverified"
     if jq -e --arg task "$task" --arg url "$url" 'any(.[] | select(.task == $task) | .records[]; .url == $url and .retired != null)' "$TMP/saved.json" >/dev/null; then
       fail 'contribution is retired for this task; enrollment refused'
@@ -717,7 +920,7 @@ case "${1:-}" in
     action=$1; shift
     [ "$#" -ge 3 ] || fail 'task, URL and evidence required'
     task=$1; url=$2; shift 2
-    acquire; get_input; read_saved
+    acquire; get_input; read_all
     jq_lib -ne --slurpfile input "$TMP/input.json" --arg task "$task" --arg url "$url" --slurpfile saved "$TMP/saved.json" \
       'any(known($input[0];$saved[0])[]; .task == $task and .url == $url)' >/dev/null \
       || fail 'contribution is not owned by this durable task'
@@ -742,7 +945,7 @@ case "${1:-}" in
     fm_pr_task_id_valid "$task" || fail 'invalid contribution task'
     [ "$4" = captain ] || fail "invalid retire actor '$4'; expected: captain"
     [ -n "${5//[[:space:]]/}" ] || fail 'retire needs a non-empty reason'
-    acquire; read_saved
+    acquire; read_all
     jq -e --arg task "$task" --arg url "$url" '.[] | select(.task == $task) | .records[] | select(.url == $url)' "$TMP/saved.json" > "$TMP/row.json" \
       || fail 'contribution is not recorded for this durable task'
     if jq -e '.retired != null' "$TMP/row.json" >/dev/null; then
