@@ -16,6 +16,7 @@ metadata:
 On every repository listed in `config/ocr-bot/repos`, this round is a standing step of every ship task: the worker runs it on its committed branch after the local gate and BEFORE its first push, fixes what it finds, and pushes only once it expects the flip's CI run and bot round to pass first time.
 The captain's words: "why don't you do a run before you ever push, have the fixes, and only push once you are convinced that the run done on ci is actually going to go through?"; the earlier opt-in-only rule was a misunderstanding.
 The purpose is Actions cost: a fix pushed after the flip reruns the whole CI on a ready PR (34 of 95 PRs did, 2026-10-27..29).
+Every real finding of this round, lows included, is fixed in local commits before the push rather than filed as a follow-up (captain, 2026-10-30: "if during your local ocr runs new ones appear, fix them before pushing to github (local commits are ok)").
 The implementing worker runs the block itself on any stack (path one, whatever its harness); a separate reviewer worker is used only when the captain asks for one.
 Elsewhere the round still runs only when the captain asks for it.
 
@@ -82,9 +83,9 @@ OCR only selects files and supplies rules; YOU perform the review with your own 
    f. Classification. When the diff decides membership - is this a document, valid, complete, an admin - prefer a positive test for the class over an exclusion list.
       The list is a finding when a member it omits is constructible.
 5. Triage findings:
-   - Fix clear defects that are within this task's accepted scope now; commit the fixes as ordinary commits.
-   - Reject false positives or out-of-scope findings, each with a one-line reason.
-   - Critical/high findings are always reported; medium with context; low only if clearly valuable; discard likely false positives silently.
+   - Fix every real finding now, low severity included, and commit the fixes as ordinary local commits before your first push; never file a finding from this round as a follow-up issue.
+   - Reject false positives with a one-line reason; discard likely false positives silently.
+   - Report every finding you fixed or rejected in the PR description (step 8).
    - A finding that would expand the task's scope, or is destructive or security-sensitive, is not yours to decide:
      append `needs-decision [key=<slug>]: <one-line summary>` and stop, exactly as for any other decision.
 6. If you committed fixes, repeat steps 2-4 once over the fixed files. Two rounds maximum;
