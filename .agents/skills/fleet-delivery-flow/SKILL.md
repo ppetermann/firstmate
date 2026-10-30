@@ -27,8 +27,8 @@ such section is NOT on this flow yet - resolve it at registration
    cancel-in-progress only for pull_request; publish lanes main+tags; paths-ignore
    never on a lane whose jobs are required contexts).
 1. Local ladder green on the exact push head (fm-local-gate).
-   Then, on an OCR bot repo, the local OCR review round (`ocr-delegate-review` worker
-   block, pasted into the brief at intake) on the committed branch, findings fixed and the
+   Then, on an OCR bot repo, the local OCR review round by a SEPARATE reviewer worker
+   (`ocr-delegate-review` standing pre-push round; never the implementer's self-review) on the committed branch, findings fixed and the
    ladder re-run, BEFORE the first push: push only a head expected to pass the flip's CI
    and bot round first time (captain, 2026-10-30; post-flip fix pushes rerun full CI).
 2. Push once; PR opens DRAFT, always. Drafts run no CI and get no review rounds.

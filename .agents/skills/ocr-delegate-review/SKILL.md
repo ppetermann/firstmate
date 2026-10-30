@@ -17,7 +17,10 @@ On every repository listed in `config/ocr-bot/repos`, this round is a standing s
 The captain's words: "why don't you do a run before you ever push, have the fixes, and only push once you are convinced that the run done on ci is actually going to go through?"; the earlier opt-in-only rule was a misunderstanding.
 The purpose is Actions cost: a fix pushed after the flip reruns the whole CI on a ready PR (34 of 95 PRs did, 2026-10-27..29).
 Every real finding of this round, lows included, is fixed in local commits before the push rather than filed as a follow-up (captain, 2026-10-30: "if during your local ocr runs new ones appear, fix them before pushing to github (local commits are ok)").
-The implementing worker runs the block itself on any stack (path one, whatever its harness); a separate reviewer worker is used only when the captain asks for one.
+The round is always run by a separate reviewer worker (path two), never by the implementing worker reviewing its own change, whatever either one's harness or model (captain, 2026-10-30: a self-review let 15 findings through to the GitHub round that a fresh reviewer then found).
+Shape: the worker commits, runs the local gate, appends `paused [at=<epoch>]: awaiting pre-push review of <branch> at <sha>` and waits, unpushed.
+Firstmate spawns the report-only reviewer scout on the reviewer profile with the worker block's steps 2-4 targeting that local branch (pool worktrees share the clone's branches), relays the report to the worker through `fm-send`, and the worker fixes every real finding in local commits, re-runs the gate, and pushes once.
+Findings the bot round on GitHub still makes after the flip are expected to be fewer, not zero; its minor ones keep being filed as follow-ups so a ready PR is not pushed again for them.
 Elsewhere the round still runs only when the captain asks for it.
 
 ## When it applies
