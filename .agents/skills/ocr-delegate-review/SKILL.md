@@ -1,8 +1,8 @@
 ---
 name: ocr-delegate-review
 description: >-
-  Agent-only procedure for the captain-invoked OpenCodeReview (OCR) delegation-mode review round on a task or a whole project.
-  Load only when the captain explicitly requests an OCR review for a specific task or a whole project; never load or apply it as a default or automatic gate.
+  Agent-only procedure for the OpenCodeReview (OCR) delegation-mode review round on a task or a whole project.
+  Load at every ship intake on a repo in config/ocr-bot/repos (standing pre-push round), and when the captain requests an OCR review for any other task or a whole project.
   Owns reviewer binding, the worker instruction block and its delivery paths, the whole-project scan shape, the failure-soft policy, and the reporting shape.
 user-invocable: false
 metadata:
@@ -11,14 +11,13 @@ metadata:
 
 # ocr-delegate-review
 
-## Opt-in guard
+## Standing pre-push round (captain, 2026-10-30)
 
-This round is per request: it runs only when the captain explicitly requested it, as an OCR review round for a specific task or a whole-project review.
-Never apply it as a standing posture, a default gate, or an automatic step on any project or delivery mode.
-The one captain-approved standing exception: repositories listed in `config/ocr-bot/repos` are reviewed automatically by the OCR review bot per `ocr-bot-review`, which owns that exception's entire contract; manual rounds there and everywhere else stay opt-in-only.
-Standing yolo authority is not a substitute for the explicit request.
-If the captain ever asks to make OCR review standing or automatic beyond that registered set, do not silently comply.
-Surface that this contradicts the recorded opt-in-only constraint and ask the captain to confirm changing the constraint itself.
+On every repository listed in `config/ocr-bot/repos`, this round is a standing step of every ship task: the worker runs it on its committed branch after the local gate and BEFORE its first push, fixes what it finds, and pushes only once it expects the flip's CI run and bot round to pass first time.
+The captain's words: "why don't you do a run before you ever push, have the fixes, and only push once you are convinced that the run done on ci is actually going to go through?"; the earlier opt-in-only rule was a misunderstanding.
+The purpose is Actions cost: a fix pushed after the flip reruns the whole CI on a ready PR (34 of 95 PRs did, 2026-10-27..29).
+The implementing worker runs the block itself on any stack (path one, whatever its harness); a separate reviewer worker is used only when the captain asks for one.
+Elsewhere the round still runs only when the captain asks for it.
 
 ## When it applies
 
@@ -51,8 +50,8 @@ The reviewer reviews, the implementer fixes: firstmate relays the findings to th
 Paste this block verbatim, after replacing `{OCR_BASE}` and `{OCR_RULE}`:
 
 ```markdown
-## OCR review round (captain-requested for this task)
-The captain requested an OpenCodeReview delegation-mode review of this change before it leaves your branch.
+## OCR review round (before your first push)
+This change gets an OpenCodeReview delegation-mode review before it leaves your branch, so the PR's one CI run and review round pass first time.
 Run it after your implementation is committed and BEFORE this task's completion step (before pushing a direct-PR branch, or before reporting a local-only ready branch).
 OCR only selects files and supplies rules; YOU perform the review with your own reasoning.
 
