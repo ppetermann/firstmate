@@ -3,7 +3,9 @@
 #
 # Prints ONE line of measured facts for a dispatch-intake note: the local and
 # Beijing clocks, the Z.AI peak-window verdict, zai's worst reserve window,
-# claude's five-hour window, per-scope spendPriority, and quota freshness.
+# the window that limits each provider's all_models scope, per-scope
+# spendPriority, and quota freshness. Every window percentage is that
+# window's own percentRemaining, never the scope-wide effective figure.
 # Pure producer: no route recommendation (quota-array-dispatch owns the
 # choice); the dated stamp exists so a stale quota snapshot can never be
 # pasted into a dispatch note as if it were current.
@@ -24,7 +26,8 @@
 # provider in array order, all_models printed as `all`; a provider or field
 # without data prints unavailable or unknown):
 #   dispatch-facts at=<local ISO8601> beijing=<HH:MM>-<Day> peak=<yes|no>
-#     zai_worst=<windowid>:<pct>%:reserve=<pp>pp claude_5h=<pct>%
+#     zai_worst=<windowid>:<pct>%:reserve=<pp>pp zai_limit=<windowid>:<pct>%
+#     claude_limit=<windowid>:<pct>%
 #     spend=claude/all:<sp>,...,zai/all:<sp> quota_age=<secs>s[ quota_stale=yes]
 #
 # FM_DISPATCH_FACTS_NOW=<epoch-seconds> overrides the clock (tests only).
@@ -40,7 +43,7 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
 
 usage() {
-  sed -n '2,31{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,34{s/^# \{0,1\}//;p;}' "$0"
 }
 
 malformed_window() {
@@ -155,25 +158,35 @@ else
   peak=no
 fi
 
+# <provider> <window-id> -> that provider window's own percentRemaining, or empty.
+window_pct() {
+  printf '%s' "$JSON" | jq -r --arg p "$1" --arg id "$2" \
+    'first(.providers[] | select(.provider == $p) | .windows[]? | select(.id == $id) | .percentRemaining | tostring) // empty'
+}
+
+# <provider> -> <windowid>:<pct>% for the all_models scope's first limiting window, or unavailable.
+limit_field() {
+  local id pct
+  id=$(printf '%s' "$JSON" | jq -r --arg p "$1" \
+    'first(.providers[] | select(.provider == $p) | .quotaSemantics.effectiveAvailability[]? | select(.scope == "all_models") | .limitingWindowIds[0]? // empty) // empty')
+  [ -n "$id" ] && pct=$(window_pct "$1" "$id") && [ -n "$pct" ] || { echo unavailable; return; }
+  printf '%s:%s%%\n' "$id" "$pct"
+}
+
 zai_entry=$(printf '%s' "$JSON" | jq -c \
   '[.providers[] | select(.provider == "zai") | .quotaSemantics.effectiveAvailability[]? | select(.scope == "all_models")] | first // empty')
 zai_worst=unavailable
 if [ -n "$zai_entry" ]; then
   z_wr=$(printf '%s' "$zai_entry" | jq -r '.pace.worstReserveWindowId // empty')
-  z_eff=$(printf '%s' "$zai_entry" | jq -r '.effectivePercentRemaining // empty')
   z_pp=$(printf '%s' "$zai_entry" | jq -r '.pace.worstReservePercentPoints // empty')
-  if [ -n "$z_wr" ] && [ -n "$z_eff" ] && [ -n "$z_pp" ]; then
-    zai_worst="$z_wr:${z_eff}%:reserve=${z_pp}pp"
+  z_pct=
+  [ -n "$z_wr" ] && z_pct=$(window_pct zai "$z_wr")
+  if [ -n "$z_wr" ] && [ -n "$z_pct" ] && [ -n "$z_pp" ]; then
+    zai_worst="$z_wr:${z_pct}%:reserve=${z_pp}pp"
   fi
 fi
-
-c5=$(printf '%s' "$JSON" | jq -r \
-  'first(.providers[] | select(.provider == "claude") | .windows[]? | select(.id == "five_hour") | .percentRemaining | tostring) // empty')
-if [ -n "$c5" ]; then
-  claude_5h="${c5}%"
-else
-  claude_5h=unavailable
-fi
+zai_limit=$(limit_field zai)
+claude_limit=$(limit_field claude)
 
 spend=$(printf '%s' "$JSON" | jq -r '
   [ (["claude","zai"][]) as $p
@@ -201,5 +214,5 @@ case $gen_epoch in
     ;;
 esac
 
-printf 'dispatch-facts at=%s beijing=%s-%s peak=%s zai_worst=%s claude_5h=%s spend=%s quota_age=%s%s\n' \
-  "$at" "$b_hm" "$b_day" "$peak" "$zai_worst" "$claude_5h" "$spend" "$quota_age" "$stale_suffix"
+printf 'dispatch-facts at=%s beijing=%s-%s peak=%s zai_worst=%s zai_limit=%s claude_limit=%s spend=%s quota_age=%s%s\n' \
+  "$at" "$b_hm" "$b_day" "$peak" "$zai_worst" "$zai_limit" "$claude_limit" "$spend" "$quota_age" "$stale_suffix"

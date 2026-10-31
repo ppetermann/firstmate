@@ -75,7 +75,7 @@ run_facts() {  # <dir> [extra env assignments...] -> OUT, RC, ERR
 }
 
 # The canned v5 fixture, modeled on a live quota-axi capture: claude carries
-# the five_hour window plus all_models and model-scoped availability (spend
+# only the weekly and per-model windows (no five-hour session limit) plus all_models and model-scoped availability (spend
 # known only on the model scope), zai carries all_models with full pace data
 # plus a tools scope with nothing.
 write_quota_json() {  # <dir> <generatedAt-epoch> [drop-zai]
@@ -85,7 +85,7 @@ write_quota_json() {  # <dir> <generatedAt-epoch> [drop-zai]
       "state": { "status": "fresh", "stale": false },
       "windows": [ { "id": "five_hour", "kind": "session", "percentRemaining": 87 } ],
       "quotaSemantics": { "effectiveAvailability": [
-        { "scope": "all_models", "effectivePercentRemaining": 87,
+        { "scope": "all_models", "effectivePercentRemaining": 87, "limitingWindowIds": ["five_hour"],
           "selection": { "status": "known", "spendPriority": 2.5 },
           "pace": { "worstReservePercentPoints": 39.5, "worstReserveWindowId": "five_hour" } },
         { "scope": "tools", "effectivePercentRemaining": 100,
@@ -94,17 +94,32 @@ write_quota_json() {  # <dir> <generatedAt-epoch> [drop-zai]
       ] }
     }'
   [ "${3:-}" = drop-zai ] && zai_block=''
+  # Two zai windows where the limiting window (five_hour) and the worst
+  # reserve window (weekly) differ, so each field must read its own window.
+  [ "${3:-}" = zai-two-windows ] && zai_block='{
+      "provider": "zai",
+      "state": { "status": "fresh", "stale": false },
+      "windows": [
+        { "id": "five_hour", "kind": "session", "percentRemaining": 61 },
+        { "id": "weekly", "kind": "weekly", "percentRemaining": 72 }
+      ],
+      "quotaSemantics": { "effectiveAvailability": [
+        { "scope": "all_models", "effectivePercentRemaining": 61, "limitingWindowIds": ["five_hour"],
+          "selection": { "status": "known", "spendPriority": 1.5 },
+          "pace": { "worstReservePercentPoints": -20.45, "worstReserveWindowId": "weekly" } }
+      ] }
+    }'
   claude_block='{
       "provider": "claude",
       "state": { "status": "fresh", "stale": false },
       "windows": [
-        { "id": "five_hour", "kind": "session", "percentRemaining": 42 },
-        { "id": "seven_day", "kind": "weekly", "percentRemaining": 90 }
+        { "id": "seven_day", "kind": "weekly", "percentRemaining": 10 },
+        { "id": "model:fable", "kind": "weekly", "percentRemaining": 81 }
       ],
       "quotaSemantics": { "effectiveAvailability": [
-        { "scope": "all_models", "effectivePercentRemaining": 42,
+        { "scope": "all_models", "effectivePercentRemaining": 10, "limitingWindowIds": ["seven_day"],
           "selection": { "status": "unknown" },
-          "pace": { "worstReservePercentPoints": -3, "worstReserveWindowId": "five_hour" } },
+          "pace": { "worstReservePercentPoints": -3, "worstReserveWindowId": "seven_day" } },
         { "scope": "model:fable", "effectivePercentRemaining": 81,
           "selection": { "status": "known", "spendPriority": -1.25 },
           "pace": { "worstReservePercentPoints": -2, "worstReserveWindowId": "model:fable" } }
@@ -126,7 +141,7 @@ test_stamp_fields_and_peak_boundaries() {
   write_quota_json "$dir" "$now"
   run_facts "$dir" FM_DISPATCH_FACTS_NOW="$now"
   expect_code 0 "$RC" "peak-inside stamp must succeed"
-  expected="dispatch-facts at=$(iso_utc "$now") beijing=15:00-Wed peak=yes zai_worst=five_hour:87%:reserve=39.5pp claude_5h=42% spend=claude/all:unknown,claude/model:fable:-1.25,zai/all:2.5,zai/tools:unknown quota_age=0s"
+  expected="dispatch-facts at=$(iso_utc "$now") beijing=15:00-Wed peak=yes zai_worst=five_hour:87%:reserve=39.5pp zai_limit=five_hour:87% claude_limit=seven_day:10% spend=claude/all:unknown,claude/model:fable:-1.25,zai/all:2.5,zai/tools:unknown quota_age=0s"
   [ "$OUT" = "$expected" ] || fail "peak-inside stamp mismatch:
 --want--
 $expected
@@ -189,8 +204,8 @@ test_missing_zai_and_staleness() {
   run_facts "$dir" FM_DISPATCH_FACTS_NOW="$now"
   expect_code 0 "$RC" "no-zai stamp must succeed"
   case $OUT in
-    *" zai_worst=unavailable "*) : ;;
-    *) fail "missing zai provider must print zai_worst=unavailable: $OUT" ;;
+    *" zai_worst=unavailable zai_limit=unavailable "*) : ;;
+    *) fail "missing zai provider must print zai_worst and zai_limit unavailable: $OUT" ;;
   esac
   case $OUT in
     *" spend=claude/all:unknown,claude/model:fable:-1.25,zai/all:unknown "*) : ;;
@@ -222,6 +237,18 @@ test_missing_zai_and_staleness() {
     *"quota_stale"*) fail "a fresh snapshot must not be flagged stale: $OUT" ;;
   esac
   pass "fm-dispatch-facts: unavailable degradation and quota staleness"
+}
+
+test_zai_worst_and_limit_read_their_own_windows() {
+  local dir now
+  dir=$(make_case zai-two-windows)
+  now=$(epoch_utc 2026-08-26T07:00:00Z)
+  write_quota_json "$dir" "$now" zai-two-windows
+  run_facts "$dir" FM_DISPATCH_FACTS_NOW="$now"
+  expect_code 0 "$RC" "two-window zai stamp must succeed"
+  assert_contains "$OUT" " zai_worst=weekly:72%:reserve=-20.45pp " "zai_worst must carry the worst-reserve window's own percentage"
+  assert_contains "$OUT" " zai_limit=five_hour:61% " "zai_limit must name the limiting window and its percentage"
+  pass "fm-dispatch-facts: zai worst-reserve and limiting windows each read their own percentage"
 }
 
 test_malformed_config_and_dependencies() {
@@ -276,4 +303,5 @@ test_malformed_config_and_dependencies() {
 
 test_stamp_fields_and_peak_boundaries
 test_missing_zai_and_staleness
+test_zai_worst_and_limit_read_their_own_windows
 test_malformed_config_and_dependencies
