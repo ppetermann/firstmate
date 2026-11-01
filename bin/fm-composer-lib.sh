@@ -86,6 +86,13 @@
 #                different, self-proving thing: real claude 2.x draws exactly
 #                that (`─` rule, `❯`+NBSP, `─` rule), so the glyph inside the
 #                pair carries the shape and no identity is needed.
+#                The same pair with the glyph row plus WRAPPED input rows and
+#                the cursor parked on a row the clear key just emptied is that
+#                shape's cleared-row region: the pair's own glyph proof
+#                (FM_COMPOSER_SCAN_PI_GLYPH_ROW) still carries the shape, a
+#                live pi or polytoken identity keeps the separated
+#                conjunction, and every other identity result classifies the
+#                pair interior by content (claude 2.1.316, live 2026-11-01).
 #
 # THE COMPOSER FOOTER ZONE (task firstmate-doorbell-vals-pending-p1): a
 # harness draws its own furniture BELOW the composer - a user statusLine, a
@@ -2151,6 +2158,24 @@ EOF
       _fm_composer_classify_bare_wrap "$screen" "$styled" "$FM_COMPOSER_SCAN_BARE_ROW" "$cy"
       return 0
     fi
+    # A rule-delimited composer's CLEARED-ROW region (claude 2.1.316, live
+    # 2026-11-01): its plain `─` rules complete a separator pair, a clear key
+    # that kills one wrapped display row parks the cursor on the row it just
+    # emptied while earlier rows still hold text, and the strict blank-row
+    # rule alone would hand the pair to the separated-shape identity
+    # conjunction and read `unknown` there - which ended the composer clear
+    # after one press with rows of the prompt still in the buffer. The pair's
+    # own glyph proof (recorded by the scan) is the container signal, and
+    # identity reconciles the ambiguity exactly as the cursor-on-glyph
+    # overlap below does.
+    if [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
+       && [ "$cy" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
+       && [ "$cy" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ] \
+       && [ "$FM_COMPOSER_SCAN_PI_GLYPH_ROW" -ge "$FM_COMPOSER_SCAN_PI_OPEN" ] \
+       && [ "$FM_COMPOSER_SCAN_PI_GLYPH_ROW" -le "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
+      _fm_composer_classify_bare_pi_region_overlap "$screen" "$styled" "$has_identity" "$identity"
+      return 0
+    fi
     if [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
        && [ "$cy" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
        && [ "$cy" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
@@ -2254,6 +2279,63 @@ fm_composer_queued_enter_verdict() {  # <composer-state> <busy|idle|unknown>
   else
     printf 'pending'
   fi
+}
+
+# _fm_composer_classify_bare_pi_region_overlap: the sibling of
+# _fm_composer_classify_bare_pi_overlap for a WRAPPED rule-delimited
+# composer's cleared-row region (claude 2.1.316, live 2026-11-01): the pair's
+# recorded glyph proof says a rule-delimited composer owns the region, while
+# the cursor sits on a blank row that clear key killed - a row that is
+# genuinely neither pi content nor claude content. Identity reconciles the
+# separated-shape ambiguity exactly as the cursor-on-glyph overlap does: a
+# live pi or polytoken owner keeps its own conjunction verdict, and every
+# other identity result (probe-absent, a non-pi agent) plus a backend with no
+# identity capability classifies the pair interior by content.
+_fm_composer_classify_bare_pi_region_overlap() {  # <screen> <styled> <has-identity> <identity>
+  local screen=$1 styled=$2 has_identity=$3 identity=$4 agent
+  if [ "$has_identity" = 1 ]; then
+    if [ -z "$identity" ]; then
+      printf 'need-identity'
+      return 0
+    fi
+    if [ "$identity" != probe-absent ]; then
+      agent=${identity%%$'\t'*}
+      if [ "$agent" = pi ] || [ "$agent" = polytoken ]; then
+        _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity"
+        return 0
+      fi
+    fi
+  fi
+  _fm_composer_classify_rule_region "$screen" "$styled"
+}
+
+# _fm_composer_classify_rule_region: content verdict for the interior of the
+# cursor-containing separator pair (rows strictly between
+# FM_COMPOSER_SCAN_PI_OPEN and FM_COMPOSER_SCAN_PI_CLOSE). Each row is
+# ghost-stripped, so an idle placeholder or dim hint reduces to the prompt
+# glyph and then to nothing; surviving text is unsubmitted input, pending
+# when styling can prove it real and unknown otherwise (the same styled=0
+# degradation as the bare-row and wrap classifiers). A glyph-led row
+# contributes its glyph-free tail: the composer's own prompt glyph is never
+# typed text.
+_fm_composer_classify_rule_region() {  # <screen> <styled>
+  local screen=$1 styled=$2 row raw content glyph text_seen=0
+  row=$((FM_COMPOSER_SCAN_PI_OPEN + 1))
+  while [ "$row" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; do
+    raw=$(_fm_composer_screen_row "$row" "$screen")
+    content=$(_fm_composer_row_content "$raw" "$styled")
+    if fm_composer_leading_agent_glyph_var glyph "$content"; then
+      content=${content#*"$glyph"}
+    fi
+    fm_composer_normalize_trim_var content
+    [ -z "$content" ] || text_seen=1
+    row=$((row + 1))
+  done
+  if [ "$text_seen" = 0 ]; then
+    printf 'empty'
+    return 0
+  fi
+  if [ "$styled" = 1 ]; then printf 'pending'; else printf 'unknown'; fi
 }
 
 _fm_composer_classify_pi_rows() {  # <screen> <styled>

@@ -819,6 +819,34 @@ The portable half lives in `test_matrix_opencode_leftbar_signals` in `tests/fm-c
 The same bytes on a plain backend read `unknown` in both states, because opencode 1.19.0 also draws a de-emphasised `~/.treehouse/fm001-b8697d/1/fm001:fm/` row inside the box that survives an unstyled capture, so the strict posture keeps deferring rather than reading `empty` there.
 Overriding `FM_COMPOSER_LEFTBAR_FOOTER_RE` to a pattern that cannot match puts the false `pending` straight back on the captured idle pane, which pins the exemption as the load-bearing signal rather than an incidental pass.
 `fm_composer_extract_selected_content` applies the same rule to the same run, so the classified-empty pane hands back no composer text and the typed pane hands back only `fix the doorbell skip`; zellij's append proof (`fm_backend_zellij_composer_observed_append` in `bin/backends/zellij.sh`) requires the extracted text to equal the prior content plus the typed text, so a footer leaking into that read fails the send instead of confirming one.
+
+### 2026-11-01 claude 2.1.316 cleared-row region in the rule-delimited composer
+
+Verified on 2026-11-01 on Linux x86_64 against Claude Code 2.1.316 in an 80x24 pane of an isolated private tmux 3.6 server, read through `fm_tmux_composer_state` with the tmux capability descriptor (`styled=1`, `cursor=1`, `identity=1`, `rows=0`).
+The session-start drift check had flagged the composer drift guard failing on claude: after one `C-u` into a composer holding the wrapped steering doorbell, `fm_backend_clear_composer` reported success, the following reads returned `unknown`, and the guard stopped with rows of the doorbell still in the composer.
+
+The live repro pinned the shape:
+`C-u` still kills exactly one wrapped display row per press; the killed row stays behind as a blank row with the cursor parked on it while earlier rows still hold text; and claude now draws a persistent `Ctrl+Y to paste deleted text` hint row above the composer's top rule after any deletion.
+The hint row sits outside the rule pair, so the pair-interior read never sees it; the killed blank row was the break: claude's plain `─` rules complete a separator pair, the strict blank-row posture handed the pair to the separated-shape identity conjunction, the tmux identity probe answered `probe-absent` for claude, and the verdict was `unknown` - which `fm_backend_clear_composer` treats as not-proven-pending and stops on, the one-press stall.
+
+`fm_composer_classify_screen` now routes a cursor-containing separator pair that carries its own recorded glyph proof (`FM_COMPOSER_SCAN_PI_GLYPH_ROW`) to `_fm_composer_classify_bare_pi_region_overlap`: a live pi or polytoken identity keeps the separated conjunction, and every other identity result plus a backend without identity capability classifies the pair interior by content - ghost-stripped rows are the idle placeholder, surviving text is pending when styled can prove it and unknown otherwise.
+A live pi keeps its stricter behavior over the same region: with identity `pi`+`working` the verdict stays `pending` through the content and never reads empty on structure alone.
+
+```sh
+FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh
+```
+
+```text
+# claude 2.1.316 (Claude Code): a 169-character wrapped composer cleared in 3 x C-u
+ok - composer drift: claude 2.1.316 (Claude Code) separates an empty composer from unsubmitted text
+ok - composer drift: opencode 1.18.35 separates an empty composer from unsubmitted text
+ok - composer drift: pi 0.87.0 separates an empty composer from unsubmitted text
+# checked 3 installed harness(es)
+```
+
+The portable owner of the shape is the `test_cleared_row_region_*` group in `tests/fm-composer-pane-shapes.test.sh`: it paints the cleared-row region holding text (pending) and holding only the dim placeholder (empty), asserts that a live pi identity and probe-absent reconcile to different verdicts over the same painted screen so the routing cannot go vacuous, and reasserts the styled=0 refusal.
+`docs/verification/composer-drift-versions.tsv` was refreshed to claude 2.1.316 and opencode 1.18.35 immediately after that passing run; pi 0.87.0's row was already current.
+
 ### Grok approval-titled bottom border
 
 Recorded 2026-10-01; the shape was first observed on Grok 1.0.44 on 2026-09-29, on an idle composer the classifier then read as `unknown`. The classifier update was exercised again on 2026-10-15 against Grok 1.0.62; see the live-validation evidence below.
@@ -1103,6 +1131,8 @@ FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh
 # claude 2.1.266 (Claude Code): a 227-character wrapped composer cleared in 4 x C-u
 ok - composer drift: claude 2.1.266 (Claude Code) separates an empty composer from unsubmitted text
 ```
+
+On 2026-11-01 the same guard re-proved the press-per-row contract against claude 2.1.316, whose firstmate doorbell measured 169 characters and cleared in 3 x `C-u` in an 80-column pane, after the cleared-row classification fix recorded in [the 2026-11-01 claude 2.1.316 record](#2026-11-01-claude-21316-cleared-row-region-in-the-rule-delimited-composer); that run also exposed the one-press stall the fix removes.
 
 That guard spends no model tokens: it types firstmate's real doorbell into an idle composer and clears it through the shipped `fm_backend_clear_composer`, so the press count is measured rather than assumed, and it refuses a probe whose typed line is not longer than the pane is wide.
 The token-spending guard above now cancels a prompt longer than its own pane, because the 123-character prompt it used before occupied one display row and passed while this defect was live.

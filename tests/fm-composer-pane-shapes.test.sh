@@ -242,7 +242,81 @@ test_left_rail_footer_survives_ghost_stripping() {
   pass "composer shape: opencode's real-SGR footer is still recognized once ghost-stripping removes its dot"
 }
 
-# --- 3. the safety counterweights --------------------------------------------
+# --- 3. claude's cleared-row rule-delimited composer (2.1.316) ---------------
+
+# Claude 2.1.316 delimits its composer with plain `─` rules (no corner glyphs,
+# so the scan never sees a complete box), and its Ctrl+U clear key kills back
+# to the start of the current WRAPPED DISPLAY ROW. A prompt long enough to
+# wrap therefore passes through a state where one or more rows still hold
+# text, the row the key just killed is blank, and the cursor is parked on
+# that blank row (measured live 2026-11-01, claude 2.1.316, 80x24 pane). The
+# plain rules complete a separator pair, so the strict blank-row rule alone
+# handed the pair to the separated-shape identity conjunction and read
+# `unknown` there - which ended fm_backend_clear_composer after one press
+# with the prompt's leading rows still in the buffer. The pair's own glyph
+# proof carries the shape instead; these two cases assert the divergence
+# (text above a cleared row is pending, the ghost placeholder under the same
+# shape is empty) so the region path cannot go quietly vacuous.
+test_cleared_row_region_holds_text_above_the_cursor() {
+  local hint target state
+  hint="\033[38;5;246mCtrl+Y to paste deleted text\033[39m"
+  target=$(paint cleared-row-text \
+    "$hint\n$RULES\n$GLYPH : Firstmate instruction waiting: list \"\$FM_TASK_INBOX\"/*.msg in your\n  'probe.inbox' steering inbox, read and act on each in numeric order, then mv\n\n$RULES\n  ⏵⏵ auto mode on (shift+tab to cycle)\n" 5)
+  state=$(fm_tmux_composer_state "$target")
+  [ "$state" = pending ] \
+    || fail "a rule-delimited composer whose wrapped rows above the cleared cursor row hold text must be pending, got '$state'"
+  pass "composer shape: text above a cleared row in a rule-delimited composer stays pending"
+}
+
+test_cleared_row_region_placeholder_stays_empty() {
+  local hint target state
+  hint="\033[38;5;246mCtrl+Y to paste deleted text\033[39m"
+  target=$(paint cleared-row-empty \
+    "$hint\n$RULES\n$GLYPH \033[2mTry \"create a util logging.py that...\"\033[0m\n\n$RULES\n  ⏵⏵ auto mode on (shift+tab to cycle)\n" 4)
+  state=$(fm_tmux_composer_state "$target")
+  [ "$state" = empty ] \
+    || fail "a cleared rule-delimited composer showing only its dim placeholder must be empty, got '$state'"
+  pass "composer shape: a cleared rule-delimited composer's ghost placeholder stays empty"
+}
+
+# The identity reconciliation must stay live: a separator pair carrying a
+# glyph row is exactly the shape where a real pi must keep its own stricter
+# conjunction (a working pi's composer region stays pending through its
+# content and never reads empty on structure alone), while probe-absent
+# classifies the region by content. Asserting both identities against the
+# SAME painted screen pins the routing, not just the verdicts.
+test_cleared_row_region_identity_reconciliation() {
+  local target pi_state absent_state
+  target=$(paint cleared-row-pi "$RULES\n$GLYPH \033[2midle suggestion\033[0m\n\n$RULES\n" 3)
+  pi_state=$(fm_composer_classify_screen "$(fm_tmux_composer_caps)" \
+    "$(fm_tmux_composer_capture "$target")" 2 "$(printf 'pi\tworking')")
+  absent_state=$(fm_composer_classify_screen "$(fm_tmux_composer_caps)" \
+    "$(fm_tmux_composer_capture "$target")" 2 probe-absent)
+  [ "$pi_state" = pending ] \
+    || fail "a live working pi must keep its separated-shape verdict over a glyph-led pair, got '$pi_state'"
+  [ "$absent_state" = empty ] \
+    || fail "probe-absent over the same glyph-led pair must classify the region by content, got '$absent_state'"
+  [ "$pi_state" != "$absent_state" ] \
+    || fail "pi and probe-absent collapsed to one verdict '$pi_state' over the same region"
+  pass "composer shape: identity reconciles a glyph-led separator pair between pi and other owners"
+}
+
+# Without styling there is no de-emphasis proof, so the same cleared-row
+# region holding text must refuse instead of answering pending - the same
+# styled=0 degradation every other shape in the shared classifier carries.
+test_cleared_row_region_unstyled_stays_unknown() {
+  local hint target plain_state
+  hint="Ctrl+Y to paste deleted text"
+  target=$(paint cleared-row-plain \
+    "$hint\n$RULES\n$GLYPH half typed steer\n\n$RULES\n" 4)
+  plain_state=$(fm_composer_classify_screen "$(printf 'styled=0\ncursor=1\nidentity=1\nrows=0\n')" \
+    "$(fm_tmux_composer_capture "$target")" 3 probe-absent)
+  [ "$plain_state" = unknown ] \
+    || fail "an unstyled cleared-row region holding text must refuse as unknown, got '$plain_state'"
+  pass "composer shape: an unstyled cleared-row region holding text stays unknown"
+}
+
+# --- 4. the safety counterweights --------------------------------------------
 
 # A dead shell is the failure the shared classifier exists to prevent: its
 # prompt must never read as an injectable empty agent composer.
@@ -372,6 +446,10 @@ test_left_rail_composer
 test_left_rail_composer_in_non_utf8_locale
 test_left_rail_reads_rows_above_the_cursor
 test_left_rail_footer_survives_ghost_stripping
+test_cleared_row_region_holds_text_above_the_cursor
+test_cleared_row_region_placeholder_stays_empty
+test_cleared_row_region_identity_reconciliation
+test_cleared_row_region_unstyled_stays_unknown
 test_dead_shell_prompt_stays_unknown
 test_unbounded_box_stays_unknown
 test_rail_placeholder_at_the_luminance_bound
