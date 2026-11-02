@@ -2048,10 +2048,8 @@ test_dirty_leased_slot_is_kept_without_a_thread() {
   pass "fm-spawn.sh --backend t3code: a leased slot holding uncommitted work gets no thread and keeps its lease"
 }
 
-# A clean slot refreshes from the spawning project's own LOCAL default branch
-# (this fleet's pooled-worktree base rule), so an origin that cannot be fetched
-# is irrelevant to the default spawn path: upstream refuses here because it
-# fetches origin; this fork must launch.
+# A clean slot whose refresh fails holds nothing to lose, so it gets no thread
+# and goes back to the pool.
 test_clean_slot_refresh_failure_returns_lease() {
   local id out rc
   id=$(t3_uid t3fetchz)
@@ -2059,11 +2057,14 @@ test_clean_slot_refresh_failure_returns_lease() {
   t3_worker_setup "$id"
   git -C "$WORKER_PROJ" remote set-url origin "$CASE_DIR/missing-origin.git"
   out=$(t3_worker_spawn "$id" claude --model claude-sonnet-5); rc=$?
-  expect_code 0 "$rc" "a leased slot with an unfetchable origin still launches on the local base"$'\n'"$out"
-  assert_not_contains "$out" "could not fetch origin" "the local-base spawn must not consult origin"
-  [ -n "$(t3_dispatch_types)" ] || fail "a thread must be launched from the project's local default branch"
-  assert_not_contains "$out" "stays leased" "a clean launching slot must not be kept leased"
-  pass "fm-spawn.sh --backend t3code: a clean leased slot launches from the local base regardless of origin"
+  expect_code 1 "$rc" "a leased slot whose origin cannot be fetched must refuse the spawn"$'\n'"$out"
+  assert_contains "$out" "could not fetch origin" "the refusal names the failed fetch"
+  assert_not_contains "$out" "stays leased" "a clean slot must not be kept leased"
+  [ -z "$(t3_dispatch_types)" ] || fail "no thread may be launched on a slot that could not be brought current, got '$(t3_dispatch_types)'"
+  [ "$(t3_log_line_of 'r.tool === "treehouse" && r.args.indexOf("return --force") === 0')" -gt 0 ] \
+    || fail "a clean slot whose refresh failed must be returned"$'\n'"$out"
+  assert_absent "$CASE_DIR/state/$id.meta" "a refused spawn records nothing"
+  pass "fm-spawn.sh --backend t3code: a clean leased slot whose refresh fails gets no thread and is returned"
 }
 
 # A secondmate home outlives an aborted spawn, so once the thread's archive is

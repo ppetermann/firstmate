@@ -54,16 +54,19 @@
 #   prefix is the captain's standing preference and the brief agreement above
 #   already guarantees the worker's instructions match the branch.
 #   --base-branch is the optional branch selected at intake for a ship or scout
-#   to start from and target instead of the project's default branch. A named
-#   base is a pull-request target, so it lives on origin: a fresh launch resets
-#   its pooled copy to origin/<branch>, refusing when the project has no origin
-#   or origin lacks that branch, or when the mode or the project's registered
-#   forge cannot carry it (local-only refuses one). It must agree with every
-#   Setup "Base branch:" line in the brief (bin/fm-brief.sh --base-branch writes
-#   one; other such lines are prose), and a brief with such a line refuses a
-#   spawn without the flag. The spawn records it as base_branch= in
-#   state/<id>.meta, which a relaunch reuses and later review and cleanup read;
-#   it is refused on secondmates and relaunches, and without it nothing changes.
+#   to start from and target instead of origin's default branch. A fresh launch
+#   resets its pooled copy to origin/<branch>, refusing when the project has no
+#   origin or origin lacks that branch, or when the project's registered forge
+#   cannot carry it. It must agree with every Setup "Base branch:" line in the
+#   brief (bin/fm-brief.sh --base-branch writes one; other such lines are prose),
+#   and a brief with such a line refuses a spawn without the flag. The spawn records it as
+#   base_branch= in state/<id>.meta, which a relaunch reuses and later review and
+#   cleanup read; it is refused on secondmates and relaunches, and without it
+#   nothing changes.
+#   Ship/scout launches always put fm-dod-lib.sh's current worker role scope
+#   first in the private launch-brief overlay, including the exact task-owned
+#   steering inbox. This never rewrites a project's instruction files or a
+#   secondmate's charter.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded worktree, reusing its recorded endpoint when that
@@ -351,24 +354,26 @@
 #   set (its header owns the refusal). A secondmate runs in its own home and is
 #   not marked.
 #   Only after this isolation check, every fresh ship or scout requires a clean
-#   task worktree, and that worktree is reset to the spawning project's own
-#   current LOCAL default-branch commit (bin/fm-ff-lib.sh's primary_head_commit,
-#   the same primitive the secondmate local-HEAD sync uses) before anything is
-#   built on it. This is purely local - no fetch, no origin dependency: a pool
-#   slot is a worktree of the spawning project's own clone, so it already holds
-#   that commit in the shared object store. A pooled slot can be handed over
-#   already checked out at a stale ref (allocated before the project's clone
-#   last advanced), and the project's own local default branch is the fix's
-#   target on purpose: an origin remote can lag a project whose delivery is
-#   local-only (AGENTS.md section 7), so freshening against origin instead of
-#   the local ref reproduced exactly this staleness. Keeping the spawning
-#   project's clone itself current with origin is fleet-sync's job (AGENTS.md
-#   section 8), not this gate's. Only a named --base-branch (described above)
-#   fetches origin and resets to origin/<branch> instead. An unresolvable local
-#   default branch, an unreachable base branch, a reset that cannot reach its
-#   target, or a non-clean worktree refuses a fresh spawn with a concrete
-#   diagnostic rather than risking a PR based on stale history or discarding
-#   local work. Relaunch reuses the recorded worktree without resetting its base.
+#   task worktree. When an origin configuration is detected, spawn fetches it,
+#   resolves the current remote default branch (or uses --base-branch, described
+#   above), and resets to its tip. A home that creates the default-off
+#   config/spawn-base-primary-checkout flag (docs/configuration.md) instead
+#   resets a local-only ship or a scout without --base-branch to that same
+#   branch in the primary checkout when it strictly contains origin's tip: a
+#   local-only project lands work there through bin/fm-merge-local.sh and never
+#   pushes, so origin stays frozen at the last push. A publishing mode
+#   (bin/fm-dod-lib.sh fm_mode_publishes) and a named base branch keep origin's
+#   tip, because that work is delivered against origin. Two branches that have
+#   diverged also keep origin's tip, with a note counting both sides. The
+#   primary's commit is read from the local object store, so nothing more is
+#   fetched, and every base this picks contains origin's tip, so the reset
+#   discards nothing the origin-only rule would have kept. When no origin
+#   configuration is detected, spawn skips that remote freshness check and
+#   launches from the clean worktree's current HEAD. Relaunch reuses the
+#   recorded worktree without fetching or resetting its base. An unreachable
+#   detected origin, unresolved default branch, or non-clean worktree refuses
+#   a fresh spawn rather than risking a PR based on stale history or
+#   discarding local work.
 #   A slot whose only deviation is a stale submodule gitlink is refused by that
 #   same clean check, but is reported as a stale checkout naming each submodule
 #   and both pins; nothing is converged or removed, and no remedy is suggested.
@@ -4546,18 +4551,32 @@ spawn_worktree_has_origin_config() { # <worktree>
   return 1
 }
 
-# Reset a pooled worktree to the spawning project's own current LOCAL
-# default-branch commit before anything is built on it (see the header comment
-# for why this targets PROJ_ABS's local ref rather than origin). Purely local:
-# primary_head_commit (bin/fm-ff-lib.sh) reads PROJ_ABS's refs/heads/<default>
-# with no fetch, and a worktree of that same project already holds the commit
-# in the shared object store. A worktree that cannot actually reach that
-# commit - one that turns out not to share PROJ_ABS's object store - fails the
-# reset below and refuses rather than launching on whatever it already had.
-# A named base branch is a pull-request target, so it alone is fetched from
-# origin and reset to origin/<base>.
-freshen_spawn_worktree_base() { # <worktree> [<base-branch>]
-  local worktree=$1 base=${2:-} target expected actual status
+# The opt-in half of the base rule the header owns: return 0 and set
+# SPAWN_PRIMARY_BASE_REV when <project>'s own <default> should be this fresh
+# slot's base instead of origin's tip <origin-rev>. A pool slot shares the
+# primary checkout's object store, so reading that commit fetches nothing, and a
+# commit the slot cannot read keeps origin's tip.
+SPAWN_PRIMARY_BASE_REV=
+spawn_base_from_primary_checkout() { # <worktree> <project> <default> <origin-rev> <mode>
+  local worktree=$1 project=$2 default=$3 origin_rev=$4 mode=$5 primary_rev ahead behind
+  SPAWN_PRIMARY_BASE_REV=
+  if [ -z "$project" ] || fm_mode_publishes "$mode"; then
+    return 1
+  fi
+  primary_rev=$(git -C "$project" rev-parse --verify --quiet "refs/heads/$default^{commit}" 2>/dev/null) || return 1
+  ahead=$(git -C "$worktree" rev-list --count "$origin_rev..$primary_rev" 2>/dev/null) || return 1
+  behind=$(git -C "$worktree" rev-list --count "$primary_rev..$origin_rev" 2>/dev/null) || return 1
+  [ "$ahead" -gt 0 ] || return 1
+  if [ "$behind" -eq 0 ]; then
+    SPAWN_PRIMARY_BASE_REV=$primary_rev
+    return 0
+  fi
+  echo "note: pooled worktree '$worktree': $default in the primary checkout has diverged from origin/$default (ahead by $ahead, behind by $behind); starting from origin's tip" >&2
+  return 1
+}
+
+freshen_spawn_worktree_base() { # <worktree> <base-branch> <project> <mode>; 2 when the worktree is not clean
+  local worktree=$1 base=${2:-} project=${3:-} mode=${4:-} default target expected reset_ref actual status
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
     echo "error: could not inspect pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -4570,38 +4589,52 @@ freshen_spawn_worktree_base() { # <worktree> [<base-branch>]
     fi
     return 2
   fi
-  if [ -n "$base" ]; then
-    if ! spawn_worktree_has_origin_config "$worktree"; then
+  if ! spawn_worktree_has_origin_config "$worktree"; then
+    [ -z "$base" ] || {
       echo "error: pooled worktree '$worktree' has no origin, so it cannot start from base branch '$base'" >&2
       return 1
-    fi
-    target="origin/$base"
-    if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$base:refs/remotes/origin/$base"; then
-      echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-      return 1
-    fi
-    expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
-      echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-      return 1
     }
+    return 0
+  fi
+  if ! git -C "$worktree" fetch --quiet origin; then
+    echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    return 1
+  fi
+  if [ -n "$base" ]; then
+    default=$base
   else
-    target="spawning project '$PROJ_ABS' local default-branch commit"
-    expected=$(primary_head_commit "$PROJ_ABS") || {
-      echo "error: could not resolve local default-branch commit for spawning project '$PROJ_ABS'; refusing to launch pooled worktree '$worktree' from a potentially stale base" >&2
+    if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
+      echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    fi
+    default=$(default_branch "$worktree") || {
+      echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
       return 1
     }
   fi
-  if ! git -C "$worktree" reset --hard "$expected" >/dev/null; then
-    echo "error: could not reset pooled worktree '$worktree' to $target '$expected'; refusing to launch from a potentially stale base" >&2
+  target="origin/$default"
+  if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
+    echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    return 1
+  fi
+  expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
+    echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    return 1
+  }
+  reset_ref=$target
+  if [ -z "$base" ] && [ -e "$CONFIG/spawn-base-primary-checkout" ] \
+    && spawn_base_from_primary_checkout "$worktree" "$project" "$default" "$expected" "$mode"; then
+    target="$default in the primary checkout"
+    expected=$SPAWN_PRIMARY_BASE_REV
+    reset_ref=$expected
+  fi
+  if ! git -C "$worktree" reset --hard "$reset_ref" >/dev/null; then
+    echo "error: could not reset pooled worktree '$worktree' to '$target'; refusing to launch from a potentially stale base" >&2
     return 1
   fi
   actual=$(git -C "$worktree" rev-parse --verify --quiet HEAD 2>/dev/null || true)
   if [ "$actual" != "$expected" ]; then
-    if [ -n "$base" ]; then
-      echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not '$target' commit '$expected'; refusing to launch" >&2
-    else
-      echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not spawning project '$PROJ_ABS' current local default-branch commit '$expected'; refusing to launch" >&2
-    fi
+    echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current '$target' ('$expected'); refusing to launch" >&2
     return 1
   fi
 }
