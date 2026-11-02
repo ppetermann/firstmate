@@ -27,6 +27,7 @@ family_for_basename() {
     fm-local-gate.test.sh) printf '%s\n' pure-contract-unit ;;
     fm-ocrbot-poll.test.sh) printf '%s\n' pr-forge ;;
     fm-ocrbot-token.test.sh) printf '%s\n' pr-forge ;;
+    fm-pr-check-security-fleet.test.sh) printf '%s\n' pr-forge ;;
     fm-pr-verdict.test.sh) printf '%s\n' pr-forge ;;
     fm-signal-wait-lib.test.sh) printf '%s\n' watcher-wake-lock ;;
     fm-task-inbox-fleet.test.sh) printf '%s\n' watcher-wake-lock ;;

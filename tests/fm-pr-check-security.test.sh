@@ -875,28 +875,6 @@ SH
   pass "valid direct and merge flows record exact metadata and reject multiline head metadata"
 }
 
-test_task_worker_arming_is_refused() {
-  local dir rc
-  dir=$(make_case task-worker-refused)
-  write_task_meta "$dir"
-
-  set +e
-  FM_TASK_ID=other-task run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
-    > "$dir/stdout" 2> "$dir/stderr"
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "a task worker's own fm-pr-check.sh invocation was accepted"
-  grep -q '^pr=' "$dir/home/state/task-a.meta" && fail "a refused worker invocation still recorded pr metadata"
-  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused worker invocation still armed a check"
-  grep -q FM_TASK_ID "$dir/stderr" || fail "the refusal did not name the task-worker marker"
-
-  run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
-    > "$dir/stdout" 2> "$dir/stderr" || fail "firstmate's own arming was refused"
-  fm_pr_poll_artifacts_valid "$dir/home/state" task-a "$POLL" \
-    || fail "firstmate's own arming did not pass the watcher's trust gate on the first try"
-  pass "fm-pr-check.sh refuses a task worker's own invocation and firstmate's own arming still authenticates first try"
-}
-
 # A GitHub Enterprise pull request URL is accepted only for a host this home
 # names in config/github-hosts, and the parsed host is carried to every forge
 # call on the check, poll, and merge paths. github.com needs no configuration
@@ -1116,35 +1094,6 @@ test_rejected_metacharacter_bytes_are_inert() {
   after=$(state_snapshot "$dir/home/state")
   [ "$after" = "$before" ] || fail "rejected replacement changed a prior valid static poll"
   pass "rejected metacharacter bytes remain inert at generation and watcher time"
-}
-
-test_rejected_check_notice_survives_a_later_waking_check() {
-  local dir rc
-  dir=$(make_case rejected-notice-durability)
-
-  # aaa-bad sorts before every other check in this sweep; it exists on disk
-  # but was never registered/trusted, so the watcher classifies it as an
-  # unauthenticated state check and rejects it without running it.
-  printf '#!/usr/bin/env bash\nprintf "should-not-run\\n"\n' > "$dir/home/state/aaa-bad.check.sh"
-  chmod 0700 "$dir/home/state/aaa-bad.check.sh"
-
-  # zzz-noise sorts after aaa-bad and is a properly registered custom check
-  # that produces output, so the sweep's ordinary wake()+exit fires on it -
-  # exactly the later-sorting check that used to discard the rejection.
-  printf '#!/usr/bin/env bash\nprintf "noise\\n"\n' > "$dir/home/state/zzz-noise.check.sh"
-  chmod 0700 "$dir/home/state/zzz-noise.check.sh"
-  FM_HOME="$dir/home" "$REGISTER" zzz-noise >/dev/null \
-    || fail "could not register the noise custom check"
-
-  set +e
-  run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "bounded watcher failed: $(cat "$dir/watch.err")"
-
-  assert_grep 'unauthenticated-state-checks' "$dir/home/state/.wake-queue" \
-    "the rejected check's durable row was lost to the later-sorting noisy check"
-  pass "a rejected check's durable notice survives a later-sorting check waking the same sweep"
 }
 
 make_poll_fixture() {
@@ -3166,76 +3115,6 @@ test_retirement_queue_failure_and_receipt_tampering() {
   pass "queue failure and untrusted receipts preserve canonical poll evidence"
 }
 
-test_direct_pr_gate_pass_warning() {
-  local dir state
-  # Missing marker on a direct-PR task: advisory warning, arming still works.
-  dir=$(make_case gate-warn-missing)
-  state="$dir/home/state"
-  fm_write_meta "$state/gate-a.meta" \
-    "window=fm-gate-a" \
-    "endpoint_task_id=gate-a" \
-    "worktree=$dir/wt" \
-    "project=$dir/project" \
-    "kind=ship" \
-    "mode=direct-PR"
-  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
-    PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" gate-a https://github.com/o/r/pull/31 \
-    > "$dir/check.out" 2> "$dir/check.err" \
-    || fail "missing gate marker must not block PR check: $(cat "$dir/check.err")"
-  assert_grep "warning: direct-PR task gate-a has no local-gate pass marker" "$dir/check.err" \
-    "missing gate marker must warn"
-  assert_grep "armed: state/gate-a.check.sh" "$dir/check.out" \
-    "gate warning must leave the merge poll armed"
-
-  # Marker head matching the PR head: silent.
-  dir=$(make_case gate-warn-match)
-  state="$dir/home/state"
-  fm_write_meta "$state/gate-b.meta" \
-    "window=fm-gate-b" \
-    "endpoint_task_id=gate-b" \
-    "worktree=$dir/wt" \
-    "project=$dir/project" \
-    "kind=ship" \
-    "mode=direct-PR"
-  printf 'head=%s ts=1\n' "0123456789abcdef0123456789abcdef01234567" > "$state/gate-b.gate-pass"
-  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
-    PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" gate-b https://github.com/o/r/pull/32 \
-    > "$dir/check.out" 2> "$dir/check.err" \
-    || fail "matching gate marker must not block PR check: $(cat "$dir/check.err")"
-  assert_no_grep "warning:" "$dir/check.err" \
-    "a gate marker matching the PR head must not warn"
-
-  # Marker head that drifted from the PR head: warn naming both.
-  dir=$(make_case gate-warn-mismatch)
-  state="$dir/home/state"
-  fm_write_meta "$state/gate-c.meta" \
-    "window=fm-gate-c" \
-    "endpoint_task_id=gate-c" \
-    "worktree=$dir/wt" \
-    "project=$dir/project" \
-    "kind=ship" \
-    "mode=direct-PR"
-  printf 'head=%s ts=1\n' "9999999999999999999999999999999999999999" > "$state/gate-c.gate-pass"
-  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
-    PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" gate-c https://github.com/o/r/pull/33 \
-    > "$dir/check.out" 2> "$dir/check.err" \
-    || fail "drifted gate marker must not block PR check: $(cat "$dir/check.err")"
-  assert_grep "warning: direct-PR task gate-c gate pass head 9999999999999999999999999999999999999999 does not match PR head 0123456789abcdef0123456789abcdef01234567" "$dir/check.err" \
-    "a gate marker not matching the PR head must warn"
-
-  # Control: a task in another delivery mode without a marker never warns.
-  dir=$(make_case gate-warn-other-mode)
-  state="$dir/home/state"
-  write_task_meta "$dir" gate-d
-  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
-    PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" gate-d https://github.com/o/r/pull/34 \
-    > "$dir/check.out" 2> "$dir/check.err" \
-    || fail "a non-direct-PR task without a marker must not block PR check: $(cat "$dir/check.err")"
-  assert_no_grep "warning:" "$dir/check.err" \
-    "non-direct-PR tasks must never warn about a missing gate marker"
-  pass "direct-PR gate pass warnings are advisory"
-}
-
 test_gitlab_merged_poll_retires() {
   local dir state url rc
   dir=$(make_case gitlab-merged-retirement)
@@ -3896,7 +3775,6 @@ test_retirement_crash_recovery
 test_external_merge_transition_retires_only_terminal_poll
 test_retirement_refuses_replacement_and_nonterminal_results
 test_retirement_queue_failure_and_receipt_tampering
-test_direct_pr_gate_pass_warning
 test_gitlab_merged_poll_retires
 test_invalid_entrypoints_have_zero_side_effects
 test_draft_pull_request_is_armed
@@ -3904,9 +3782,7 @@ test_secondmate_record_refuses_a_pr_watch
 test_unpushed_named_head_refuses_registration
 test_direct_pr_unpushed_commit_refuses_registration
 test_valid_recording_and_merge_derivation
-test_task_worker_arming_is_refused
 test_rejected_metacharacter_bytes_are_inert
-test_rejected_check_notice_survives_a_later_waking_check
 test_static_poll_contract
 test_atomic_interruption_leaves_no_partial_artifact
 test_concurrent_watcher_sees_only_complete_publication
