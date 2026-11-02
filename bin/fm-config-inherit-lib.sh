@@ -23,8 +23,6 @@
 # default-off W3C trace-context setup, while live convergence leaves it unchanged.
 # Primary config/lavish-axi-host carries the one per-machine Lavish server address
 # to every worker so a worker never starts a second server on another interface.
-# Primary config/worker-tmp-root puts a secondmate's own workers' temp on real
-# disk too; a ~/ value names each host's own home (bin/fm-task-tmp-lib.sh).
 # The primary passes its frozen home-session decision into a newly launched
 # Secondmate; see docs/trace-context.md.
 # Primary approval-mode settings follow the same inheritance rules as other
@@ -91,11 +89,14 @@
 FM_SHARED_CAPTAIN_FILE="captain-shared.md"
 FM_SHARED_CAPTAIN_REL="data/$FM_SHARED_CAPTAIN_FILE"
 FM_SHARED_CAPTAIN_MODE="444"
+# Fleet: whether the inheritable set below came from the environment (tests);
+# the fleet item at the end of this file joins only the default set.
+FM_FLEET_INHERIT_EXPLICIT=${FM_INHERITABLE_CONFIG+1}
 
 # The declared inheritable set (space-separated, config-dir-relative item paths).
 # Extend here to inherit more of the primary's local config; override via the
 # environment only in tests. Items must not contain whitespace.
-FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json dispatch-never-send crew-harness backlog-backend backend herdr-presentation-spaces herdr-project-groups startup-memory-budget trace-context launch-env-allowlist claude-permission-mode codex-approval-mode lavish-axi-host t3code-instances keep-ai-trailers supervision-host-off worker-tmp-root firstmate-role}"
+FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json dispatch-never-send crew-harness backlog-backend backend herdr-presentation-spaces herdr-project-groups startup-memory-budget trace-context launch-env-allowlist claude-permission-mode codex-approval-mode lavish-axi-host t3code-instances keep-ai-trailers supervision-host-off firstmate-role}"
 
 # firstmate-role additionally carries a proof-of-state receipt: a scoped role
 # grant (or its recorded absence) authorizes a secondmate home only while
@@ -1467,3 +1468,10 @@ EOF
   fm_config_reread_cleanup_sent "$dest_home_abs"
   return 0
 }
+
+# Fleet addition: primary config/worker-tmp-root puts a secondmate's own
+# workers' temp on real disk too; a ~/ value names each host's own home
+# (bin/fm-task-tmp-lib.sh).
+if [ -z "$FM_FLEET_INHERIT_EXPLICIT" ]; then
+  case " $FM_INHERITABLE_CONFIG " in *" worker-tmp-root "*) ;; *) FM_INHERITABLE_CONFIG="$FM_INHERITABLE_CONFIG worker-tmp-root" ;; esac
+fi
