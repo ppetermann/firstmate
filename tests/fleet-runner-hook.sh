@@ -28,6 +28,7 @@ family_for_basename() {
     fm-ocrbot-token.test.sh) printf '%s\n' pr-forge ;;
     fm-pr-verdict.test.sh) printf '%s\n' pr-forge ;;
     fm-signal-wait-lib.test.sh) printf '%s\n' watcher-wake-lock ;;
+    fm-watch-checkpoint-fleet.test.sh) printf '%s\n' watcher-wake-lock ;;
     fm-worker-tmp-root.test.sh) printf '%s\n' backend-dispatch ;;
     fm-watch-triage-fleet.test.sh) printf '%s\n' watcher-wake-lock ;;
     *) fm_upstream_family_for_basename "$1" ;;
