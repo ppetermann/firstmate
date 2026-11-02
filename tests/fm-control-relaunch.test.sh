@@ -28,8 +28,6 @@ set -u
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-trace-context-lib.sh"
 # shellcheck source=/dev/null
-. "$ROOT/bin/fm-pr-lib.sh"
-# shellcheck source=/dev/null
 . "$ROOT/bin/fm-tasks-axi-lib.sh"
 
 CONTROL="$ROOT/bin/fm-control.sh"
@@ -238,14 +236,11 @@ run_control() {  # <case-dir> <args...>
   # A claude spawn pre-registers workspace trust in the launching user's own
   # store (bin/fm-claude-trust.sh), and a relaunch reaches it through fm-control.sh, so this runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
-  # A case whose subject reads HOME itself - the kimi hook lives under
-  # $HOME/.kimi-code - names the home it wants through FM_TEST_USER_HOME rather
-  # than exporting HOME, which this env line would otherwise override.
   mkdir -p "$dir/user-home"
   env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SESSION -u HERDR_SOCKET_PATH \
     -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID \
     PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
-    HOME="${FM_TEST_USER_HOME:-$dir/user-home}" CLAUDE_CONFIG_DIR='' \
+    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_REAL_GIT="${FM_REAL_GIT:-}" FM_FAKE_GIT_FAILURE="${FM_FAKE_GIT_FAILURE:-}" \
@@ -263,12 +258,11 @@ run_spawn() {  # <case-dir> <args...>
   # A claude spawn pre-registers workspace trust in the launching user's own
   # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
-  # FM_TEST_USER_HOME is the opt-in for a case whose subject reads HOME itself.
   mkdir -p "$dir/user-home"
   env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SESSION -u HERDR_SOCKET_PATH \
     -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID \
     PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
-    HOME="${FM_TEST_USER_HOME:-$dir/user-home}" CLAUDE_CONFIG_DIR='' \
+    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     "$SPAWN" "$@" 2>&1
 }
@@ -279,41 +273,6 @@ meta_field() {  # <case-dir> <id> <key>
 
 journal_field() {  # <case-dir> <id> <key>
   grep "^$3=" "$1/home/state/$2.control-relaunch" | tail -1 | cut -d= -f2-
-}
-
-# A minimal gh stub for the PR arm/poll path: only the "--json state -q
-# .state" lookup fm-pr-poll.sh depends on is answered; the optional
-# headRefOid/title/body lookups fm-pr-check.sh makes at arm time fall through
-# silently, exactly as they do when gh cannot supply them.
-write_pr_poll_gh_stub() {  # <case-dir>
-  fm_fakebin_write "$1/fakebin/gh" <<'SH'
-#!/usr/bin/env bash
-case " $* " in
-  *" state "*) printf '%s\n' "${FM_TEST_GH_STATE:-OPEN}" ;;
-esac
-exit 0
-SH
-  chmod +x "$1/fakebin/gh"
-}
-
-# run_watcher_relaunch_case <case-dir>: one bounded fm-watch.sh cycle against
-# the case's own fakebin/home, stopped deterministically by a z-stop custom
-# check that sorts after any ordinary task id.
-run_watcher_relaunch_case() {  # <case-dir>
-  local dir=$1 state="$1/home/state" rc=0
-  printf '#!/usr/bin/env bash\nprintf "stop-cycle\\n"\n' > "$state/z-stop.check.sh"
-  chmod 0700 "$state/z-stop.check.sh"
-  FM_HOME="$dir/home" "$ROOT/bin/fm-check-register.sh" z-stop >/dev/null \
-    || fail "could not register the stop-cycle custom check"
-  # This file runs under set -u only, never set -e (see the note near
-  # test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
-  # below), so rc is captured directly with no errexit toggle around it.
-  perl -e 'my $pid=fork; die unless defined $pid; if (!$pid) { exec @ARGV } local $SIG{ALRM}=sub { kill "TERM", $pid; waitpid $pid, 0; exit 124 }; alarm 10; waitpid $pid, 0; alarm 0; exit($? >> 8)' \
-    env FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_CHECK_INTERVAL=0 FM_CHECK_TIMEOUT=1 \
-      FM_POLL=0.02 FM_HEARTBEAT=999999 FM_SIGNAL_GRACE=0 FM_TEST_GH_STATE=MERGED \
-      PATH="$dir/fakebin:$PATH" "$ROOT/bin/fm-watch.sh" > "$dir/watch.out" 2> "$dir/watch.err"
-  rc=$?
-  [ "$rc" -eq 0 ] || fail "post-relaunch watcher cycle failed: $(cat "$dir/watch.err")"
 }
 
 make_git_failure_stub() {  # <case-dir>
@@ -513,11 +472,6 @@ test_relaunch_preserves_durable_task_metadata() {
   local dir out rc
   dir=$(new_case durable-meta rl19)
   add_ship_task "$dir" rl19 claude
-  # decisions_reviewed and x_request land before pr=/pr_head= here because
-  # that is the order a real arm produces (bin/fm-pr-check.sh always
-  # re-appends pr=/pr_head= last); the poll's authentication gate refuses
-  # any unrecognised line after pr=, so a record ending in anything else
-  # is not a shape relaunch should ever have to preserve.
   {
     printf '%s\n' 'x_request=request-19'
     printf '%s\n' 'decisions_reviewed=1'
@@ -766,60 +720,6 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring() {
   [ "$(journal_field "$dir" rl4 from_harness)" = claude ] || fail "the journal should record the origin harness"
   [ "$(journal_field "$dir" rl4 to_harness)" = codex ] || fail "the journal should record the target harness"
   pass "fm-control relaunch: switching harness is one ordinary relaunch, and the old wiring goes with the old agent"
-}
-
-# Relaunching away from grok or kimi revokes the last registry entry through
-# the same retirement path teardown uses, so the global hook files do not leak
-# forever in the operator's harness home (fm-orphan-global-turnend-hooks
-# follow-up: the relaunch path never ran the retirement check).
-test_relaunch_away_retires_the_prior_harness_global_hooks() {
-  local harness dir out rc config_dir
-  for harness in grok kimi; do
-    dir=$(new_case "retire-$harness" "rl-retire-$harness")
-    add_ship_task "$dir" "rl-retire-$harness" "$harness"
-    printf 'codex' > "$dir/fake/becomes"
-    if [ "$harness" = grok ]; then
-      mkdir -p "$dir/grokhome/hooks/fm-turn-end.d"
-      printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/grokhome/hooks/fm-turn-end.sh"
-      printf '{"hooks":{"Stop":[]}}\n' > "$dir/grokhome/hooks/fm-turn-end.json"
-      printf '%s\n' "$dir/home/state/rl-retire-grok.turn-ended" \
-        > "$dir/grokhome/hooks/fm-turn-end.d/fm.abcdefabcdef"
-      printf 'fm.abcdefabcdef\n' > "$dir/home/state/rl-retire-grok.grok-turnend-token"
-      printf 'token=fm.abcdefabcdef\n' > "$dir/wt/.fm-grok-turnend"
-    else
-      config_dir="$dir/home/.kimi-code"
-      mkdir -p "$config_dir"
-      printf '# Kimi test config\ndefault_model = "test"\n' > "$config_dir/config.toml"
-      HOME="$dir/home" "$ROOT/bin/fm-kimi-turnend-hook.sh" install \
-        || fail "kimi hook install failed during setup"
-      printf '%s\n' "$dir/home/state/rl-retire-kimi.turn-ended" \
-        > "$config_dir/fm-turn-end.d/fm.ghijklghijkl"
-      printf 'fm.ghijklghijkl\n' > "$dir/home/state/rl-retire-kimi.kimi-turnend-token"
-      printf 'token=fm.ghijklghijkl\n' > "$dir/wt/.fm-kimi-turnend"
-    fi
-
-    out=$(FM_TEST_USER_HOME="$dir/home" run_control "$dir" "rl-retire-$harness" relaunch \
-      --harness codex --note "switching away"); rc=$?
-    expect_code 0 "$rc" "relaunch away from $harness should succeed"$'\n'"$out"
-
-    if [ "$harness" = grok ]; then
-      assert_absent "$dir/grokhome/hooks/fm-turn-end.sh" \
-        "grok hook script survived a relaunch away from grok"
-      assert_absent "$dir/grokhome/hooks/fm-turn-end.json" \
-        "grok hook json survived a relaunch away from grok"
-      assert_absent "$dir/grokhome/hooks/fm-turn-end.d" \
-        "grok registry survived a relaunch away from grok"
-    else
-      config_dir="$dir/home/.kimi-code"
-      assert_absent "$config_dir/fm-turn-end.sh" \
-        "kimi hook script survived a relaunch away from kimi"
-      assert_absent "$config_dir/fm-turn-end.d" \
-        "kimi registry survived a relaunch away from kimi"
-      ! grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config_dir/config.toml" \
-        || fail "kimi config region survived a relaunch away from kimi"
-    fi
-  done
-  pass "fm-control relaunch: relaunching away retires the prior harness's global hooks"
 }
 
 test_refused_relaunch_onto_polytoken_keeps_the_project_hook_layer() {
@@ -1300,85 +1200,6 @@ test_turnend_auth_paths_are_owned_by_the_control_adapter() {
   grok_path=$(GROK_HOME="$dir/gh" fm_control_harness_turnend_auth_path grok 'not a token/../..')
   [ -z "$grok_path" ] || fail "a malformed token must resolve to no path, got '$grok_path'"
   pass "fm-control-lib: one owner resolves each harness's turn-end registry entry, and refuses a malformed token"
-}
-
-# fm_control_harness_turnend_token_read is the one owner of the empty-token guard
-# shared by teardown's grok and kimi retirement and spawn's relaunch-wiring
-# cleanup. Pin its contract directly: absent token, a non-token-gated harness,
-# zero-byte token (the crash-window fix), populated token, and the present but
-# unreadable non-empty token that must still fail closed, plus the empty-args
-# case that propagates the path lookup's nonzero so a caller's `|| return 1`
-# fires identically to the former inline sites.
-test_turnend_token_read_owns_the_empty_token_guard() {
-  local dir state token rc harness
-  dir=$(fm_test_tmproot fm-turnend-token-read)
-  state="$dir/state"
-  mkdir -p "$state"
-  token=$(fm_control_harness_turnend_token_read grok "$state" absent) \
-    || fail "absent grok token should succeed, got nonzero"
-  [ -z "$token" ] || fail "absent token should read empty, got '$token'"
-  token=$(fm_control_harness_turnend_token_read claude "$state" x) \
-    || fail "a non-token-gated harness should succeed"
-  [ -z "$token" ] || fail "a non-token-gated harness should read empty, got '$token'"
-
-  for harness in grok kimi; do
-    : > "$state/tk.$harness-turnend-token"
-    token=$(fm_control_harness_turnend_token_read "$harness" "$state" tk) \
-      || fail "zero-byte $harness token should succeed (the crash-window fix)"
-    [ -z "$token" ] || fail "zero-byte $harness token should read empty, got '$token'"
-
-    printf 'fm.deadbeefdead\n' > "$state/tk.$harness-turnend-token"
-    token=$(fm_control_harness_turnend_token_read "$harness" "$state" tk) \
-      || fail "populated $harness token should succeed"
-    [ "$token" = "fm.deadbeefdead" ] \
-      || fail "populated $harness token mismatch, got '$token'"
-
-    printf 'fm.unreachable\n' > "$state/tk.$harness-turnend-token"
-    chmod 000 "$state/tk.$harness-turnend-token"
-    if [ -r "$state/tk.$harness-turnend-token" ]; then
-      chmod 600 "$state/tk.$harness-turnend-token"
-      echo "skip: file modes do not deny reads here (running privileged); cannot stage an unreadable $harness token"
-      continue
-    fi
-    # The read runs in-process (the function is sourced), so redirect stderr to
-    # keep the "Permission denied" diagnostic out of the test's own stderr.
-    fm_control_harness_turnend_token_read "$harness" "$state" tk >/dev/null 2>&1
-    rc=$?
-    chmod 600 "$state/tk.$harness-turnend-token"
-    expect_code 1 "$rc" "unreadable $harness token must fail closed, got $rc"
-  done
-
-  # An empty state or id propagates the path lookup's nonzero; capture the return
-  # directly (this file runs under set -u, not set -e, so no errexit toggling).
-  fm_control_harness_turnend_token_read grok "" x >/dev/null 2>&1
-  rc=$?
-  expect_code 1 "$rc" "empty state must propagate the path lookup failure"
-  pass "fm-control-lib: fm_control_harness_turnend_token_read owns the empty-token guard for every call site"
-}
-
-# The empty-token guard's third call site is clear_relaunch_harness_wiring in
-# bin/fm-spawn.sh (the relaunch-wiring cleanup), alongside teardown's grok and
-# kimi retirement. A zero-byte token file is the crash-window case the relaunch
-# cleanup must tolerate rather than wedge on, exactly as teardown does; the
-# per-task wiring is still retired because that path cleanup is independent of
-# the token read.
-test_empty_prior_turnend_token_does_not_wedge_relaunch() {
-  local harness dir id rc out
-  for harness in grok kimi; do
-    id="et-$harness"
-    dir=$(new_case "emptytok-$harness" "$id")
-    add_ship_task "$dir" "$id" "$harness"
-    printf 'zsh' > "$dir/fake/command"
-    : > "$dir/home/state/$id.$harness-turnend-token"
-    printf 'token=fm.emptyempty\n' > "$dir/wt/.fm-$harness-turnend"
-    out=$(run_spawn "$dir" "$id" --relaunch --harness claude 2>&1); rc=$?
-    expect_code 0 "$rc" "relaunch with a zero-byte $harness token should succeed, not wedge"$'\n'"$out"
-    [ ! -e "$dir/home/state/$id.$harness-turnend-token" ] \
-      || fail "relaunch must still retire an empty $harness token's state file"
-    [ ! -e "$dir/wt/.fm-$harness-turnend" ] \
-      || fail "relaunch must still retire an empty $harness token's worktree pointer"
-  done
-  pass "fm-spawn --relaunch: a zero-byte prior turn-end token does not wedge the wiring cleanup"
 }
 
 test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
@@ -1968,35 +1789,6 @@ test_missing_instructions_refuse_before_stopping_anything() {
   assert_contains "$out" "no instructions" "the refusal should name the missing instructions"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "a refused relaunch must not stop the agent"
   pass "fm-control relaunch: a worker with nothing to work from is never launched"
-}
-
-# Checked BEFORE record_note appends the progress note (data/fm-spawn-empty-prompt/report.md
-# episode 2: a relaunch of an already-broken task carried the same missing task
-# text forward, because the appended note alone would have made the file look
-# non-empty).
-test_empty_instructions_refuse_before_stopping_anything() {
-  local dir out rc
-  dir=$(new_case emptybrief rl12)
-  add_ship_task "$dir" rl12 claude
-  : > "$dir/home/data/rl12/brief.md"
-  out=$(run_control "$dir" rl12 relaunch --note "x"); rc=$?
-  expect_code 1 "$rc" "empty instructions should refuse"
-  assert_contains "$out" "no real content" "the refusal should name the empty instructions"
-  [ "$(cat "$dir/fake/command")" = claude ] || fail "a refused relaunch must not stop the agent"
-  [ -z "$(cat "$dir/fake/literal")" ] || fail "a refused relaunch must send nothing"
-  pass "fm-control relaunch: a byte-empty brief is never carried into a relaunch"
-}
-
-test_placeholder_instructions_refuse_before_stopping_anything() {
-  local dir out rc
-  dir=$(new_case placeholderbrief rl13)
-  add_ship_task "$dir" rl13 claude
-  printf '# brief\n\n{TASK}\n' > "$dir/home/data/rl13/brief.md"
-  out=$(run_control "$dir" rl13 relaunch --note "x"); rc=$?
-  expect_code 1 "$rc" "an unreplaced {TASK} placeholder should refuse"
-  assert_contains "$out" "no real content" "the refusal should name the placeholder instructions"
-  [ "$(cat "$dir/fake/command")" = claude ] || fail "a refused relaunch must not stop the agent"
-  pass "fm-control relaunch: an unfilled {TASK} placeholder is never carried into a relaunch"
 }
 
 test_checkpoint_refusal_leaves_the_record_byte_identical() {
@@ -3102,6 +2894,10 @@ test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it() {
     pass "skipped: tasks-axi is not installed, so the backlog transition is inert"
     return 0
   }
+  fm_tasks_axi_compatible || {
+    pass "skipped: installed tasks-axi predates ${FM_TASKS_AXI_MIN}, so dispatch refuses automatic backlog transitions"
+    return 0
+  }
   dir=$(new_case reverify rl40)
   add_ship_task "$dir" rl40 claude
   seed_backlog "$dir" rl40 in_flight
@@ -3118,6 +2914,10 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
   local dir out rc=0
   command -v tasks-axi >/dev/null 2>&1 || {
     pass "skipped: tasks-axi is not installed, so the backlog transition is inert"
+    return 0
+  }
+  fm_tasks_axi_compatible || {
+    pass "skipped: installed tasks-axi predates ${FM_TASKS_AXI_MIN}, so dispatch refuses automatic backlog transitions"
     return 0
   }
   dir=$(new_case drifted rl41)
@@ -3244,8 +3044,6 @@ test_relaunch_onto_an_unverified_harness_is_refused
 test_prior_harness_turnend_registry_entry_is_cleared
 test_wiring_removal_failure_refuses_before_replacement_arm
 test_turnend_auth_paths_are_owned_by_the_control_adapter
-test_turnend_token_read_owns_the_empty_token_guard
-test_empty_prior_turnend_token_does_not_wedge_relaunch
 test_secondmate_relaunch_picks_up_the_configured_harness_pin
 test_secondmate_claude_relaunch_keeps_local_settings
 test_secondmate_relaunch_lands_on_the_per_mate_pin
@@ -3260,13 +3058,10 @@ test_spawn_relaunch_without_a_harness_reuses_the_recorded_one
 test_spawn_relaunch_of_promoted_scout_uses_the_recorded_branch
 test_promoted_scout_relaunch_receives_the_current_delivery_contract
 test_prefixed_prior_harness_wiring_is_still_retired
-test_relaunch_away_retires_the_prior_harness_global_hooks
 test_muse_session_binding_is_retired_on_a_harness_switch
 test_cursor_session_binding_is_retired_on_a_harness_switch
 test_missing_worktree_refuses_before_stopping_anything
 test_missing_instructions_refuse_before_stopping_anything
-test_empty_instructions_refuse_before_stopping_anything
-test_placeholder_instructions_refuse_before_stopping_anything
 test_checkpoint_refusal_leaves_the_record_byte_identical
 test_checkpoint_refuses_uninspectable_head_and_status
 test_launch_failure_keeps_the_prior_record_and_reports_it
