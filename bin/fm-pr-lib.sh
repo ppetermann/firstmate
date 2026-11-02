@@ -390,7 +390,7 @@ fm_pr_body_lint() {  # <title> <body>; prints PR_BODY_LINT: lines, returns 0 alw
 }
 
 # Single owner of the statusCheckRollup collapse shared by PR surfaces
-# (bin/fm-pr-state.sh verdicts, fm-bearings-snapshot enrichment): a jq
+# (bin/fm-pr-verdict.sh verdicts, fm-bearings-snapshot enrichment): a jq
 # function definition string the caller prepends to its program, mapping a
 # rollup array to none|failing|pending|passing. Trailing semicolon included
 # so it composes as a prefix.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Credentialed regression for bin/fm-pr-blockers.sh against gh's own jq engine.
+# Credentialed regression for bin/fm-pr-state.sh against gh's own jq engine.
 #
 # gh evaluates --jq with gojq, not the jq binary. The hermetic suite runs the
 # script's jq programs through the local jq, so only a real gh invocation proves
@@ -21,7 +21,7 @@ set -u
 # gh presence check; authentication is not a tool check and stays below.
 fm_live_gate opt-in FM_PR_STATE_LIVE_E2E gh
 
-SCRIPT="$ROOT/bin/fm-pr-blockers.sh"
+SCRIPT="$ROOT/bin/fm-pr-state.sh"
 PR=https://github.com/cli/cli/pull/1
 
 gh auth status >/dev/null 2>&1 || fail "gh is not authenticated"
@@ -30,10 +30,10 @@ test_pull_request_read_jq_programs_run_under_gh_engine() {
   local out status=0
   out=$("$SCRIPT" "$PR" 2>&1) || status=$?
   [ "$status" -eq 0 ] \
-    || fail "fm-pr-blockers.sh refused a readable public pull request (exit $status): $out"
+    || fail "fm-pr-state.sh refused a readable public pull request (exit $status): $out"
   assert_contains "$out" 'STATE: merged at 2019-10-04T16:01:04Z' \
     "the merged verdict must come from the live pull-request read"
-  pass "fm-pr-blockers.sh's pull-request read programs are accepted by gh's jq engine"
+  pass "fm-pr-state.sh's pull-request read programs are accepted by gh's jq engine"
 }
 
 test_pull_request_read_jq_programs_run_under_gh_engine

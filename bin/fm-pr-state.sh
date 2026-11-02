@@ -1,139 +1,175 @@
 #!/usr/bin/env bash
-# fm-pr-state.sh - one-line live PR verdict for a task id or PR URL.
+# Report the blockers this command can see on one GitHub pull request.
 #
-# Replaces the every-PR read-and-judge: one command re-checks a PR's live
-# state before it is reported or re-reported (the re-check-before-reporting
-# rule), collapsing forge state, checks, review, draft, and head into a
-# single line plus a three-valued ready= verdict:
-#   ready=yes     state OPEN, not draft, checks passing, review APPROVED
-#   ready=checks  ci green with no review verdict - the reader judges whether
-#                 this repo has a binding reviewer (per-repo review
-#                 requirements differ; the script reports, the model judges)
-#   ready=no      anything else; reason names the first failing condition in
-#                 order merged/closed/draft/checks/review
+# This is a one-shot, read-only command. It reads the current pull request,
+# reported checks, submitted reviews, and review decision from GitHub at
+# invocation time. It never posts, requests, approves, or merges.
+# It reports on checks that have reported. A required context that has never
+# reported on this head is absent from what this command reads and cannot be
+# enumerated here. Empty output therefore means that no reported required check
+# is failing or pending; it does not mean the pull request is ready to merge.
+# When nothing has reported, or nothing required has, that is printed rather
+# than read as ready. When nothing required has reported, every reported check
+# that is failing or pending is printed as well, labelled REPORTED rather than
+# REQUIRED: the base branch of a stacked pull request can be an unprotected
+# branch, so the required view alone would hide a failure there.
+# Where a required check has reported, advisory checks do not block and are
+# omitted.
+# A pull request that only awaits an approval (reviewDecision REVIEW_REQUIRED)
+# is not reported as blocked. GitHub's reviewDecision owns whether reviews
+# block; review history is printed only to explain CHANGES_REQUESTED, naming
+# each reviewer whose latest verdict still requests changes and marking it
+# STALE when it was left at a superseded head.
+# A closed or merged pull request reports that terminal state and nothing else.
+# Unresolved review-thread state is out of this command's scope.
 #
-# Resolution: a task id with state/<id>.meta reads the recorded canonical
-# pr= identity; a raw PR/MR URL is used as given. GitHub reads
-# state,isDraft,headRefOid,reviewDecision,statusCheckRollup in one gh call
-# collapsed through fm_pr_checks_collapse_jq (fm-pr-lib.sh, the single owner
-# shared with fm-bearings-snapshot.sh). GitLab gets a minimal state-only
-# read; bin/fm-pr-merge.sh owns the full pre-merge battery there.
-#
-# Failures are loud - pr=<url> state=UNKNOWN ready=no reason=<short error>
-# with exit 1 - the deliberate opposite of fm-pr-poll.sh's silence; that
-# poll's byte-static identity is load-bearing and is not touched here.
-#
-# Dependencies: gh (GitHub reads), jq. Usage: fm-pr-state.sh <task-id|pr-url> [--json]
+# Usage: fm-pr-state.sh <pr-url>
+#   Prints one line per blocker it can see and nothing when it sees none.
+#   Blockers do not change the successful exit status; lookup or usage refusal
+#   exits non-zero.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
-STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 
 usage() {
-  sed -n '2,26{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,/^set -eu$/s/^# \{0,1\}//p' "$0"
 }
 
-unknown_verdict() {  # <url> <reason...>
-  printf 'pr=%s state=UNKNOWN ready=no reason=%s\n' "$1" "$2"
-  exit 1
+die() {
+  printf 'fm-pr-state: %s\n' "$*" >&2
+  exit 2
 }
 
-JSON_MODE=0
-ARG=
-for a in "$@"; do
-  case $a in
-    --json) JSON_MODE=1 ;;
-    -h|--help) usage; exit 0 ;;
-    -*) echo "fm-pr-state.sh: unknown flag: $a" >&2; exit 2 ;;
-    *) [ -z "$ARG" ] || { echo "fm-pr-state.sh: exactly one task id or PR url expected" >&2; exit 2; }
-       ARG=$a ;;
-  esac
-done
-[ -n "$ARG" ] || { usage >&2; exit 2; }
-
-URL=
-PROVIDER=
-if fm_pr_task_id_valid "$ARG" && [ -f "$STATE/$ARG.meta" ] && [ ! -L "$STATE/$ARG.meta" ]; then
-  fm_pr_metadata_identity_parse "$STATE/$ARG.meta" || true
-  if [ -z "$FM_PR_META_URL" ]; then
-    printf 'pr=- state=UNKNOWN ready=no reason=no PR recorded for task %s\n' "$ARG"
-    exit 1
-  fi
-  URL=$FM_PR_META_URL
-  PROVIDER=$FM_PR_META_PROVIDER
-else
-  fm_pr_url_parse "$ARG" || { echo "fm-pr-state.sh: not a valid task id or PR url: $ARG" >&2; exit 2; }
-  URL=$FM_PR_URL
-  PROVIDER=$FM_PR_PROVIDER
-fi
-
-if [ "$PROVIDER" = github ]; then
-  command -v gh >/dev/null 2>&1 || unknown_verdict "$URL" "gh not found"
-  RAW=$(gh pr view "$URL" --json state,isDraft,headRefOid,reviewDecision,statusCheckRollup 2>/dev/null) \
-    || unknown_verdict "$URL" "gh pr view failed"
-  PARSED=$(printf '%s' "$RAW" | jq -r "$(fm_pr_checks_collapse_jq)"'
-    . as $p | [
-      ($p.state // "UNKNOWN"),
-      (if ($p.isDraft // false) then "yes" else "no" end),
-      ($p.headRefOid // "-"),
-      ($p.reviewDecision // "none"),
-      fm_checks_state($p.statusCheckRollup // [])
-    ] | @tsv') || unknown_verdict "$URL" "forge payload did not parse"
-  IFS="$(printf '\t')" read -r P_STATE P_DRAFT P_HEAD P_REVIEW P_CHECKS <<EOF
-$PARSED
-EOF
-  ready=no
-  case $P_STATE in
-    OPEN)
-      if [ "$P_DRAFT" = yes ]; then
-        reason=draft
-      elif [ "$P_CHECKS" != passing ]; then
-        reason="checks $P_CHECKS"
-      elif [ "$P_REVIEW" = APPROVED ]; then
-        ready=yes
-        reason="ci green and review approved"
-      elif [ "$P_REVIEW" = none ]; then
-        ready=checks
-        reason="ci green, no review verdict - check whether this repo has a binding reviewer"
-      else
-        reason="review $P_REVIEW"
-      fi
-      ;;
-    MERGED) reason="already merged" ;;
-    CLOSED) reason="closed without merging" ;;
-    *) reason="state $P_STATE" ;;
-  esac
-  if [ "$JSON_MODE" = 1 ]; then
-    jq -n --arg pr "$URL" --arg state "$P_STATE" --arg checks "$P_CHECKS" \
-      --arg review "$P_REVIEW" --arg draft "$P_DRAFT" --arg head "$P_HEAD" \
-      --arg ready "$ready" --arg reason "$reason" \
-      '{pr:$pr, state:$state, checks:$checks, review:$review, draft:$draft, head:$head, ready:$ready, reason:$reason}'
-  else
-    printf 'pr=%s state=%s checks=%s review=%s draft=%s head=%s ready=%s reason=%s\n' \
-      "$URL" "$P_STATE" "$P_CHECKS" "$P_REVIEW" "$P_DRAFT" "$P_HEAD" "$ready" "$reason"
-  fi
+if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then
+  usage
   exit 0
 fi
+[ "$#" -eq 1 ] || die "usage: fm-pr-state.sh <pr-url>"
+command -v gh >/dev/null 2>&1 || die "gh is required"
 
-# GitLab: minimal state-only read; fm-pr-merge.sh owns the full battery.
-G_REASON="gitlab minimal read - bin/fm-pr-merge.sh owns the full pre-merge battery"
-if ! command -v glab >/dev/null 2>&1; then
-  unknown_verdict "$URL" "glab not found"
+URL=$1
+if ! fm_pr_url_parse "$URL" || [ "$FM_PR_PROVIDER" != github ]; then
+  die "expected a GitHub pull-request URL"
 fi
-RAW=$(glab mr view "$URL" --output json 2>/dev/null) || unknown_verdict "$URL" "glab mr view failed"
-G_STATE=$(printf '%s' "$RAW" | jq -r '.state // empty') || unknown_verdict "$URL" "forge payload did not parse"
-case $G_STATE in
-  opened|merged|closed) : ;;
-  *) unknown_verdict "$URL" "forge payload did not parse" ;;
+
+PATH_PART=$FM_PR_PATH
+NUMBER=$FM_PR_NUMBER
+ENDPOINT="/repos/$PATH_PART/pulls/$NUMBER"
+# gh addresses github.com unless told otherwise, and the api reads below carry a
+# repository path rather than the URL, so a GitHub Enterprise host is exported
+# once here for every read this run makes.
+fm_pr_github_host_export "$FM_PR_HOST"
+
+CORE=$(gh pr view "$URL" \
+  --json state,mergedAt,isDraft,headRefOid,author,mergeable,reviewDecision --jq '
+  "state=\(.state | ascii_downcase)",
+  "merged_at=\(.mergedAt // "")",
+  "draft=\(.isDraft)",
+  "head=\(.headRefOid)",
+  "author=\(.author.login)",
+  "mergeability=\(if .mergeable == null or .mergeable == "UNKNOWN" then "unknown" else (.mergeable | ascii_downcase) end)",
+  "review_decision=\(.reviewDecision // "")"') || die "could not read $URL"
+
+STATE=
+MERGED_AT=
+DRAFT=
+MERGEABILITY=
+HEAD=
+AUTHOR=
+REVIEW_DECISION=
+while IFS= read -r row; do
+  case "$row" in
+    state=*) STATE=${row#state=} ;;
+    merged_at=*) MERGED_AT=${row#merged_at=} ;;
+    draft=*) DRAFT=${row#draft=} ;;
+    head=*) HEAD=${row#head=} ;;
+    author=*) AUTHOR=${row#author=} ;;
+    mergeability=*) MERGEABILITY=${row#mergeability=} ;;
+    review_decision=*) REVIEW_DECISION=${row#review_decision=} ;;
+  esac
+done <<EOF_CORE
+$CORE
+EOF_CORE
+[ -n "$STATE" ] && [ -n "$DRAFT" ] && [ -n "$HEAD" ] && [ -n "$AUTHOR" ] \
+  && [ -n "$MERGEABILITY" ] \
+  || die "GitHub returned incomplete pull-request state for $URL"
+
+if [ -n "$MERGED_AT" ]; then
+  printf 'STATE: merged at %s\n' "$MERGED_AT"
+  exit 0
+elif [ "$STATE" != open ]; then
+  printf 'STATE: %s\n' "$STATE"
+  exit 0
+fi
+[ "$DRAFT" = false ] || printf 'DRAFT: pull request is not ready for review\n'
+case "$MERGEABILITY" in
+  mergeable) ;;
+  unknown) printf 'MERGEABILITY: unknown\n' ;;
+  conflicting) printf 'MERGEABILITY: conflicting\n' ;;
+  *) die "GitHub returned invalid mergeability for $URL" ;;
 esac
-if [ "$JSON_MODE" = 1 ]; then
-  jq -n --arg pr "$URL" --arg state "$G_STATE" --arg reason "$G_REASON" \
-    '{pr:$pr, state:$state, checks:"unknown", review:"unknown", draft:"unknown", head:"unknown", ready:"no", reason:$reason}'
-else
-  printf 'pr=%s state=%s checks=unknown review=unknown ready=no reason=%s\n' "$URL" "$G_STATE" "$G_REASON"
+
+GH_STDERR=$(mktemp "${TMPDIR:-/tmp}/fm-pr-state.XXXXXX") \
+  || die "could not create temporary file"
+trap 'rm -f "$GH_STDERR"' EXIT INT TERM
+
+unsettled_checks() {
+  local label=$1
+  shift
+  gh pr checks "$URL" "$@" --json name,state,bucket --jq '
+    .[]
+    | select(.bucket != "pass" and .bucket != "skipping")
+    | "'"$label"': \(.name) (\(.state))"' 2>"$GH_STDERR"
+}
+
+if ! CHECKS=$(unsettled_checks 'REQUIRED CHECK' --required); then
+  # These two sentences are gh's own human-readable error text, verified against
+  # gh 2.100.0 on 2026-09-12. gh reports "nothing reported" as an error rather
+  # than as structured data, so matching its text is the only way to tell that
+  # apart from a real lookup failure. An unrecognised message falls through to
+  # the refusal below, so a reword degrades loudly rather than silently.
+  if grep -q "^no checks reported on the '" "$GH_STDERR"; then
+    CHECKS="CHECKS: none reported yet"
+  elif grep -q "^no required checks reported on the '" "$GH_STDERR"; then
+    CHECKS="CHECKS: no required check has reported; readiness unconfirmed"
+    # The required view can hide failures on an unprotected stacked base.
+    REPORTED=$(unsettled_checks 'REPORTED CHECK') || {
+      cat "$GH_STDERR" >&2
+      die "could not read reported checks for $URL"
+    }
+    [ -z "$REPORTED" ] || CHECKS="$CHECKS"$'\n'"$REPORTED"
+  else
+    cat "$GH_STDERR" >&2
+    die "could not read required checks for $URL"
+  fi
+fi
+[ -z "$CHECKS" ] || printf '%s\n' "$CHECKS"
+
+if [ "$REVIEW_DECISION" = CHANGES_REQUESTED ]; then
+  printf 'REVIEW DECISION: CHANGES_REQUESTED\n'
+  REVIEWS=$(gh api "$ENDPOINT/reviews?per_page=100" --paginate --jq '
+    .[]
+    | select(.user.login != null and .commit_id != null and .submitted_at != null)
+    | [.user.login, .state, .commit_id, .submitted_at]
+    | @tsv') || die "could not read reviews for $URL"
+  printf '%s\n' "$REVIEWS" | awk -F '\t' -v author="$AUTHOR" -v head="$HEAD" '
+    NF == 4 && $1 != author && $2 != "COMMENTED" && (!seen[$1] || $4 >= latest[$1]) {
+      seen[$1] = 1
+      latest[$1] = $4
+      state[$1] = $2
+      commit[$1] = $3
+    }
+    END {
+      for (reviewer in state) {
+        if (state[reviewer] != "CHANGES_REQUESTED") continue
+        if (commit[reviewer] == head)
+          printf "REVIEW: %s CHANGES_REQUESTED\n", reviewer
+        else
+          printf "STALE BLOCKING REVIEW: %s CHANGES_REQUESTED at %s\n", \
+            reviewer, commit[reviewer]
+      }
+    }' | LC_ALL=C sort
 fi

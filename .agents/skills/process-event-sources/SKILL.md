@@ -79,12 +79,12 @@ When in doubt, arm only the condition half as an ordinary check and keep the act
 
 ```sh
 bin/fm-procevent-when.sh arm pr-ready-<task-id> --interval 120 --stable 2 \
-  --condition bash -c 'bin/fm-pr-state.sh <PR url> --json | jq -e ".ready==\"yes\" or .state!=\"OPEN\"" >/dev/null' \
+  --condition bash -c 'bin/fm-pr-verdict.sh <PR url> --json | jq -e ".ready==\"yes\" or .state!=\"OPEN\"" >/dev/null' \
   --action true
 ```
 
 Three things in that command are load-bearing, each learned rather than assumed:
-- The `bash -c ... | jq -e` wrapper exists because `bin/fm-pr-state.sh` exits 0 on every successful read whatever `ready=` says, while this adapter needs exit 0 for true and 1 for a clean false. `jq -e` supplies that. A failed read prints unparseable text, `jq` exits 2, and the adapter counts it as a condition error - three consecutive errors stop the watch and wake, so a broken condition is never a silent seven-day poll.
+- The `bash -c ... | jq -e` wrapper exists because `bin/fm-pr-verdict.sh` exits 0 on every successful read whatever `ready=` says, while this adapter needs exit 0 for true and 1 for a clean false. `jq -e` supplies that. A failed read prints unparseable text, `jq` exits 2, and the adapter counts it as a condition error - three consecutive errors stop the watch and wake, so a broken condition is never a silent seven-day poll.
 - The `or .state != "OPEN"` half is what retires the watch when the captain merges or closes the PR himself. Teardown does NOT sweep these sources; without that half, a self-merged PR leaves a watch that wakes `never-true` a week later. When he merges first, the readiness line simply lands in the same drain as the merge poll's own wake - that fold is designed, not a fault.
 - `ready=yes` requires OPEN, not draft, checks passing, and an APPROVED review. It does not check that the branch is current with main, which the captain requires - hence "look now".
 

@@ -388,7 +388,7 @@ family_for_basename() {
     fm-opencode-primary-live-e2e.test.sh|fm-pi-branch-live-e2e.test.sh|\
     fm-pi-branch-responsiveness-live-e2e.test.sh|\
     fm-pi-primary-live-e2e.test.sh|fm-pi-worker-stream-live-e2e.test.sh|fm-pi-codex-native.test.sh|fm-omp-primary-live-e2e.test.sh|\
-    fm-pr-blockers-live-e2e.test.sh|\
+    fm-pr-state-live-e2e.test.sh|\
     fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|\
     fm-supervision-host-live-e2e.test.sh|fm-supervision-host-attended-live-e2e.test.sh|\
     fm-host-mirror-live-e2e.test.sh|\
@@ -419,7 +419,7 @@ family_for_basename() {
       printf '%s\n' backend-dispatch
       ;;
     fm-check-unregister.test.sh|fm-pipeline-spend.test.sh|fm-effort-ledger.test.sh|fm-pr-check-security.test.sh|\
-    fm-pr-health.test.sh|fm-pr-merge.test.sh|fm-pr-reviewers.test.sh|fm-pr-blockers.test.sh|fm-pr-state.test.sh|\
+    fm-pr-health.test.sh|fm-pr-merge.test.sh|fm-pr-reviewers.test.sh|fm-pr-state.test.sh|fm-pr-verdict.test.sh|\
     fm-review-diff.test.sh|fm-teardown.test.sh|fm-x-mode.test.sh|\
     fm-ocrbot-token.test.sh|fm-ocrbot-poll.test.sh)
       printf '%s\n' pr-forge
@@ -890,13 +890,13 @@ tests/fm-pipeline-spend.test.sh 11735
 tests/fm-polytoken-harness.test.sh 21090
 tests/fm-polytoken-signals-live-e2e.test.sh 103
 tests/fm-pool-disk.test.sh 35059
-tests/fm-pr-blockers-live-e2e.test.sh 225
-tests/fm-pr-blockers.test.sh 1038
 tests/fm-pr-check-lint.test.sh 436
 tests/fm-pr-check-security.test.sh 300675
 tests/fm-pr-health.test.sh 59277
 tests/fm-pr-reviewers.test.sh 157
+tests/fm-pr-state-live-e2e.test.sh 47
 tests/fm-pr-state.test.sh 525
+tests/fm-pr-verdict.test.sh 525
 tests/fm-procevent-quota.test.sh 2459
 tests/fm-procevent-when.test.sh 25674
 tests/fm-procevent.test.sh 292297
