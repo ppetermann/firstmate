@@ -1301,7 +1301,8 @@ Teardown of a leased home fails closed if `treehouse return` cannot release the 
 
 ### Project modes and backlog handoff
 
-Secondmate routes cover `direct-PR` projects; `local-only` projects remain main-firstmate work.
+Secondmate routes cover `no-mistakes` and `direct-PR` projects; `local-only` projects remain main-firstmate work.
+For `no-mistakes` projects, seeding initializes only projects newly cloned into a secondmate home and refuses to mutate a preexisting clone that is not already initialized.
 
 After creating a secondmate, move existing main-backlog queued items that you have judged in-scope with `fm-backlog-handoff.sh <secondmate-id> <item-key>...`; it refuses In flight, Done, or non-secondmate homes, and its [script header](../bin/fm-backlog-handoff.sh) owns route-specific wake outcomes and retries.
 Set `FM_SECONDMATE_CHARTER` to seed from inline charter text when no filled charter brief exists; set `FM_SECONDMATE_SCOPE` when the routing scope should differ from the charter text.
@@ -2214,6 +2215,7 @@ Every home requires:
 
 - node and git.
 - gh, with GitHub authentication through `gh auth login`.
+- no-mistakes v1.46.0 or newer.
 - Compatible gh-axi.
 - chrome-devtools-axi.
 - Compatible tasks-axi, as specified in "Backlog backend" above.
@@ -2222,7 +2224,7 @@ Every home requires:
 [`bin/fm-bootstrap.sh`](../bin/fm-bootstrap.sh) owns the axi-family floor policy and the gh-axi and lavish-axi floors, while [`bin/fm-tasks-axi-lib.sh`](../bin/fm-tasks-axi-lib.sh) and [`bin/fm-quota-axi-lib.sh`](../bin/fm-quota-axi-lib.sh) hold their own tools' floor constants.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
 
-In that list, gh-axi and chrome-devtools-axi cover GitHub and browser operations, and tasks-axi plus quota-axi back backlog mutations and quota-aware array dispatch.
+In that list, no-mistakes runs the validation pipeline, gh-axi and chrome-devtools-axi cover GitHub and browser operations, and tasks-axi plus quota-axi back backlog mutations and quota-aware array dispatch.
 Lavish is a presentation-only dependency for visual decisions and reports; nonvisual work can proceed with plain text when it is unavailable.
 
 **Backend requirements**

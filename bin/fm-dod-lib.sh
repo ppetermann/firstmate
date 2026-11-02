@@ -86,8 +86,7 @@
 # the local gate (bin/fm-local-gate.sh) before the one push and opens the pull
 # request as a DRAFT, reported with `done: PR <url>`; firstmate owns the flip at
 # that PR's landing turn, so bin/fm-pr-check.sh arms merge monitoring on a
-# draft. The no-mistakes block keeps upstream's non-draft text, but
-# bin/fm-spawn.sh refuses to dispatch that mode in this fleet.
+# draft. The no-mistakes block keeps upstream's non-draft text.
 # On external a review tool uploads its own snapshot of the worker's commits,
 # so the worker never pushes to publish: forge=external ships direct-PR only,
 # its first rule forbids any push to the shared origin and any push of a
@@ -254,7 +253,7 @@ fm_base_branch_valid() {  # <base> <mode> <forge> <caller>
     return 1
   fi
   if [ "$mode" = local-only ]; then
-    echo "error: $caller: a base branch cannot ship mode=local-only, whose landing fast-forwards local main; ship direct-PR, which opens a pull request against the base" >&2
+    echo "error: $caller: a base branch cannot ship mode=local-only, whose landing fast-forwards local main; ship no-mistakes or direct-PR, which open a pull request against the base" >&2
     return 1
   fi
   if [ "$forge" != none ]; then

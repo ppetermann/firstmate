@@ -196,7 +196,8 @@ A current explicit captain instruction wins; otherwise the project's registry en
 Resolve the project's registered ship-branch prefix the same way, via `bin/fm-project-mode.sh --branch-prefix <project>`, and pass it explicitly to the brief, ship spawn, and scout promotion as `--branch-prefix` (default `fm/` needs no flag).
 When the work must start from and target a branch other than the project's default, such as a named feature or release branch, pass it to the ship or scout brief and spawn as `--base-branch <branch>`; any promotion reads it from task meta.
 For a ship task whose project is this firstmate repository, pass the project directory to the brief as `--project` and record any captain-approved one-task contribution consent as `--upstream-consent <host>/<owner>/<repo>` on the brief, spawn, and promotion; `bin/fm-spawn.sh` refuses a publishing contract this home's role does not authorize.
-An unregistered project or absent registry resolves to `direct-PR` with yolo off, and the registration gap goes to the captain.
+On a `no-mistakes-prod-only` project, classify the task's surface: internal-only tooling, automation, contributor or operator process, and release or submission work ships `direct-PR`, while product-facing, mixed, and uncertain work ships `no-mistakes`; never infer internal-only from file location or project name.
+An unregistered project or absent registry resolves to `no-mistakes` with yolo off, and the registration gap goes to the captain.
 Record the resulting mode, `yolo` merge posture, the one-line reason for any deviation, and the current `bin/fm-dispatch-facts.sh` line in the backlog item note.
 That stamped line is what makes the clock and quota check of section 4 a dated fact in the record rather than a claim; a note without it was dispatched without one.
 Record any planner estimate in that note too, as one `estimate=<N>m` token in agent wall-clock minutes, never human hours; `bin/fm-effort-ledger.sh` owns the token and the ledger teardown fills from it.
@@ -245,6 +246,7 @@ A separate review or audit is allowed only when the captain explicitly requests 
 If a change needs more rigor than the flow gives it, escalate that to the captain instead of inventing a manual gate.
 The path's worker, automated gates, and captain approval remain authoritative:
 
+- **no-mistakes** runs the full pipeline through a PR, then waits for the configured merge authority.
 - **direct-PR** has the worker pass the local validation gate (`bin/fm-local-gate.sh`, whose header owns the gate contract) before pushing once and opening a DRAFT PR, then waits for firstmate's flip and the configured merge authority.
 - **local-only** has the worker stop with a clean ready branch, then waits for the configured merge authority before firstmate uses the guarded fast-forward merge path.
 
@@ -321,7 +323,7 @@ Load `away-quiet-supervision` whenever either mode is invoked, either record exi
 
 ### Stuck-worker trigger
 
-Load `stuck-crewmate-recovery` after a stale wake, looping or confused pane, answered-by-brief question, unresponsive worker, or failed steer.
+For the full `stuck-crewmate-recovery` trigger, including a live worker claiming its no-mistakes pipeline is dead, unreachable, or timed out, follow that skill's description.
 
 ## 9. Escalation and captain etiquette
 
@@ -401,7 +403,7 @@ Preserve durable structured identifiers, dependencies, and completion artifact l
 `bin/fm-brief.sh` and its help own scaffold syntax, generated variants, status protocol, delivery-mode definitions of done, and exact safety mechanics.
 Use its scaffold as the contract, then fill `## Captain's intent` (`{TASK}`) with the captain's own ask and any boundary the captain stated, plus the context needed to read it, including the substance of any report, decision, or PR the ask refers to; never widen the ask there into a general goal or an enumerated coverage list, because the reviewer treats that subsection as acceptance criteria.
 Fill `## Firstmate spec` (`{FIRSTMATE_SPEC}`) with only the build instructions that ask requires, naming what stays out of scope when the ask is narrow; a generalization, consistency sweep, or extra hardening the captain did not ask for is follow-up work to note, not scope to add.
-`bin/fm-dod-lib.sh` owns intent authoring without added speaker labels or direct address, and its provenance markers; the heading already records provenance, so `bin/fm-spawn.sh` refuses a `## Captain's intent` line opening with a Captain label or address.
+`bin/fm-dod-lib.sh` owns intent authoring without added speaker labels or direct address, its provenance markers, what a no-mistakes worker may pass as `--intent`, and the string's self-sufficiency rule.
 Keep additions task-specific rather than repeating lifecycle instructions, and alter generated sections only when the task genuinely differs from the standard shape.
 
 Every ship brief must retain the worktree-isolation assertion and stop if launched in the primary checkout.

@@ -1822,7 +1822,7 @@ test_spawn_relaunch_of_promoted_scout_uses_the_recorded_branch() {
 
 test_promoted_scout_relaunch_receives_the_current_delivery_contract() {
   local dir home id brief launch out mode rule
-  for mode in direct-PR local-only; do
+  for mode in no-mistakes direct-PR local-only; do
     id="rl-promoted-${mode}"
     dir=$(new_case "promoted-scout-$mode" "$id")
     home="$dir/home"
@@ -1869,7 +1869,7 @@ test_promoted_scout_relaunch_receives_the_current_delivery_contract() {
       local-only)
         rule="1. Never push to any remote and never open a PR. Work only on your \`fm/$id\` branch; firstmate handles the merge into local \`main\`." ;;
       *)
-        fail "$mode: the fork ships only direct-PR and local-only" ;;
+        rule='1. Never push to the default branch. Never merge a PR.' ;;
     esac
     assert_grep "$rule" "$launch" \
       "$mode: the replacement launch did not receive the current ship push and merge safety rule"

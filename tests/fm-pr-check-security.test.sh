@@ -278,14 +278,14 @@ SH
 }
 
 write_task_meta() {
-  local dir=$1 id=${2:-task-a} mode=${3:-no-mistakes}
+  local dir=$1 id=${2:-task-a}
   fm_write_meta "$dir/home/state/$id.meta" \
     "window=firstmate:fm-$id" \
     "endpoint_task_id=$id" \
     "worktree=$dir/wt" \
     "project=$dir/project" \
     "kind=ship" \
-    "mode=$mode"
+    "mode=no-mistakes"
 }
 
 # Extra "field=value" arguments are written before pr=, because

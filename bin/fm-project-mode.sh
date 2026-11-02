@@ -26,7 +26,7 @@
 # bin/fm-spawn.sh's PR-text agreement and by bin/fm-promote.sh.
 #
 # Registry line format (data/projects.md):
-#   - <name> - <desc> (added <date>)                                 -> direct-PR off fm/  (legacy default)
+#   - <name> - <desc> (added <date>)                                 -> no-mistakes off fm/  (legacy default)
 #   - <name> [<mode>] - <desc> (added <date>)                        -> <mode> off fm/
 #   - <name> [<mode> +yolo] - <desc> (added <date>)                  -> <mode> on fm/
 #   - <name> [<mode> +yolo branch=<prefix>] - <desc> (added <date>)  -> <mode> <yolo> <prefix>
@@ -42,10 +42,8 @@
 #   legacy "fm/<task-id>".
 #
 # Registered modes:
-#   no-mistakes            full pipeline -> PR -> configured merge authority
-#                          (retired in this fleet: bin/fm-spawn.sh refuses it)
-#   direct-PR              local gate -> push once -> DRAFT PR via gh-axi ->
-#                          flip -> configured merge authority (default)
+#   no-mistakes            full pipeline -> PR -> configured merge authority (default)
+#   direct-PR              push + PR via gh-axi, no pipeline
 #   local-only             local branch, no remote/PR, guarded local merge
 #   no-mistakes-prod-only  a conditional policy, not a task mode: firstmate
 #                          classifies each task's surface at intake (the
@@ -112,11 +110,9 @@
 # tell a conditional policy apart from a flat mode sees "no-mistakes-prod-only"
 # itself. Not combined with --branch-prefix, which has no conditional-policy leg.
 #
-# An unknown/missing project or unknown mode falls back to "direct-PR off" (or
+# An unknown/missing project or unknown mode falls back to "no-mistakes off" (or
 # "fm/" under --branch-prefix) and warns to stderr, so a typo never silently
-# changes the posture. This fleet's patch: upstream's default is no-mistakes,
-# which this fleet retired, so the unregistered default is direct-PR (AGENTS.md
-# section 7). Other annotation tokens are ignored, as they always were, keyed
+# drops the gate. Other annotation tokens are ignored, as they always were, keyed
 # ones included: a `<key>=<value>` token whose key is none of `forge`, `branch`, and
 # `pr` resolves as it did before the forge existed, and in the mode slot it
 # is read as an unknown mode. A key one or two edits from `forge` (such as
@@ -153,11 +149,11 @@ esac
 NAME=${1:?usage: fm-project-mode.sh [--raw|--branch-prefix|--forge|--pr] <project-name>}
 
 if [ ! -f "$REG" ]; then
-  echo "warn: no registry at $REG; defaulting $NAME to direct-PR off" >&2
+  echo "warn: no registry at $REG; defaulting $NAME to no-mistakes off" >&2
   if [ "$BRANCH_PREFIX_QUERY" -eq 1 ]; then
     echo "fm/"
   elif [ "$WANT_FORGE" -eq 1 ]; then echo none
-  elif [ "$WANT_PR" -eq 1 ]; then echo auto; else echo "direct-PR off"; fi
+  elif [ "$WANT_PR" -eq 1 ]; then echo auto; else echo "no-mistakes off"; fi
   exit 0
 fi
 
@@ -192,7 +188,7 @@ parsed=$(awk -v n="$NAME" '
     if (substr($0, 1, plen) != prefix) next
     after = substr($0, plen + 1);
     if (after != "" && substr(after, 1, 2) != " [" && substr(after, 1, 3) != " - ") next
-    mode="direct-PR"; yolo="off"; branch="fm/"; forge="none"; pr="auto";
+    mode="no-mistakes"; yolo="off"; branch="fm/"; forge="none"; pr="auto";
     if (substr(after, 1, 2) == " [") {
       s="";
       nk = split(after, rest, " ");
@@ -226,11 +222,11 @@ parsed=$(awk -v n="$NAME" '
 ' "$REG")
 
 if [ -z "$parsed" ]; then
-  echo "warn: project \"$NAME\" not in registry; defaulting to direct-PR off" >&2
+  echo "warn: project \"$NAME\" not in registry; defaulting to no-mistakes off" >&2
   if [ "$BRANCH_PREFIX_QUERY" -eq 1 ]; then
     echo "fm/"
   elif [ "$WANT_FORGE" -eq 1 ]; then echo none
-  elif [ "$WANT_PR" -eq 1 ]; then echo auto; else echo "direct-PR off"; fi
+  elif [ "$WANT_PR" -eq 1 ]; then echo auto; else echo "no-mistakes off"; fi
   exit 0
 fi
 
@@ -252,7 +248,7 @@ forge=${rest_forge:-none}
 pr=${rest_pr:-auto}
 case "$mode" in
   no-mistakes|direct-PR|local-only|no-mistakes-prod-only) ;;
-  *) echo "warn: unknown mode \"$mode\" for $NAME; defaulting to direct-PR off" >&2; mode=direct-PR; yolo=off; branch=fm/ ;;
+  *) echo "warn: unknown mode \"$mode\" for $NAME; defaulting to no-mistakes off" >&2; mode=no-mistakes; yolo=off; branch=fm/ ;;
 esac
 case "$yolo" in on|off) ;; *) yolo=off ;; esac
 if [ "$BRANCH_PREFIX_QUERY" -eq 1 ]; then

@@ -178,7 +178,7 @@ for project in "${PROJECT_NAMES[@]+"${PROJECT_NAMES[@]}"}"; do
 $MODE_LINE
 EOF
   case "$MODE" in
-    direct-PR) ;;
+    no-mistakes|direct-PR) ;;
     local-only) die "project $project is local-only and cannot be provisioned remotely" ;;
     *) die "project $project has unsupported delivery mode: $MODE" ;;
   esac

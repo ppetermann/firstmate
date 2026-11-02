@@ -367,6 +367,15 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/treehouse"
+  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = --version ]; then
+  printf '%s\n' 'no-mistakes version v1.46.0 (fake)'
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$fakebin/no-mistakes"
   fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in

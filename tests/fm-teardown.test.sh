@@ -24,23 +24,23 @@
 #   (a) local-only + HEAD on a fork remote-tracking branch     -> ALLOW  (fork fix)
 #   (b) local-only + truly unpushed work (no remote, not main) -> REFUSE (safety)
 #   (c) local-only + merged into local main, no remote         -> ALLOW  (no regression)
-#   (d) direct-PR + HEAD on origin remote-tracking branch    -> ALLOW  (no regression)
-#   (e) direct-PR + unpushed, no PR, content not in default  -> REFUSE (safety)
+#   (d) no-mistakes + HEAD on origin remote-tracking branch    -> ALLOW  (no regression)
+#   (e) no-mistakes + unpushed, no PR, content not in default  -> REFUSE (safety)
 #   (f) local-only + truly unpushed + --force                  -> ALLOW  (escape hatch)
-#   (g) direct-PR + squash-merged PR, exact PR head          -> ALLOW  (squash fix)
-#   (h) direct-PR + no PR but content already in default     -> ALLOW  (content fallback)
-#   (i) direct-PR + dirty worktree, even when work landed     -> REFUSE (dirty wins)
-#   (j) direct-PR + gh lookup errors + content not in default -> REFUSE (fail-safe)
-#   (k) direct-PR + merged PR but HEAD moved afterward        -> REFUSE (stale PR)
-#   (l) direct-PR + stale origin/main but fetched content     -> ALLOW  (fresh fetch)
-#   (m) direct-PR + local HEAD ancestor of merged PR head     -> ALLOW  (lagging local)
-#   (n) direct-PR + replayed unpushed patch in merged PR head -> ALLOW  (replayed local)
+#   (g) no-mistakes + squash-merged PR, exact PR head          -> ALLOW  (squash fix)
+#   (h) no-mistakes + no PR but content already in default     -> ALLOW  (content fallback)
+#   (i) no-mistakes + dirty worktree, even when work landed     -> REFUSE (dirty wins)
+#   (j) no-mistakes + gh lookup errors + content not in default -> REFUSE (fail-safe)
+#   (k) no-mistakes + merged PR but HEAD moved afterward        -> REFUSE (stale PR)
+#   (l) no-mistakes + stale origin/main but fetched content     -> ALLOW  (fresh fetch)
+#   (m) no-mistakes + local HEAD ancestor of merged PR head     -> ALLOW  (lagging local)
+#   (n) no-mistakes + replayed unpushed patch in merged PR head -> ALLOW  (replayed local)
 #   (o) fm-pr-check rerun after HEAD moved                      -> no stale pr_head
 #   (p) fm-pr-check when local HEAD lags                        -> record remote PR head
-#   (q) direct-PR + NO pr= recorded, PR discovered by branch  -> ALLOW  (yolo/no-CI merge)
-#   (q2) direct-PR + squash-merged, local followed pipeline rebase -> ALLOW
-#   (q3) direct-PR + squash-merged, same file, different content   -> REFUSE
-#   (q4) direct-PR + squash-merged rebased local plus extra commit -> REFUSE
+#   (q) no-mistakes + NO pr= recorded, PR discovered by branch  -> ALLOW  (yolo/no-CI merge)
+#   (q2) no-mistakes + squash-merged, local followed pipeline rebase -> ALLOW
+#   (q3) no-mistakes + squash-merged, same file, different content   -> REFUSE
+#   (q4) no-mistakes + squash-merged rebased local plus extra commit -> REFUSE
 #   (q5) gh down + squash-merged stale local, content not in default -> REFUSE
 #
 # Also covers backlog teardown-lock-race: a git index.lock left in the worktree by a
@@ -733,7 +733,7 @@ test_local_only_fork_remote_allows() {
 test_teardown_closes_the_backlog_item_itself() {
   local case_dir out
   case_dir=$(make_case tasks-axi-close)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   seed_backlog_in_flight "$case_dir"
 
@@ -850,7 +850,7 @@ SH
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator() {
   local case_dir out backlog_path
   case_dir=$(make_case tasks-axi-manual-optout)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   printf '%s\n' manual > "$case_dir/config/backlog-backend"
   seed_backlog_in_flight "$case_dir"
@@ -1184,7 +1184,7 @@ test_kimi_hook_remove_refuses_nonempty_registry() {
 test_no_mistakes_origin_remote_allows() {
   local case_dir rc
   case_dir=$(make_case nm-origin)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable work"
   # Push the task branch to origin and fetch so the worktree sees it.
   git -C "$case_dir/wt" push -q origin fm/task-x1
@@ -1199,13 +1199,13 @@ test_no_mistakes_origin_remote_allows() {
   ! grep -q REFUSED "$case_dir/stderr" || fail "nm-origin: teardown printed a REFUSED line"
   grep -F 'blockers are gone and date is due' "$case_dir/stdout" >/dev/null \
     || fail "nm-origin: teardown manual prompt did not preserve date-gate check"
-  pass "direct-PR worktree with HEAD on origin is torn down (no regression)"
+  pass "no-mistakes worktree with HEAD on origin is torn down (no regression)"
 }
 
 test_no_mistakes_truly_unpushed_refuses() {
   local case_dir rc
   case_dir=$(make_case nm-unpushed)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   # Real content that is not pushed, has no PR (default gh-axi mock), and never
   # landed on origin/main: genuinely unlanded work that must still refuse.
   wt_commit_file "$case_dir" feature.txt hello "unpushed work"
@@ -1217,13 +1217,13 @@ test_no_mistakes_truly_unpushed_refuses() {
 
   expect_code 1 "$rc" "nm-unpushed: teardown should refuse"
   grep -q REFUSED "$case_dir/stderr" || fail "nm-unpushed: no REFUSED line in stderr"
-  pass "direct-PR worktree with genuinely unlanded work is refused (safety preserved)"
+  pass "no-mistakes worktree with genuinely unlanded work is refused (safety preserved)"
 }
 
 test_squash_merged_branch_deleted_allows() {
   local case_dir rc pr_head
   case_dir=$(make_case squash-merged)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   # Real branch content that is NOT pushed and NOT on origin/main: a squash merge
   # rewrote it into a different commit on main and auto-deleted the head branch, so
   # HEAD is unreachable from every remote-tracking branch. The matching merged PR is
@@ -1246,11 +1246,11 @@ test_squash_merged_branch_deleted_allows() {
 test_squash_merged_pr_allows_when_head_ancestor_of_pr_head() {
   local case_dir rc local_head pr_head
   case_dir=$(make_case squash-ancestor)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   append_pr_meta_url "$case_dir"
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
-  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "review follow-up")
+  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "no-mistakes follow-up")
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
 
   set +e
@@ -1266,18 +1266,18 @@ test_squash_merged_pr_allows_when_head_ancestor_of_pr_head() {
 test_no_pr_recorded_discovers_merged_pr_by_branch_allows() {
   local case_dir rc local_head pr_head
   case_dir=$(make_case no-pr-branch-discovery)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   # Reproduces the real false-refusal report exactly, with NO pr=/pr_head=
   # recorded in meta at all (fm-pr-check.sh was never run, e.g. a yolo merge on
   # a repo with no PR CI so the "checks green" trigger that fires it never
-  # happened): a branch with a commit, a review auto-fix commit pushed on
+  # happened): a branch with a commit, a no-mistakes auto-fix commit pushed on
   # top that never made it back into the local worktree, a squash merge onto
   # main under a brand-new SHA, and the head branch deleted (simulated here by
   # never pushing fm/task-x1 at all, so no refs/remotes/origin/fm/task-x1
   # exists to make HEAD "reachable").
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
-  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "review auto-fix")
+  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "no-mistakes auto-fix")
   land_on_origin_main "$case_dir" feature.txt hello
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
   seed_backlog_in_flight "$case_dir"
@@ -1301,7 +1301,7 @@ test_no_pr_recorded_discovers_merged_pr_by_branch_allows() {
 test_squash_merged_pr_allows_replayed_unpushed_patch() {
   local case_dir rc parent_head pr_head
   case_dir=$(make_case squash-replayed-patch)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit_file "$case_dir" local-parent.txt parent "local parent"
   parent_head=$(git -C "$case_dir/wt" rev-parse HEAD)
   git -C "$case_dir/wt" push -q origin "$parent_head:refs/heads/fm/task-x1"
@@ -1380,7 +1380,7 @@ SH
 test_merged_pr_with_later_local_commit_refuses() {
   local case_dir rc pr_head
   case_dir=$(make_case stale-pr-head)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   append_pr_meta_for_current_head "$case_dir"
   pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
@@ -1546,7 +1546,7 @@ test_squash_merged_stale_local_refuses_when_forge_unreachable() {
 test_pr_check_does_not_refresh_stale_pr_head() {
   local case_dir rc pr_head new_head count
   case_dir=$(make_case pr-check-stale)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
@@ -1582,10 +1582,10 @@ test_pr_check_does_not_refresh_stale_pr_head() {
 test_pr_check_records_remote_head_when_local_lags() {
   local case_dir local_head pr_head
   case_dir=$(make_case pr-check-local-lags)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
-  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "review follow-up")
+  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "no-mistakes follow-up")
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
 
   FM_ROOT_OVERRIDE="$ROOT" \
@@ -1687,7 +1687,7 @@ SH
 test_content_in_default_fallback_allows() {
   local case_dir rc
   case_dir=$(make_case content-landed)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   # No pr= recorded and the default gh-axi mock reports no PR, so the merged-PR path
   # cannot fire and the content check must carry it. The branch adds feature.txt, and
   # the same net change has independently landed on origin/main via a squash commit.
@@ -1764,7 +1764,7 @@ SH
 test_content_fallback_refreshes_stale_origin_ref() {
   local case_dir rc
   case_dir=$(make_case content-stale-ref)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   git -C "$case_dir/project" config --unset-all remote.origin.fetch
   git -C "$case_dir/project" config --add remote.origin.fetch '+refs/heads/not-main:refs/remotes/origin/not-main'
@@ -1783,7 +1783,7 @@ test_content_fallback_refreshes_stale_origin_ref() {
 test_dirty_worktree_refuses() {
   local case_dir rc pr_head
   case_dir=$(make_case dirty-wt)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   # The committed work has fully landed (merged PR + content in default), but an
   # uncommitted edit remains. Dirtiness must refuse regardless: the reset would
@@ -2248,7 +2248,7 @@ test_scout_ignored_files_survive_scratch_clean() {
 test_gh_error_and_content_absent_refuses() {
   local case_dir rc
   case_dir=$(make_case gh-error)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   # Real content not pushed, the PR lookup errors, and origin/main never gained the
   # content. The fail-safe must refuse rather than allow on a transient gh failure.
@@ -2700,7 +2700,7 @@ test_legacy_record_never_accepts_a_corrupt_spawn_gen() {
 test_stale_index_lock_cleared_and_teardown_succeeds() {
   local case_dir rc lock
   case_dir=$(make_case stale-index-lock)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -2729,7 +2729,7 @@ test_stale_index_lock_cleared_and_teardown_succeeds() {
 test_live_index_lock_is_never_removed_and_teardown_refuses() {
   local case_dir rc lock
   case_dir=$(make_case live-index-lock)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -2761,7 +2761,7 @@ test_live_index_lock_is_never_removed_and_teardown_refuses() {
 test_lsof_error_never_clears_index_lock() {
   local case_dir rc lock
   case_dir=$(make_case lsof-error-index-lock)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -2792,7 +2792,7 @@ test_lsof_error_never_clears_index_lock() {
 test_stale_index_lock_cleanup_rechecks_dirty_worktree() {
   local case_dir rc lock
   case_dir=$(make_case stale-lock-dirty-recheck)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit_file "$case_dir" feature.txt landed "landed work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -2829,7 +2829,7 @@ test_non_linked_index_lock_path_is_checked_from_worktree() {
   git -C "$case_dir/project" worktree remove --force "$case_dir/wt"
   git clone -q "$case_dir/origin.git" "$case_dir/wt"
   git -C "$case_dir/wt" checkout -q -b fm/task-x1
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable normal clone work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/wt" fetch -q origin
@@ -2865,7 +2865,7 @@ test_index_lock_mtime_read_failure_refuses() {
     return
   fi
   case_dir=$(make_case mtime-error-index-lock)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -2899,7 +2899,7 @@ test_index_lock_mtime_read_failure_refuses() {
 test_transient_index_lock_clears_after_first_attempt_and_retry_succeeds() {
   local case_dir rc lock attempt_file
   case_dir=$(make_case transient-index-lock-retry)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -2939,7 +2939,7 @@ test_transient_index_lock_clears_after_first_attempt_and_retry_succeeds() {
 test_persistent_index_lock_exhausts_retries_and_refuses_loudly() {
   local case_dir rc lock
   case_dir=$(make_case persistent-index-lock)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -2977,7 +2977,7 @@ test_persistent_index_lock_exhausts_retries_and_refuses_loudly() {
 test_empty_retry_wait_uses_default_without_aborting() {
   local case_dir rc lock attempt_file
   case_dir=$(make_case empty-retry-wait)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -3013,7 +3013,7 @@ test_empty_retry_wait_uses_default_without_aborting() {
 test_fractional_legacy_retry_wait_refuses_without_arithmetic_error() {
   local case_dir rc lock
   case_dir=$(make_case fractional-legacy-retry-wait)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -3088,7 +3088,7 @@ test_secondmate_pr_registration_publishes_ready_line() {
   configure_secondmate_home "$case_dir" local "$case_dir/parent"
   mkdir -p "$case_dir/parent/state"
   channel="$case_dir/parent/state/mate-x.status"
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
@@ -3097,7 +3097,7 @@ test_secondmate_pr_registration_publishes_ready_line() {
     PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
     || fail "mate-pr-ready: fm-pr-check failed: $(cat "$case_dir/pr-check.err")"
   grep -q '^armed:' "$case_dir/pr-check.out" || fail "mate-pr-ready: poll was not armed"
-  assert_grep "done [key=child-pr-task-x1]: child task-x1 PR ready: $url mode=direct-PR" <(sed -E 's/ \[at=[0-9]+\]//' "$channel") \
+  assert_grep "done [key=child-pr-task-x1]: child task-x1 PR ready: $url mode=no-mistakes" <(sed -E 's/ \[at=[0-9]+\]//' "$channel") \
     "mate-pr-ready: the ready line did not reach the parent channel"
   ! grep -q '^actionable:' "$case_dir/pr-check.err" \
     || fail "mate-pr-ready: registration reported a channel problem: $(cat "$case_dir/pr-check.err")"
@@ -3108,7 +3108,7 @@ test_secondmate_pr_registration_publishes_ready_line() {
     || fail "mate-pr-ready: re-registration duplicated the ready line"
 
   case_dir=$(make_case main-pr-ready)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
@@ -4605,7 +4605,7 @@ test_teardown_continues_when_the_effort_ledger_cannot_be_written() {
 test_parked_own_run_is_aborted_before_teardown() {
   local case_dir rc head
   case_dir=$(make_case parked-run-abort)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   head=$(git -C "$case_dir/wt" rev-parse HEAD)
 
@@ -5111,7 +5111,7 @@ EOF
 test_mismatched_run_after_abort_refuses_unconfirmed() {
   local case_dir rc head
   case_dir=$(make_case parked-run-replaced)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   head=$(git -C "$case_dir/wt" rev-parse HEAD)
 
@@ -5131,7 +5131,7 @@ test_mismatched_run_after_abort_refuses_unconfirmed() {
 test_empty_status_after_abort_refuses_unconfirmed() {
   local case_dir rc head
   case_dir=$(make_case parked-run-empty-confirmation)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   head=$(git -C "$case_dir/wt" rev-parse HEAD)
 
@@ -5149,7 +5149,7 @@ test_empty_status_after_abort_refuses_unconfirmed() {
 test_not_found_status_after_abort_confirms_completion() {
   local case_dir rc head
   case_dir=$(make_case parked-run-not-found-confirmation)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   head=$(git -C "$case_dir/wt" rev-parse HEAD)
 
@@ -5166,7 +5166,7 @@ test_not_found_status_after_abort_confirms_completion() {
 test_parked_own_run_refuses_when_abort_is_unconfirmed() {
   local case_dir rc head pid
   case_dir=$(make_case parked-run-abort-unconfirmed)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   head=$(git -C "$case_dir/wt" rev-parse HEAD)
   ( cd "$case_dir/wt" && exec sleep 300 ) &
@@ -5202,7 +5202,7 @@ EOF
 test_another_branchs_parked_run_is_never_touched() {
   local case_dir rc
   case_dir=$(make_case parked-run-not-ours)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
 
   local rc=0
@@ -5224,7 +5224,7 @@ test_another_branchs_parked_run_is_never_touched() {
 test_own_autonomous_run_is_left_alone() {
   local case_dir rc head
   case_dir=$(make_case autonomous-run-left-alone)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   head=$(git -C "$case_dir/wt" rev-parse HEAD)
 
@@ -5244,7 +5244,7 @@ test_own_autonomous_run_is_left_alone() {
 test_leaked_worktree_process_is_reaped() {
   local case_dir rc pid
   case_dir=$(make_case leaked-process-reap)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
 
   # A backgrounded, disowned process rooted (by cwd) under the task's own
@@ -5273,7 +5273,7 @@ test_leaked_worktree_process_is_reaped() {
 test_leaked_tasktmp_process_is_reaped() {
   local case_dir rc pid
   case_dir=$(make_case leaked-tasktmp-reap)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   printf '%s\n' "tasktmp=$case_dir/tasktmp" >> "$case_dir/state/task-x1.meta"
   mkdir -p "$case_dir/tasktmp"
   land_shippable_commit "$case_dir"
@@ -5300,7 +5300,7 @@ test_leaked_tasktmp_process_is_reaped() {
 test_lsof_absent_reaps_tmux_process_group() {
   local case_dir rc pid path_without_lsof
   case_dir=$(make_case lsof-absent-process-group-reap)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   path_without_lsof=$(make_path_without_lsof "$case_dir")
   PATH="$path_without_lsof" command -v lsof >/dev/null 2>&1 \
@@ -5337,7 +5337,7 @@ EOF
 test_lsof_error_refuses_before_removal() {
   local case_dir rc
   case_dir=$(make_case lsof-error-refusal)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   fm_fakebin_write "$case_dir/fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
@@ -5364,7 +5364,7 @@ EOF
 test_reused_pid_identity_is_not_force_killed() {
   local case_dir rc pid
   case_dir=$(make_case reused-pid-identity)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
 
   perl -e '$SIG{TERM} = "IGNORE"; sleep 300' &
@@ -5411,7 +5411,7 @@ SH
 test_exec_changed_process_is_still_reaped() {
   local case_dir rc pid marker done_flag survived=0
   case_dir=$(make_case exec-changed-process)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   marker="$case_dir/exec-now"
   done_flag="$case_dir/exec-done"
@@ -5473,7 +5473,7 @@ SH
 test_process_spawned_during_grace_is_reaped_on_later_pass() {
   local case_dir rc pid child_file child_pid="" parent_survived=0 child_survived=0
   case_dir=$(make_case grace-spawn-convergence)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   child_file="$case_dir/child.pid"
 
@@ -5516,7 +5516,7 @@ test_process_spawned_during_grace_is_reaped_on_later_pass() {
 test_persistent_scan_refuses_after_bounded_retries() {
   local case_dir rc wt_path fake_pid=99999999
   case_dir=$(make_case persistent-reap-refusal)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   wt_path=$(cd "$case_dir/wt" && pwd -P)
   fm_fakebin_write "$case_dir/fakebin/lsof" <<EOF
@@ -5549,7 +5549,7 @@ SH
 test_process_exit_during_identity_lookup_does_not_refuse() {
   local case_dir rc wt_path fake_pid=99999998
   case_dir=$(make_case identity-exit-convergence)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   wt_path=$(cd "$case_dir/wt" && pwd -P)
   fm_fakebin_write "$case_dir/fakebin/lsof" <<EOF
@@ -5590,7 +5590,7 @@ EOF
 test_run_abort_precedes_process_reap_precedes_worktree_removal() {
   local case_dir rc head pid abort_log
   case_dir=$(make_case abort-then-reap-then-remove-order)
-  write_meta "$case_dir" direct-PR ship
+  write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
   head=$(git -C "$case_dir/wt" rev-parse HEAD)
   abort_log="$case_dir/nm-abort.log"

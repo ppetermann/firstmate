@@ -899,7 +899,7 @@ run_polytoken_spawn() {
     FM_POLYTOKEN_READY_POLLS="${FM_POLYTOKEN_READY_POLLS:-40}" \
     FM_POLYTOKEN_POLL_INTERVAL="${FM_POLYTOKEN_POLL_INTERVAL:-0.1}" \
     PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$proj" --harness polytoken --model zai/glm-5.3-flash --effort low --mode direct-PR --yolo off "$@" 2>&1
+    "$SPAWN" "$id" "$proj" --harness polytoken --model zai/glm-5.3-flash --effort low --mode no-mistakes --yolo off "$@" 2>&1
 }
 
 test_polytoken_launch_carries_the_hybrid_contract() {

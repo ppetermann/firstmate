@@ -363,7 +363,7 @@ The refusal library's header owns the gate detection, lab-home exception, test-h
 
 ## Two task shapes
 
-Ship tasks change projects and ship by project mode (`direct-PR` or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
+Ship tasks change projects and ship by project mode (`no-mistakes`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
 The intake and authority contract in `AGENTS.md` owns when separate scout research is warranted.
 
 ## Dispatch profiles
@@ -383,7 +383,7 @@ Polytoken composes a concrete model and supported reasoning level through its [a
 A local route points directly at its home, while a remote route adds an SSH alias and remote Firstmate code root so the entire home and all of its child work stay on that host.
 Remote placement pins the remote second-mate agent to Herdr while leaving the remote home's worker backend selection independent, and every non-doctor primary-to-remote `fm-on` command runs through the remote account's Firstmate-owned job worker rather than its SSH process or a Herdr pane.
 [`remote-secondmates.md`](remote-secondmates.md) owns current setup, supplied-origin provisioning, transport, relay, failure, and retirement behavior.
-`fm-home-seed.sh` provisions a local isolated home, clones the listed PR-based projects into it, copies the charter to `data/charter.md`, and `fm-spawn.sh --secondmate` launches it through the same session-provider and status-file path as any direct report.
+`fm-home-seed.sh` provisions a local isolated home, clones the listed PR-based projects into it, initializes newly cloned `no-mistakes` projects, copies the charter to `data/charter.md`, and `fm-spawn.sh --secondmate` launches it through the same session-provider and status-file path as any direct report.
 For a domain whose subject is the firstmate repo itself, a deliberate `--no-projects` seed creates a project-less home whose crews take pooled worktrees of that repo instead of separate clones.
 The signal cannot be mixed with project names or omitted accidentally, and a populated home cannot be converted in place; the full seed contract is in [configuration.md](configuration.md#secondmate-routes-datasecondmatesmd).
 Herdr secondmate and child placement follows the launcher-binding contract in [Watching and task containers](herdr-backend.md#watching-and-task-containers).
@@ -416,7 +416,7 @@ The `data/secondmates.md` line contract is owned by the [`secondmate-provisionin
 
 ## Delivery modes are explicit per task
 
-`direct-PR` tasks run the local ladder, push once, and open a DRAFT PR that firstmate flips at the landing turn; `local-only` tasks stay local until firstmate performs an approved fast-forward merge.
+`no-mistakes` tasks run the full validation pipeline, `direct-PR` tasks run the local ladder, push once, and open a DRAFT PR that firstmate flips at the landing turn, and `local-only` tasks stay local until firstmate performs an approved fast-forward merge.
 Each task's mode and `yolo` merge posture are firstmate's decision at intake.
 The mode is passed explicitly to `bin/fm-brief.sh`, and both values are passed explicitly to `bin/fm-spawn.sh` and `bin/fm-promote.sh`; each command refuses to guess the values it consumes.
 A ship brief records its mode as a fixed machine-readable line and the spawn refuses to launch on a different one, so the worker's instructions and the recorded task delivery cannot diverge.
@@ -424,15 +424,15 @@ A ship brief records its mode as a fixed machine-readable line and the spawn ref
 It also owns the named-head reachability gate that refuses a ship `done:` while that head exists only in the worker's disposable copy, testing the named head rather than whether some branch moved.
 Its header owns local-only readiness pinning, and the [`fm-merge-local.sh` header](../bin/fm-merge-local.sh) owns landing checks and recovery.
 `bin/fm-crew-state.sh`, `bin/fm-pr-check.sh`, and the secondmate ledger-first publisher call that same gate before treating a ship `done:` as ready.
-It keeps upstream's three-mode layout, including the no-mistakes contract, but `bin/fm-spawn.sh` and `bin/fm-promote.sh` refuse to dispatch no-mistakes in this fleet.
-`data/projects.md` records each project's standing posture and optional `+yolo` merge flag as the captain's default and as context for that decision; a ship spawn that drops below the registered rigor prints a deviation notice and continues.
+It is also the one owner of the no-mistakes `--intent` contract those workers follow.
+`data/projects.md` records each project's standing posture and optional `+yolo` merge flag as the captain's default and as context for that decision, including the conditional `no-mistakes-prod-only` policy; a ship spawn that drops below the registered rigor prints a deviation notice and continues.
 The registry's optional `forge=` token is different in kind: it is the captain's confirmed project fact rather than a standing default, orthogonal to both the mode and `+yolo`, and it changes what a publishing mode publishes rather than firstmate's latitude over it ([gerrit-forge-integration.md](gerrit-forge-integration.md) is the design).
 On a `forge=gerrit` project both `no-mistakes` and `direct-PR` end with the worker publishing one squashed change through `gerrit-axi` and reporting `done: PR <change url> published for review`, which `bin/fm-pr-check.sh` registers like any PR URL, `no-mistakes` first running the pipeline with its push, PR, and CI steps skipped, recovering the pipeline's fix commits, and listing each finding and its fix in a `note:` line so firstmate can relay what the squash's description hides; `local-only` refuses a forge because it publishes nothing, and `yolo` is refused because a Code-Review+2 is a positive attributed claim that a named human approved.
 Firstmate passes the binding unchanged to `bin/fm-brief.sh --forge` and never infers one from a remote, host, or protocol; a ship spawn reads it from the registry through `bin/fm-project-mode.sh --forge` and refuses a brief that disagrees with it, and a promotion reads it the same way for the binding alone.
 `bin/fm-forge-detect.sh` only proposes a binding at project-add intake; nothing re-derives one from a clone at use time.
 Direct-PR tasks gate locally before pushing: the brief's definition of done has the worker run `bin/fm-local-gate.sh <task-id> <worktree>`, which runs the repo-appropriate check and test suite in a clean dependency context and records a `state/<task-id>.gate-pass` marker for the gated head; the script's header owns the gate, marker, and clean-context contract.
 `bin/fm-pr-check.sh` warns, without blocking, when a direct-PR task's marker is missing or its head does not match the PR head, and firstmate judges that warning because scout tasks legitimately lack markers.
-`bin/fm-project-mode.sh` remains the one registry parser for the mechanical consumers that have no task in hand: fleet sync's `local-only` skip and home seeding's `local-only` refusal.
+`bin/fm-project-mode.sh` remains the one registry parser for the mechanical consumers that have no task in hand: fleet sync's `local-only` skip and home seeding's refusal and no-mistakes initialization.
 The registry's optional `branch=<prefix>` annotation overrides a project's ship-branch prefix (default `fm/`) the same way: firstmate resolves it via `bin/fm-project-mode.sh --branch-prefix` at intake and passes it explicitly to `bin/fm-brief.sh --branch-prefix`, which never reads the registry itself; each script's own header owns its side of that contract.
 A task's base branch is a per-task choice with no registry entry: `bin/fm-brief.sh --base-branch` records it in the brief, a fresh spawn passed the same `--base-branch` resets the task's copy to `origin/<base>` and records `base_branch=` in task meta, and the worker's pull request targets that branch; review, cleanup, and promotion read the recorded value instead of the default branch.
 When a selected delivery path calls for a diff, `bin/fm-review-diff.sh` refreshes the authoritative base and, when task meta records a GitHub pull-request `pr=`, always fetches and compares against `refs/pull/<n>/head` by default (recorded `pr_head=` is only an offline fallback) before falling back to the local branch with a warning.

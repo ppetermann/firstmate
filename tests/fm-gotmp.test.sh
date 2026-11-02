@@ -137,7 +137,7 @@ worktree=$TMP_ROOT/nonexistent-worktree-$id
 project=$TMP_ROOT/nonexistent-project-$id
 harness=claude
 kind=ship
-mode=direct-PR
+mode=no-mistakes
 yolo=off
 tasktmp=$tasktmp
 META
@@ -237,7 +237,7 @@ worktree=$TMP_ROOT/nonexistent-wt-$id
 project=$TMP_ROOT/nonexistent-proj-$id
 harness=claude
 kind=ship
-mode=direct-PR
+mode=no-mistakes
 yolo=off
 META
   FM_HOME="$fake" bash "$fake/bin/fm-teardown.sh" "$id" >/dev/null 2>&1 \

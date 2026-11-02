@@ -2,10 +2,8 @@
 # Spawn behavior for a pr=manual project, whose worker writes the pull request
 # title and body itself while the pipeline's pr and ci steps are skipped
 # (bin/fm-project-mode.sh owns the registry token, bin/fm-dod-lib.sh the
-# contract). These drive the real spawn path with a fake terminal: the
-# pr=manual agreement is no-mistakes-only upstream, and this fleet retired the
-# mode, so every spawn here is caught by the retirement refusal ahead of the
-# agreement read.
+# contract). These drive the real spawn path with a fake terminal: the task
+# spawn launches only when the brief and the registry agree on the token.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -51,49 +49,34 @@ run_spawn() {  # <id> <args...>
 
 test_spawn_launches_when_brief_and_registry_agree_on_pr_text() {
   local id out status
-  # This fleet retired no-mistakes and never dispatches it, and the pr=manual
-  # binding is no-mistakes-only (every other mode reads pr as auto), so an
-  # agreement between brief and registry can never reach a launch here: the
-  # spawn refuses the mode itself, ahead of any PR-text agreement.
   id=pr-text-s1
   make_case record "$id" "no-mistakes pr=manual" --pr manual
   out=$(run_spawn "$id" --mode no-mistakes --yolo off); status=$?
-  [ "$status" -ne 0 ] || fail "a pr=manual project launched on a retired mode"$'\n'"$out"
-  assert_contains "$out" "no-mistakes is retired in this fleet" \
-    "the refusal did not name the retired mode it caught"
-  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "the refused spawn still published a task record"
+  expect_code 0 "$status" "a pr=manual no-mistakes spawn should launch"$'\n'"$out"
 
   id=pr-text-s2
   make_case plain "$id" "no-mistakes"
   out=$(run_spawn "$id" --mode no-mistakes --yolo off); status=$?
-  [ "$status" -ne 0 ] || fail "an ordinary no-mistakes spawn launched on a retired mode"$'\n'"$out"
-  assert_contains "$out" "no-mistakes is retired in this fleet" \
-    "the agreeing-brief leg dodged the retired-mode refusal"
-  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "the refused spawn still published a task record"
-  pass "fm-spawn: the retired mode is caught ahead of any pr=manual agreement or launch"
+  expect_code 0 "$status" "an ordinary no-mistakes spawn should launch"$'\n'"$out"
+  pass "fm-spawn: a brief and registry that agree on pr=manual or on no token both launch"
 }
 
 test_spawn_refuses_a_pr_text_mismatch_before_launch() {
   local id out status
-  # The mode retirement is argument validation, long before the registry
-  # agreement read, so both mismatch directions are caught by the retired-mode
-  # refusal rather than by the PR-text drift they scaffold.
   id=pr-text-m1
   make_case missing "$id" "no-mistakes pr=manual"
   out=$(run_spawn "$id" --mode no-mistakes --yolo off); status=$?
   [ "$status" -ne 0 ] || fail "a pr=manual project launched on a brief without the token"$'\n'"$out"
-  assert_contains "$out" "no-mistakes is retired in this fleet" \
-    "the unbound-brief leg dodged the retired-mode refusal"
+  assert_contains "$out" "PR-text mismatch" "the refusal did not name the drift"
   [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "the refused spawn still published a task record"
 
   id=pr-text-m2
   make_case extra "$id" "no-mistakes" --pr manual
   out=$(run_spawn "$id" --mode no-mistakes --yolo off); status=$?
   [ "$status" -ne 0 ] || fail "a project with no pr token launched on a pr=manual brief"$'\n'"$out"
-  assert_contains "$out" "no-mistakes is retired in this fleet" \
-    "the unbound-project leg dodged the retired-mode refusal"
+  assert_contains "$out" "PR-text mismatch" "the refusal did not name the drift"
   [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "the refused spawn still published a task record"
-  pass "fm-spawn: both pr=manual drift directions are caught by the retired-mode refusal"
+  pass "fm-spawn: a brief and registry that disagree on pr=manual refuse before launch in both directions"
 }
 
 test_spawn_launches_when_brief_and_registry_agree_on_pr_text

@@ -57,7 +57,7 @@ make_case() {
     "worktree=$case_dir/wt" \
     "project=$case_dir/project" \
     "kind=ship" \
-    "mode=direct-PR"
+    "mode=no-mistakes"
   printf '%s\n' \
     'state=MERGED' \
     'merged=true' \

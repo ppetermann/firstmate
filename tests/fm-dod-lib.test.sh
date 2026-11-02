@@ -391,6 +391,21 @@ EOF
   pass "fenced and indented Captain lines are not authorized intent"
 }
 
+# The draft check the DoD hands a worker must be the gh-axi path that rule 3 of
+# every ship brief requires for GitHub operations, never raw gh (issue 5325).
+test_pr_based_dod_draft_check_uses_gh_axi() {
+  local mode out
+  for mode in direct-PR no-mistakes; do
+    out="$TMP_ROOT/dod-$mode.md"
+    fm_dod_block "$mode" dod-draft-task > "$out"
+    assert_no_grep 'gh pr view' "$out" "$mode: DoD must not document a raw gh draft check"
+    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+    assert_grep 'confirm it is not a draft (`gh-axi pr view <number>` must print `draft: no`' "$out" \
+      "$mode: DoD must read the draft state through gh-axi"
+  done
+  pass "PR-based DoD draft check uses gh-axi"
+}
+
 # A scout spawned on a named base keeps that base through promotion: the ship
 # instructions start from it and the PR targets it; local-only cannot carry it.
 test_promotion_keeps_the_recorded_base_branch() {

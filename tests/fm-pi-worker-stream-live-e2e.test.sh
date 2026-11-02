@@ -65,7 +65,7 @@ exec "$spawn_root/bin/fm-busy-event-real.sh" "\$@"
 SH
     chmod +x "$spawn_root/bin/fm-busy-event.sh"
   fi
-  out=$(ROOT="$spawn_root" FM_STREAM_SILENT_MAX_SECS="$enabled" fm_test_run_spawn "$home" "$wt" "$fakebin" stream "$project" pi --mode direct-PR --yolo off) \
+  out=$(ROOT="$spawn_root" FM_STREAM_SILENT_MAX_SECS="$enabled" fm_test_run_spawn "$home" "$wt" "$fakebin" stream "$project" pi --mode no-mistakes --yolo off) \
     || fail "Pi $PI_VERSION: could not generate worker extension: $out"
   if [ "$case_label" = unverified ]; then
     printf '%s\n' "$out" | grep -Fx "warning: pi model-stream observation unavailable for version $PI_VERSION; verified version: 1.2.0; existing busy bound remains active" >/dev/null || fail "Pi $PI_VERSION: missing exact unverified-version warning"

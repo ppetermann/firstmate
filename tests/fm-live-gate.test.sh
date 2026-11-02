@@ -217,7 +217,7 @@ test_disable_autoupdater_reaches_the_claude_pane_on_the_fm_spawn_launch_path() {
   fm_test_spawn_brief "$home" AU-1
   : > "$launchlog"
   FM_FAKE_LAUNCH_LOG="$launchlog" \
-    fm_test_run_spawn "$home" "$wt" "$fakebin" AU-1 "$proj" --mode direct-PR --yolo off \
+    fm_test_run_spawn "$home" "$wt" "$fakebin" AU-1 "$proj" --mode no-mistakes --yolo off \
     >/dev/null 2>&1 || fail "the claude spawn must stage its launch command"
   launch=$(cat "$launchlog")
   [ -n "$launch" ] || fail "no claude launch command was captured"
@@ -260,7 +260,7 @@ test_disable_autoupdater_survives_a_daemon_pane_that_never_inherited_it() {
   fm_test_spawn_brief "$home" AU-2
   : > "$launchlog"
   DISABLE_AUTOUPDATER=1 FM_FAKE_LAUNCH_LOG="$launchlog" \
-    fm_test_run_spawn "$home" "$wt" "$fakebin" AU-2 "$proj" --mode direct-PR --yolo off \
+    fm_test_run_spawn "$home" "$wt" "$fakebin" AU-2 "$proj" --mode no-mistakes --yolo off \
     >/dev/null 2>&1 || fail "the claude spawn must stage its launch command"
   launch=$(cat "$launchlog")
   [ -n "$launch" ] || fail "no claude launch command was captured"

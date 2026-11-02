@@ -61,9 +61,9 @@ codex_global_flags() {
   printf '%s' "$flags"
 }
 
-test_installed_codex_disables_hooks_for_the_captured_crewmate_launch() {
-  local launch flags state
-  launch=$(capture_codex_launch ship --mode direct-PR --yolo off)
+test_installed_codex_accepts_requested_hook_disablement_for_the_captured_crewmate_launch() {
+  local launch flags listing
+  launch=$(capture_codex_launch ship --mode no-mistakes --yolo off)
   flags=$(codex_global_flags "$launch")
   case " $flags " in
     *' --approve-for-me '*) ;;

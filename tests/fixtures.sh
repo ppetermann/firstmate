@@ -49,6 +49,23 @@ SH
   chmod +x "$fakebin/no-mistakes"
 }
 
+# fm_test_fake_no_mistakes_init_doctor <fakebin>
+# Secondmate-lifecycle stub: init/doctor touch marker files; other verbs exit 2.
+# Does not answer --version (those suites never probe the floor).
+fm_test_fake_no_mistakes_init_doctor() {
+  local fakebin=$1
+  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+set -eu
+case "${1:-}" in
+  init) touch .no-mistakes-init ;;
+  doctor) touch .no-mistakes-doctor ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$fakebin/no-mistakes"
+}
+
 # --- fake gh / gh-axi -------------------------------------------------------
 
 # fm_test_fake_gh <fakebin>

@@ -1519,9 +1519,9 @@ test_spawn_leases_slot_creates_thread_and_starts_launch_turn() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode direct-PR --yolo off --model claude-sonnet-5 --effort high --backend t3code 2>&1 )
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --model claude-sonnet-5 --effort high --backend t3code 2>&1 )
   expect_code 0 $? "fm-spawn.sh --backend t3code should succeed against the fake T3 server"$'\n'"$out"
-  assert_contains "$out" "spawned $id harness=claude kind=ship mode=direct-PR yolo=off window=fm-$id worktree=$wt" \
+  assert_contains "$out" "spawned $id harness=claude kind=ship mode=no-mistakes yolo=off window=fm-$id worktree=$wt" \
     "spawn output missing the T3 window alias and worktree summary"
   assert_grep "backend=t3code" "$state/$id.meta" "meta missing backend=t3code"
   assert_grep "window=fm-$id" "$state/$id.meta" "meta missing the stable window alias"
@@ -1804,7 +1804,7 @@ test_spawn_refuses_t3code_when_token_rejected() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$proj" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode direct-PR --yolo off --backend t3code 2>&1 )
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend t3code 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "fm-spawn.sh --backend t3code should refuse when the T3 server rejects the credential"
   assert_contains "$out" "signs in again" "the refusal must name the fresh sign-in"

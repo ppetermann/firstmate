@@ -581,7 +581,7 @@ write_ship_brief() {  # <home> <id> [<contract-extras>]
   mkdir -p "$home/data/$id"
   {
     printf 'You are a crewmate.\n\n# Task\n## Captain'\''s intent\nExercise the role gate.\n\n## Firstmate spec\nVerify the boundary.\n\n# Definition of done\n'
-    printf 'Delivery contract: mode=direct-PR%s\nShip branch: fm/%s\n' "$extras" "$id"
+    printf 'Delivery contract: mode=no-mistakes%s\nShip branch: fm/%s\n' "$extras" "$id"
   } > "$home/data/$id/brief.md"
 }
 
@@ -600,7 +600,7 @@ test_spawn_gate_on_self_repo() {
   local home out rc
   home=$(make_role_home spawn-user)
   write_ship_brief "$home" spawn-self-a1
-  out=$(run_spawn "$home" spawn-self-a1 "$ROOT" claude --mode direct-PR --yolo off); rc=$?
+  out=$(run_spawn "$home" spawn-self-a1 "$ROOT" claude --mode no-mistakes --yolo off); rc=$?
   [ "$rc" -ne 0 ] || fail "a user home must not launch a publishing task on firstmate itself"
   assert_contains "$out" "spawn refused for spawn-self-a1" "the refusal must name the task"
   assert_contains "$out" "user/operator" "the refusal must name the role"
@@ -609,7 +609,7 @@ test_spawn_gate_on_self_repo() {
   if [ -n "$PUB_TARGET" ]; then
     home=$(make_role_home spawn-maint "maintainer $PUB_TARGET")
     write_ship_brief "$home" spawn-self-a2
-    out=$(run_spawn "$home" spawn-self-a2 "$ROOT" claude --mode direct-PR --yolo off)
+    out=$(run_spawn "$home" spawn-self-a2 "$ROOT" claude --mode no-mistakes --yolo off)
     assert_not_contains "$out" "spawn refused" "a matching maintainer home must pass the gate"
     assert_not_contains "$out" "user/operator" "a matching maintainer home must not be told it lacks authority"
   fi
@@ -628,7 +628,7 @@ test_spawn_consent_agreement() {
   # agree, or the worker's contract and the task's authority diverge.
   write_ship_brief "$home" spawn-consent-b1
   rc=0
-  out=$(run_spawn "$home" spawn-consent-b1 "$ROOT" claude --mode direct-PR --yolo off \
+  out=$(run_spawn "$home" spawn-consent-b1 "$ROOT" claude --mode no-mistakes --yolo off \
     --upstream-consent "$PUB_TARGET") || rc=$?
   [ "$rc" -ne 0 ] || fail "a flag-without-brief consent must refuse"
   assert_contains "$out" "upstream-consent mismatch for spawn-consent-b1" \
@@ -638,7 +638,7 @@ test_spawn_consent_agreement() {
   # Consent on the brief but not the flag: same divergence, other direction.
   write_ship_brief "$home" spawn-consent-b2 " upstream-consent=$PUB_TARGET"
   rc=0
-  out=$(run_spawn "$home" spawn-consent-b2 "$ROOT" claude --mode direct-PR --yolo off) || rc=$?
+  out=$(run_spawn "$home" spawn-consent-b2 "$ROOT" claude --mode no-mistakes --yolo off) || rc=$?
   [ "$rc" -ne 0 ] || fail "a brief-without-flag consent must refuse"
   assert_contains "$out" "upstream-consent mismatch for spawn-consent-b2" \
     "a brief token without the flag must refuse"
@@ -646,7 +646,7 @@ test_spawn_consent_agreement() {
   # Both sides agree: the consent carries the task through the gate on a
   # user/operator home.
   write_ship_brief "$home" spawn-consent-b3 " upstream-consent=$PUB_TARGET"
-  out=$(run_spawn "$home" spawn-consent-b3 "$ROOT" claude --mode direct-PR --yolo off \
+  out=$(run_spawn "$home" spawn-consent-b3 "$ROOT" claude --mode no-mistakes --yolo off \
     --upstream-consent "$PUB_TARGET")
   assert_not_contains "$out" "spawn refused" "matching consent must pass the gate"
   assert_not_contains "$out" "upstream-consent mismatch" "agreeing sides must not be reported as a mismatch"
@@ -658,7 +658,7 @@ test_spawn_consent_agreement() {
   git_commit "$proj" init
   git -C "$proj" remote add origin https://github.com/someone/elseware.git
   write_ship_brief "$home" spawn-consent-b4 " upstream-consent=$PUB_TARGET"
-  out=$(run_spawn "$home" spawn-consent-b4 "$proj" claude --mode direct-PR --yolo off \
+  out=$(run_spawn "$home" spawn-consent-b4 "$proj" claude --mode no-mistakes --yolo off \
     --upstream-consent "$PUB_TARGET")
   assert_not_contains "$out" "spawn refused" "consent on an ordinary project must not be gated"
 
@@ -711,7 +711,7 @@ test_secondmate_spawn_refuses_consent_flag() {
   mkdir -p "$home/data/spawn-sm-c1"
   printf 'You are a secondmate.\n' > "$home/data/spawn-sm-c1/brief.md"
   rc=0
-  out=$(run_spawn "$home" spawn-sm-c1 "$home" --secondmate --mode direct-PR --yolo off \
+  out=$(run_spawn "$home" spawn-sm-c1 "$home" --secondmate --mode no-mistakes --yolo off \
     --upstream-consent github.com/a/b 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "a secondmate charter must refuse a consent flag"
   assert_contains "$out" "applies only to ship spawns" "a secondmate charter must refuse a consent flag"

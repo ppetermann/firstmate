@@ -13,7 +13,8 @@
 # on PATH, whether tasks-axi update advertises --archive-body, whether its mv help advertises
 # multi-ID moves, whether quota-axi is on PATH or which version it reports,
 # whether the local backend config opts out of tasks-axi backlog mutations,
-# which gh-axi version is on PATH, and which lavish-axi version is on PATH.
+# which no-mistakes version is on PATH, which gh-axi version is on PATH, and
+# which lavish-axi version is on PATH.
 # Dedicated fleet-sync cases pin the computed bootstrap timeout, explicit
 # override, blank-env defaulting, partial-output relay, and pre-launch timeout
 # scan.
@@ -90,6 +91,15 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/treehouse"
+  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = --version ]; then
+  printf '%s\n' "${FM_FAKE_NO_MISTAKES_VERSION:-no-mistakes version v1.46.0 (fake) 2026-06-27T00:02:18Z}"
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$fakebin/no-mistakes"
   add_tasks_axi "$fakebin" "0.2.6"
   add_quota_axi "$fakebin"
   printf '%s\n' "$fakebin"
@@ -343,22 +353,6 @@ ROWS
   pass "bootstrap reports treehouse lease + tasks-axi/quota-axi bootstrap contracts"
 }
 
-# no-mistakes was dropped from the universal toolchain with the delivery mode it
-# gated, so bootstrap must neither require it nor offer to install it - not even
-# when it is absent from PATH entirely.
-test_no_mistakes_is_not_a_bootstrap_tool() {
-  local case_dir fakebin out
-  case_dir="$TMP_ROOT/no-mistakes-retired"
-  mkdir -p "$case_dir/home/config"
-  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
-  fakebin=$(make_fake_toolchain "$case_dir")
-  [ ! -e "$fakebin/no-mistakes" ] || fail "the fake toolchain still installs no-mistakes"
-  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
-  [ -z "$out" ] || fail "bootstrap was not silent without no-mistakes on PATH, got: $out"
-  pass "bootstrap no longer requires or offers no-mistakes"
-}
-
 # A case that simulates a tool as absent must hide that tool from the fallback
 # base PATH too, not only from the fake bin directory: on a host where the tool
 # really sits in one of those directories the fixture would find the host binary,
@@ -388,6 +382,45 @@ test_absent_tool_cases_hide_a_real_install_in_the_base_path() {
   assert_contains "$out" 'MISSING: tasks-axi (install: npm install -g tasks-axi)' \
     "a real install in the fallback base path defeated the absent-tool simulation"
   pass "bootstrap: an absent-tool case hides the tool in the fallback base path"
+}
+
+test_no_mistakes_min_version() {
+  local label version mode installed expect case_dir fakebin base out missing n
+  missing='MISSING: no-mistakes (install: curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh)'
+  n=0
+  while IFS='^' read -r label version mode installed; do
+    [ -n "$label" ] || continue
+    n=$((n + 1))
+    case_dir="$TMP_ROOT/no-mistakes-$n"
+    mkdir -p "$case_dir/home"
+    mkdir -p "$case_dir/home/config"
+    printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+    fakebin=$(make_fake_toolchain "$case_dir")
+    base=$BASE_PATH
+    if [ "$version" = absent ]; then
+      rm -f "$fakebin/no-mistakes"
+      base=$(fm_test_base_path_sans "$base" no-mistakes)
+    fi
+    out=$(PATH="$fakebin:$base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_NO_MISTAKES_VERSION="$version" "$ROOT/bin/fm-bootstrap.sh")
+    case "$mode" in
+      empty)
+        [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
+      missing)
+        [ "$out" = "$missing" ] || fail "$label: expected '$missing', got: $out" ;;
+      outdated)
+        expect="OUTDATED: no-mistakes (installed: $installed; requires 1.46.0; upgrade: no-mistakes update)"
+        [ "$out" = "$expect" ] || fail "$label: expected '$expect', got: $out" ;;
+    esac
+  done <<'ROWS'
+minimum no-mistakes version is accepted^no-mistakes version v1.46.0 (fake)^empty^
+newer no-mistakes minor is accepted^no-mistakes version v1.47.0 (fake)^empty^
+newer no-mistakes major is accepted^no-mistakes version v2.0.0 (fake)^empty^
+absent no-mistakes reports a missing tool^absent^missing^
+older no-mistakes patch reports an upgrade^no-mistakes version v1.45.4 (fake)^outdated^1.45.4
+unparseable no-mistakes version reports an upgrade^no-mistakes development build^outdated^unparseable
+ROWS
+  pass "bootstrap separates an absent no-mistakes from one below its version floor"
 }
 
 test_gh_axi_min_version() {
@@ -1508,6 +1541,7 @@ ROWS
   rm -f "$case_dir/home/.env"
   fm_fakebin_write "$fakebin/security"  <<'SH'
 #!/usr/bin/env bash
+test_no_mistakes_min_version
 printf '%s\n' "$*" >> "${FM_TEST_SECURITY_LOG:?}"
 printf '%s\n' declared-source-secret
 SH
@@ -1547,7 +1581,6 @@ SH
 }
 
 test_bootstrap_reporting
-test_no_mistakes_is_not_a_bootstrap_tool
 test_absent_tool_cases_hide_a_real_install_in_the_base_path
 test_gh_axi_min_version
 test_lavish_axi_min_version

@@ -47,8 +47,6 @@
 #                the configured merge authority approves, firstmate merges to local main
 # no-mistakes-prod-only is a registry policy, not a task mode; resolve it to one of
 # the three concrete modes at intake before calling this script.
-# This fleet retired no-mistakes as a delivery mode: this script still renders its
-# contract, but bin/fm-spawn.sh refuses to dispatch a ship task in that mode.
 # PR-bearing definitions of done state the required-review merge bar
 # reviewer-neutrally ("the repository's required review"; the task text names
 # the concrete reviewer when there is one): the PR-open report is a milestone

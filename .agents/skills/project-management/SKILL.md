@@ -40,9 +40,10 @@ Choose that posture when adding or creating the project:
 - `direct-PR` has the worker run the local ladder, push once, and open a DRAFT PR; firstmate flips it at the landing turn, and the flip head gets one CI run and one review round.
 - `local-only` has no required remote or PR and lands only through the approved local fast-forward path.
 
+- `no-mistakes-prod-only` is a conditional policy rather than one flat mode: genuinely internal-only tooling, automation, contributor or operator process, and release or submission work ships `direct-PR`, while product-facing, mixed, and uncertain work ships `no-mistakes`.
 `direct-PR` is the default for a newly added or created remote-backed project when the captain specifies nothing, and a project with no remote defaults to `local-only`.
 State that resolved default while confirming the source, local name, and posture instead of asking the captain to choose from scratch.
-A legacy entry with no bracket also reads as `direct-PR`.
+Existing registry entries keep the meaning they already have and are never migrated or reinterpreted, so a legacy entry with no bracket stays `no-mistakes`.
 
 The optional `+yolo` posture changes merge authority only and does not change the delivery mode.
 Default it off for every project and every posture, and enable it only on the captain's explicit instruction.
@@ -70,7 +71,7 @@ Confirm the matching CLI is authenticated for a non-GitHub host: `glab auth logi
 ## Create a project
 
 Creating a GitHub repository is outward-facing.
-Before making that remote change, propose the repository name, owner or organization, visibility, and delivery posture, defaulting visibility to private and the posture to `direct-PR`, then obtain the captain's explicit consent for those exact values; a stated default never replaces that consent.
+Before making that remote change, propose the repository name, owner or organization, visibility, and delivery posture, defaulting visibility to private and the posture to `no-mistakes-prod-only`, then obtain the captain's explicit consent for those exact values; a stated default never replaces that consent.
 Use `gh-axi` for the approved GitHub operation and consult its current help rather than relying on remembered flags.
 After remote creation succeeds, clone it locally and add the registry entry.
 

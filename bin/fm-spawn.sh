@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait] [--allow-low-disk]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait] [--allow-low-disk]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -34,18 +34,15 @@
 #   bin/fm-herdr-lab.sh or a listed Herdr session/server lifecycle command must
 #   carry the Herdr isolation contract emitted by bin/fm-brief.sh --herdr-lab;
 #   the refusal names the first such match.
-#   bin/fm-dod-lib.sh owns those parsing rules. Every ship or scout spawn renders
-#   `launch-brief.md` from the source brief plus fm-dod-lib.sh's current worker
-#   role scope through a private launch-brief overlay, and launches from that
-#   file. The role scope always comes FIRST in that overlay, including the exact
-#   task-owned steering inbox, so the worker's identity is established before any
-#   project or task instruction it carries; the overlay never rewrites a
-#   project's instruction files or a secondmate's charter. When the explicit mode
-#   carries less rigor than the project's standing posture, a loud one-line
-#   deviation notice is printed and the spawn continues.
-#   The brief contract keeps upstream's three delivery modes (bin/fm-dod-lib.sh
-#   renders all three), but this fleet retired no-mistakes: --mode no-mistakes
-#   and the no-mistakes-prod-only policy value are refused here at intake.
+#   Every ship or scout spawn renders `launch-brief.md`; for a no-mistakes ship
+#   it also carries the current `--intent` contract and the extracted captain
+#   intent. A legacy mixed Task is accepted there only under bin/fm-dod-lib.sh's
+#   provenance-marking rules; unmarked legacy Tasks stop for migration rather
+#   than becoming intent. That library owns the parsing and intent rules. When
+#   the explicit mode carries less rigor than the project's standing posture, a
+#   loud one-line deviation notice is printed and the spawn continues.
+#   no-mistakes-prod-only is a registry policy rather than a task mode and is
+#   refused as a flag value.
 #   --branch-prefix is the optional prefix selected at intake for this ship's
 #   immutable branch, defaulting to "fm/". It must agree with the branch recorded
 #   in the brief, and is refused on scouts, secondmates, and relaunches. When the
@@ -1242,7 +1239,7 @@ else
   # and record no delivery posture; secondmate spawns hardcode theirs.
   if [ "$KIND" = ship ]; then
     [ "$MODE_SET" -eq 1 ] || {
-      echo "error: ship spawns require --mode <direct-PR|local-only>; resolve it at intake from the captain's instruction and the project's registered posture in data/projects.md" >&2
+      echo "error: ship spawns require --mode <no-mistakes|direct-PR|local-only>; resolve it at intake from the captain's instruction and the project's registered posture in data/projects.md" >&2
       exit 1
     }
     [ "$YOLO_SET" -eq 1 ] || {
@@ -1250,17 +1247,13 @@ else
       exit 1
     }
     case "$MODE" in
-    direct-PR | local-only) ;;
-    no-mistakes)
-      echo "error: --mode no-mistakes is retired in this fleet and is never dispatched; resolve the task to direct-PR or local-only at intake" >&2
-      exit 1
-      ;;
+    no-mistakes | direct-PR | local-only) ;;
     no-mistakes-prod-only)
-      echo "error: no-mistakes-prod-only is a registry policy, not a task mode, and its no-mistakes leg is retired in this fleet; resolve the task to direct-PR or local-only at intake" >&2
+      echo "error: no-mistakes-prod-only is a registry policy, not a task mode; classify this task's surface and resolve it to no-mistakes or direct-PR at intake" >&2
       exit 1
       ;;
     *)
-      echo "error: --mode must be one of direct-PR, local-only (got '$MODE')" >&2
+      echo "error: --mode must be one of no-mistakes, direct-PR, local-only (got '$MODE')" >&2
       exit 1
       ;;
     esac
@@ -4146,6 +4139,18 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
     echo "error: $BRIEF ## Captain's intent has an operator-address line: $ADDRESS_LINE; write the captain's actual words without a Captain label or address before spawn, since the heading already records provenance" >&2
     exit 1
   fi
+  if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
+    if fm_brief_task_heading_present "$BRIEF" "## Captain's intent"; then
+      CAPTAIN_INTENT=$(fm_brief_task_heading_body "$BRIEF" "## Captain's intent")
+    else
+      LEGACY_TASK_BODY=$(fm_brief_heading_body "$BRIEF" "# Task")
+      CAPTAIN_INTENT=$(fm_brief_marked_captain_words "$LEGACY_TASK_BODY")
+      if [ -z "$(printf '%s' "$CAPTAIN_INTENT" | tr -d '[:space:]')" ]; then
+        echo "error: legacy mixed # Task brief has no provenance-marked captain words for no-mistakes --intent; add [captain] lines or migrate to ## Captain's intent and ## Firstmate spec" >&2
+        exit 1
+      fi
+    fi
+  fi
   if [ "$RELAUNCH" -eq 1 ]; then
     BASE_BRANCH=$(fm_meta_get "$RELAUNCH_META" base_branch)
   elif [ "$BASE_BRANCH_SET" -eq 1 ]; then
@@ -4171,7 +4176,10 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   {
     fm_brief_worker_role "$STATE" "$ID" "$FM_ROOT" &&
       printf '\n' &&
-      cat "$SOURCE_BRIEF"
+      cat "$SOURCE_BRIEF" &&
+      if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
+        fm_brief_intent_overlay "$CAPTAIN_INTENT"
+      fi
   } >"$BRIEF_TMP" || {
     rm -f -- "$BRIEF_TMP"
     echo "error: could not render current launch contract for $SOURCE_BRIEF" >&2
@@ -4200,8 +4208,9 @@ if [ "$HARNESS" != kimi ] && [ "$HARNESS" != rovo ] &&
   exit 1
 fi
 
-delivery_rigor_rank() { # <mode> -> 2 (most rigor) .. 1 (least); 0 = not a task mode
+delivery_rigor_rank() { # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task mode
   case "$1" in
+  no-mistakes) echo 3 ;;
   direct-PR) echo 2 ;;
   local-only) echo 1 ;;
   *) echo 0 ;;
@@ -4353,9 +4362,9 @@ if [ "$KIND" = ship ]; then
   fi
   # The registry holds the captain's standing posture, so dropping below it is
   # allowed (a current explicit captain instruction wins) but never silent. An
-  # unregistered project resolves to the same direct-PR standing default, which
-  # is why the notice names the standing posture rather than the registry line.
-  # A conditional policy is excluded: both of its legs are legitimate classifications.
+  # unregistered project resolves to the same no-mistakes standing default, which
+  # is why the notice names the standing posture rather than the registry line. A
+  # conditional policy is excluded: both of its legs are legitimate classifications.
   if [ -n "$STANDING_MODE" ] && [ "$STANDING_MODE" != no-mistakes-prod-only ] &&
     [ "$(delivery_rigor_rank "$MODE")" -lt "$(delivery_rigor_rank "$STANDING_MODE")" ]; then
     echo "notice: $ID ships mode=$MODE while the standing posture for $PROJ_NAME is $STANDING_MODE - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
@@ -4370,7 +4379,6 @@ if [ "$KIND" = ship ]; then
     echo "notice: $ID ships branch=$BRANCH while $PROJ_NAME registers the ship-branch prefix '$STANDING_BRANCH' (branch $STANDING_BRANCH$ID) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
   fi
 fi
-
 
 BRIEF_DIR_REAL=$(cd "$(dirname "$BRIEF")" && pwd -P)
 BRIEF_REAL="$BRIEF_DIR_REAL/$(basename "$BRIEF")"
@@ -7157,7 +7165,7 @@ fi
 # validate/merge stages can branch on it. A ship task carries the explicit
 # per-task decision validated above; a secondmate's posture is fixed; a scout
 # records none at all, because its deliverable is a report rather than a merge
-# (fm-teardown.sh defaults an absent mode to direct-PR, and fm-promote.sh
+# (fm-teardown.sh defaults an absent mode to no-mistakes, and fm-promote.sh
 # requires an explicit mode when a scout is promoted to a ship task).
 if [ "$KIND" = secondmate ]; then
   MODE=secondmate

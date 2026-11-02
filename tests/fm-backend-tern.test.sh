@@ -1615,7 +1615,7 @@ EOF
   : > "$PANE_LOG"
   SPAWN_OUT=$(FM_TERN_STATE="$CASE_DIR/tern-state" FM_TERN_SESSION=fm-test-spawn-env \
     FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" FM_FAKE_PANE_LOG="$PANE_LOG" \
-    fm_test_run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --mode direct-PR --yolo off "$@")
+    fm_test_run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off "$@")
   SPAWN_STATUS=$?
 }
 

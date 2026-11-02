@@ -129,16 +129,11 @@ done
   exit 1
 }
 case "$MODE" in
-  direct-PR|local-only) ;;
-  no-mistakes)
-    # Fork patch: this fleet retired no-mistakes; bin/fm-spawn.sh refuses it at
-    # intake, and a promotion is the same intake decision.
-    echo "error: --mode no-mistakes is retired in this fleet and is never dispatched; promote as direct-PR or local-only" >&2
-    exit 1 ;;
+  no-mistakes|direct-PR|local-only) ;;
   no-mistakes-prod-only)
-    echo "error: no-mistakes-prod-only is a registry policy, not a task mode, and its no-mistakes leg is retired in this fleet; promote as direct-PR or local-only" >&2
+    echo "error: no-mistakes-prod-only is a registry policy, not a task mode; classify this task's surface and resolve it to no-mistakes or direct-PR" >&2
     exit 1 ;;
-  *) echo "error: --mode must be one of direct-PR, local-only (got '$MODE')" >&2; exit 1 ;;
+  *) echo "error: --mode must be one of no-mistakes, direct-PR, local-only (got '$MODE')" >&2; exit 1 ;;
 esac
 case "$YOLO" in
   on|off) ;;

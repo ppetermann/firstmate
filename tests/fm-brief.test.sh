@@ -1360,7 +1360,7 @@ test_inbox_listing_command_is_safe_on_empty_inbox() {
   local home brief cmd inbox shell_name out status
   home="$TMP_ROOT/inbox-listing-home"
   mkdir -p "$home/data" "$home/config"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-inbox-list some-proj --mode direct-PR >/dev/null 2>&1 \
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-inbox-list some-proj --mode no-mistakes >/dev/null 2>&1 \
     || fail "fm-brief.sh ship scaffold exited non-zero"
   brief="$home/data/brief-inbox-list/brief.md"
   # shellcheck disable=SC2016
