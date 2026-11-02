@@ -1165,34 +1165,6 @@ ROWS
   pass "fm-brief.sh: scout Lavish hosting follows the bootstrap lavish-axi floor"
 }
 
-# A scout brief asks planners to size work in agent wall-clock minutes from the
-# effort ledger, never human hours, and the command it names runs against this
-# home and falls back cleanly while the ledger is still empty.
-test_scout_brief_sizes_work_in_agent_minutes_from_the_effort_ledger() {
-  local home brief cmd out
-  home="$TMP_ROOT/effort-home"
-  mkdir -p "$home/data"
-  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/fm-brief.sh" sizing-plan alpha --scout >/dev/null 2>&1 || fail "scout scaffold failed"
-  brief="$home/data/sizing-plan/brief.md"
-  assert_grep 'agent wall-clock minutes from dispatch to draft PR plus one CI and review round, never in human hours' "$brief" \
-    "scout brief did not size work in agent minutes"
-  assert_grep "one \`estimate=<N>m\` token" "$brief" "scout brief did not name the estimate token"
-  assert_grep 'comparable focused builds have reached a draft PR in 8 to 15 minutes' "$brief" \
-    "scout brief had no fallback for an empty ledger"
-  # shellcheck disable=SC2016 # the backticks are literal brief text
-  cmd=$(sed -n 's/.*run `\([^`]*fm-effort-ledger.sh[^`]*\)`.*/\1/p' "$brief")
-  [ -n "$cmd" ] || fail "scout brief named no effort-ledger command"
-  out=$(env -u FM_HOME bash -c "$cmd") || fail "the scout brief's effort-ledger command failed: $cmd"
-  assert_equals 'effort ledger: no records yet' "$out" "the brief's command did not read this home's empty ledger"
-  printf '{"task":"t","kind":"ship","dispatched_at":"2026-10-25T00:00:00Z","ready_at":"2026-10-25T00:12:00Z"}\n' \
-    > "$home/data/effort-ledger.jsonl"
-  out=$(env -u FM_HOME bash -c "$cmd") || fail "the scout brief's effort-ledger command failed on a record"
-  printf '%s\n' "$out" | grep -E '^kind +ship +1  12m/12m ' >/dev/null \
-    || fail "the brief's command did not summarize this home's ledger: $out"
-  pass "fm-brief.sh: scout briefs size work in agent minutes from the effort ledger"
-}
-
 # Scout and secondmate paths still scaffold well-formed briefs.
 test_scout_and_secondmate_scaffold() {
   local brief
@@ -1264,38 +1236,6 @@ test_local_only_dod_carries_no_review_language() {
   assert_no_grep "CodeRabbit" "$brief" \
     "local-only DOD hardcoded a specific review tool"
   pass "fm-brief.sh: local-only DOD carries no review language"
-}
-
-# The shared-terminal rule (AGENTS.md's tmux-daemon precedent, rule 7's sibling)
-# must reach a worker through the generated brief, not firstmate's memory alone.
-# A scout drives real terminals for reproduction exactly as a ship task does, so
-# both generated contracts must carry it - asserted on the actual output, not the
-# generator's own source text.
-test_shared_terminal_rule_reaches_generated_briefs() {
-  local home brief
-  home="$TMP_ROOT/shared-terminal-home"
-  write_registry "$home"
-
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-term-ship some-proj --mode local-only >/dev/null 2>&1 \
-    || fail "ship scaffold for shared-terminal rule check exited non-zero"
-  brief="$home/data/brief-term-ship/brief.md"
-  assert_grep "ONE shared terminal server" "$brief" \
-    "ship brief missing the shared-terminal-server rule"
-  assert_grep "OWN uniquely-named socket" "$brief" \
-    "ship brief missing the own-socket instruction"
-  assert_grep "kills every other worker at once" "$brief" \
-    "ship brief missing the shared-terminal consequence"
-
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-term-scout firstmate --scout >/dev/null 2>&1 \
-    || fail "scout scaffold for shared-terminal rule check exited non-zero"
-  brief="$home/data/brief-term-scout/brief.md"
-  assert_grep "ONE shared terminal server" "$brief" \
-    "scout brief missing the shared-terminal-server rule"
-  assert_grep "OWN uniquely-named socket" "$brief" \
-    "scout brief missing the own-socket instruction"
-  assert_grep "kills every other worker at once" "$brief" \
-    "scout brief missing the shared-terminal consequence"
-  pass "fm-brief.sh: the shared-terminal rule reaches both generated ship and scout briefs"
 }
 
 # Both PR-bearing DODs carry the PR-hygiene sentences (plain-word title, one
@@ -1884,7 +1824,6 @@ test_ship_and_scout_teach_validation_round_pause
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_completion_write_exception_is_task_scoped
 test_scout_and_secondmate_scaffold
-test_scout_brief_sizes_work_in_agent_minutes_from_the_effort_ledger
 test_scout_lavish_line_follows_presentation_floor
 test_inbox_listing_command_is_safe_on_empty_inbox
 test_workers_wait_without_spending_turns
@@ -1899,7 +1838,6 @@ test_branch_prefix_value_is_validated
 test_branch_prefix_command_is_shell_safe
 test_pr_briefs_state_required_review_merge_bar
 test_local_only_dod_carries_no_review_language
-test_shared_terminal_rule_reaches_generated_briefs
 test_pr_hygiene_dod_sentences
 test_rule6_teaches_keyed_decisions
 test_base_branch_is_rendered_and_bounded

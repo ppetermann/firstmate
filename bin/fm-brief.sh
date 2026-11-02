@@ -159,9 +159,6 @@
 # regular file, or text carrying its own "Delivery contract: mode=" line (which
 # a later scout promotion could not outrank), stops the scaffold before
 # anything is written. Secondmate charters never take it.
-# When config/worker-tmp-root is set, ship and scout rules gain one line keeping
-# caches out of the task's temp directory (bin/fm-task-tmp-lib.sh owns the
-# setting); a malformed file stops the scaffold before anything is written.
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -185,8 +182,6 @@ esac
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
-# shellcheck source=bin/fm-task-tmp-lib.sh
-. "$SCRIPT_DIR/fm-task-tmp-lib.sh"
 # shellcheck source=bin/fm-role-lib.sh
 . "$SCRIPT_DIR/fm-role-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
@@ -439,14 +434,6 @@ if [ "$KIND" != secondmate ] && { [ -e "$BRIEF_INCLUDE_FILE" ] || [ -L "$BRIEF_I
   [ -n "$(printf '%s' "$BRIEF_INCLUDE_BODY" | tr -d '[:space:]')" ] || BRIEF_INCLUDE_BODY=
 fi
 
-# config/worker-tmp-root (bin/fm-task-tmp-lib.sh) adds one cache rule to ship
-# and scout rules below; read here so a malformed file writes nothing.
-WORKER_TMP_BASE=
-if [ "$KIND" != secondmate ]; then
-  fm_task_tmp_config_read "$CONFIG" || { echo "error: $FM_TASK_TMP_ERROR" >&2; exit 1; }
-  WORKER_TMP_BASE=$FM_TASK_TMP_BASE
-fi
-
 # Append the include as the last section of a ship or scout scaffold.
 append_brief_include() {
   [ -n "$BRIEF_INCLUDE_BODY" ] || return 0
@@ -670,8 +657,7 @@ IFS= read -r -d '' TASK_SECTION <<'EOF' || true
 EOF
 TASK_SECTION=${TASK_SECTION%$'\n'}
 
-# One shared string keeps the ship and scout infrastructure rules identical;
-# rule 8 (the shared terminal server) is this fleet's addition.
+# One shared string keeps the ship and scout infrastructure rule identical.
 # Rule 2 governs file edits, so it does not prohibit pool administration.
 # The secondmate charter deliberately omits this rule because a secondmate
 # legitimately allocates and returns slots for crewmates in its own home.
@@ -698,20 +684,8 @@ IFS= read -r -d '' SHARED_INFRA_RULE <<'EOF' || true
      that it is free, and returning your own worktree is firstmate's job at cleanup, not yours.
    If you genuinely need a second checkout, another slot, or the daemon touched, append
    `blocked [at=<epoch>]: {what you need}` and stop; firstmate arranges it.
-8. Firstmate and every other worker live on ONE shared terminal server. Anything you launch yourself
-   must run on your OWN uniquely-named socket, and teardown must remove only that socket, never by
-   pattern and never the shared server - doing either kills every other worker at once and destroys
-   whatever uncommitted work they had not yet saved.
 EOF
 SHARED_INFRA_RULE=${SHARED_INFRA_RULE%$'\n'}
-# Only with config/worker-tmp-root (read above): the task's TMPDIR is removed
-# at cleanup, so a cache pointed there is re-downloaded every task and, when a
-# container writes it as another user, left behind.
-if [ -n "$WORKER_TMP_BASE" ]; then
-  SHARED_INFRA_RULE="$SHARED_INFRA_RULE
-9. Your temporary files belong in \$TMPDIR, this task's own temp directory, removed at cleanup.
-   Reuse the machine's shared caches (for example ~/.cache/huggingface for model downloads) and never point a cache at your scratch or temp directory."
-fi
 
 # One shared string keeps the ship and scout shell-path rule identical.
 IFS= read -r -d '' SHARED_NO_CD_RULE <<'EOF' || true
@@ -776,9 +750,6 @@ $WAIT_BLOCK$INBOX_SECTION
 # Definition of done
 Write your findings to \`$DATA/$ID/report.md\`.
 The report must stand alone: what you did, what you found, the evidence (commands run, output, file:line references), and what you recommend.
-If the report sizes work, size it in agent wall-clock minutes from dispatch to draft PR plus one CI and review round, never in human hours, anchored on this fleet's measured history: run \`FM_HOME='$FM_HOME' '$FM_ROOT/bin/fm-effort-ledger.sh' stats\` (add \`--kind ship\` or \`--project <name>\` to compare similar work) and cite the medians you used.
-If it prints \`effort ledger: no records yet\`, say the estimate is unanchored and start from the observed baseline that comparable focused builds have reached a draft PR in 8 to 15 minutes.
-Write each estimate as one \`estimate=<N>m\` token so firstmate can record it on the backlog item.
 $LAVISH_LINE
 Before reporting done, read and follow \`$FM_ROOT/.agents/skills/captain-hold-lifecycle/SKILL.md\` and pass its shared completion gate for the report and any visual review.
 Only when the reviewed inventory is empty, run \`FM_HOME=$(shell_quote "$FM_HOME") bash $(shell_quote "$FM_ROOT/bin/fm-captain-hold.sh") complete $(shell_quote "$ID") --none\`.

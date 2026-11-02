@@ -68,6 +68,6 @@ $ bash tests/fm-gotmp.test.sh | grep -c '^ok'
 6
 ```
 
-`tests/fm-worker-tmp-root.test.sh` executes the launch a real `bin/fm-spawn.sh` emitted, with the harness replaced by a probe, and covers the absent-config default, the relocated private root and its exported variables with and without the launch allowlist, the `~/` form, secondmate launch and inheritance, refusal of unsafe or foreign roots, unsafe bases and malformed values, the brief's cache rule, and the leftover-root report.
+`tests/fm-worker-tmp-root.test.sh` executes the launch a real `bin/fm-spawn.sh` emitted, with the harness replaced by a probe, and covers the absent-config default, the relocated private root and its exported variables with and without the launch allowlist, the `~/` form, secondmate launch and inheritance, refusal of unsafe or foreign roots, unsafe bases and malformed values, and the leftover-root report.
 `tests/fm-gotmp.test.sh` covers teardown of a relocated root, the plain report of what it could not remove, and refusal to remove another home's or a misnamed root.
 Rerun both after a Claude Code or opencode upgrade, and repeat the Claude Code and opencode probes above when either vendor changes its temp handling.

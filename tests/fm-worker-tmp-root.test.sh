@@ -251,42 +251,6 @@ test_unsafe_roots_are_refused() {
   pass "unsafe or foreign task temp roots, unsafe bases, and malformed values are refused before launch"
 }
 
-test_brief_carries_cache_rule_only_with_config() {
-  local home kind brief
-  for kind in ship scout; do
-    home="$TMP_ROOT/brief-$kind"
-    fm_test_spawn_home "$home"
-    if [ "$kind" = ship ]; then
-      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-off "$home/projects/demo" --mode local-only >/dev/null 2>&1 \
-        || fail "brief scaffold without config failed ($kind)"
-    else
-      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-off "$home/projects/demo" --scout >/dev/null 2>&1 \
-        || fail "brief scaffold without config failed ($kind)"
-    fi
-    brief="$home/data/brief-off/brief.md"
-    assert_not_contains "$(cat "$brief")" "shared caches" "config absent: the $kind brief must be unchanged"
-    printf '%s\n' "$home/disk" > "$home/config/worker-tmp-root"
-    if [ "$kind" = ship ]; then
-      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-on "$home/projects/demo" --mode local-only >/dev/null 2>&1 \
-        || fail "brief scaffold with config failed ($kind)"
-    else
-      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-on "$home/projects/demo" --scout >/dev/null 2>&1 \
-        || fail "brief scaffold with config failed ($kind)"
-    fi
-    brief="$home/data/brief-on/brief.md"
-    assert_contains "$(cat "$brief")" "Reuse the machine's shared caches (for example ~/.cache/huggingface" \
-      "config present: the $kind brief must carry the cache rule"
-    assert_contains "$(cat "$brief")" "never point a cache at your scratch or temp directory" \
-      "config present: the $kind brief must forbid caches in the temp directory"
-    printf '%s\n' 'not absolute' > "$home/config/worker-tmp-root"
-    if FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-bad "$home/projects/demo" --scout >/dev/null 2>&1; then
-      fail "brief scaffold accepted a malformed worker temp root ($kind)"
-    fi
-    assert_absent "$home/data/brief-bad" "a malformed value must stop the scaffold before anything is written"
-  done
-  pass "ship and scout briefs carry the cache rule only when config/worker-tmp-root is set"
-}
-
 test_inherited_item_is_declared() {
   local items
   items=$(bash -c '. "$1"; fm_config_inherit_items' _ "$ROOT/bin/fm-config-inherit-lib.sh")
@@ -342,6 +306,5 @@ test_config_present_relocates_and_exports
 test_config_home_relative_value
 test_secondmate_launch_exports_tmpdir
 test_unsafe_roots_are_refused
-test_brief_carries_cache_rule_only_with_config
 test_inherited_item_is_declared
 test_orphan_report
