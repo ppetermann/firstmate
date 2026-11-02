@@ -120,15 +120,10 @@
 #                          while its latest turn boundary is under
 #                          BUSY_TURN_MAX_SECS old (wedge_defer_t3code_running).
 #   stale: <window> (unread firstmate instruction: ...)
-#                          the steering-inbox ladder spent its delivery-attempt
-#                          budget on an idle pane without an acknowledgement,
-#                          OR the pane has read busy for at least
-#                          BUSY_INBOX_MAX_SECS straight with a steer still due
-#                          (zero ring attempts, exactly like a dead endpoint)
 #   stale: <window> (steering-inbox ladder bookkeeping unwritable: ...)
-#                          an unhandled record's ladder cannot advance; quiet
-#                          successful attempts never wake firstmate
-#                          (bin/fm-task-inbox-lib.sh owns the ladder policy)
+#   stale: <window> (steering-inbox busy bookkeeping unwritable: ...)
+#                          steering-inbox recovery; bin/fm-task-inbox-lib.sh owns
+#                          delivery-attempt, busy-deferral, and unavailable-endpoint policy
 #   check: <script>: <out> authenticated check output, always actionable
 #   check: open decision overdue: <task> key=<key> age=<seconds>s
 #                          opt-in config/open-decision-reminders record-age
@@ -457,22 +452,6 @@ BUSY_STREAM_SNAPSHOT=
 # secondmate_wake_stall_tick, never a substitute for it.
 SECONDMATE_WAKE_STALL_SECS=${FM_SECONDMATE_WAKE_STALL_SECS:-}
 case "$SECONDMATE_WAKE_STALL_SECS" in ''|*[!0-9]*|0) SECONDMATE_WAKE_STALL_SECS=180 ;; esac
-# BUSY_INBOX_MAX_SECS bounds how long inbox_steer_check's own busy-pane early
-# return may silently suppress a DUE steering-inbox delivery before it
-# escalates anyway, exactly like a positively dead or missing endpoint
-# (inbox_steer_escalate_unavailable): queued once as an ordinary stale wake,
-# never rung. Without this bound that early return has no ring, no ladder
-# advance, no escalation, and no attempt budget at all - a task whose pane
-# reads busy forever is invisible to steering delivery permanently and
-# silently (Finding C, data/fm-steer-stall-diagnosis/report.md). This is
-# narrower and faster than BUSY_TURN_MAX_SECS above, which bounds general
-# wedge detection for ANY busy pane; this one bounds only "is a queued steer
-# getting through" and is unrelated to whether the pane is actually wedged.
-# 15 minutes is the captain's own answer (2026-09-14) to "how long may a busy
-# pane silently suppress a steer": the same patience a worker that has
-# stopped responding already gets, which he called already generous - never
-# lower this without a fresh captain answer.
-BUSY_INBOX_MAX_SECS=${FM_TASK_INBOX_BUSY_MAX_SECS:-900}
 # Secondmate ENDPOINT liveness (distinct from the wake-loop stall observation
 # above): on this cadence the watcher probes each registered mate's recorded
 # endpoint through fm-secondmate-liveness-lib.sh and relaunches only on the
@@ -657,35 +636,17 @@ inbox_steer_busy() {  # <window> <backend> <task> <tail40>
 }
 
 # Steering-inbox loss detection, one cheap check per recorded window per poll.
-# Quiet when healthy: an absent, empty, or handled inbox costs one directory
-# glob and produces nothing. When the ladder (fm_task_inbox_due_action, the
-# policy owner) reports a due action, a busy pane just waits - the record is
-# durable and the worker will reach a turn boundary - UP TO BUSY_INBOX_MAX_SECS
-# of CONTINUOUS busy suppression, past which it escalates anyway exactly like
-# a dead or missing endpoint (Finding C, data/fm-steer-stall-diagnosis/report.md);
-# an idle pane gets one delivery attempt, and a spent attempt budget surfaces
-# as an ordinary stale wake for stuck-crewmate-recovery, and a pane whose agent
-# is positively dead or missing skips the ladder altogether: it is never typed
-# into and surfaces as that same stale wake exactly once. If the attempt's
-# ladder write fails while its record remains unhandled, that unwritable state
-# surfaces through the same stale path instead of silently re-ringing forever;
-# acknowledgement or teardown still makes the race quiet. The attempt is
-# data-plane typing or a composer-protected skip, never a wake, so normal
-# retries keep the watcher blocking. A fire-and-forget record's one retry ring
-# waits out a busy pane with no busy cap, also waits while the worker has an
-# open decision or blocker of its own (status_own_open_decisions), and never
-# escalates: a dead pane just spends it. Runs for secondmates
-# too: their pane-staleness exemption is about quiet panes being healthy,
-# while an unacknowledged instruction past the ladder is a stuck steer.
+# bin/fm-task-inbox-lib.sh owns delivery, busy-deferral, retry, and escalation policy.
+# Endpoint and busy checks precede delivery so recovery never types into a busy,
+# dead, or missing worker; the ring helper protects pending composer text.
+# Normal retries keep the watcher blocking rather than waking firstmate.
+# Runs for secondmates too: their pane-staleness exemption is about quiet panes
+# being healthy, while an unacknowledged instruction can still be a stuck steer.
 inbox_steer_check() {  # <window> <task>
-  local w=$1 task=$2 action verb rec count tail40 reason ring_rc backend agent_state busy_marker
+  local w=$1 task=$2 action verb rec count tail40 reason='' ring_rc backend agent_state
   action=$(fm_task_inbox_due_action "$STATE" "$task") || return 0
   verb=${action%% *}
-  busy_marker="$STATE/.inbox-busy-since-$(window_key "$w")"
-  if [ "$verb" = quiet ]; then
-    rm -f "$busy_marker" 2>/dev/null || true
-    return 0
-  fi
+  [ "$verb" != quiet ] || return 0
   if [ "$verb" = retry ] && [ -n "$(status_own_open_decisions "$STATE/$task.status")" ]; then
     return 0
   fi
@@ -704,7 +665,6 @@ inbox_steer_check() {  # <window> <task>
       if [ "$verb" = retry ]; then
         fm_task_inbox_clear_retry "$STATE" "$task" "$rec" || true
       else
-        rm -f "$busy_marker" 2>/dev/null || true
         inbox_steer_escalate_unavailable "$w" "$task" "$rec"
       fi
       return 0
@@ -714,16 +674,19 @@ inbox_steer_check() {  # <window> <task>
   tail40=$WATCHER_CAPTURE
   if inbox_steer_busy "$w" "$backend" "$task" "$tail40"; then
     [ "$verb" != retry ] || return 0
-    [ -e "$busy_marker" ] || : > "$busy_marker"
-    if [ "$(age_of "$busy_marker")" -lt "$BUSY_INBOX_MAX_SECS" ]; then
+    if ! count=$(fm_task_inbox_record_busy "$STATE" "$task" "$rec"); then
+      [ -f "$rec" ] || return 0
+      reason="stale: $w (steering-inbox busy bookkeeping unwritable: ${rec%/*}/.busy-state cannot be written while $rec stays unhandled; inspect the inbox directory)"
+    elif [ "$count" -ge "$(fm_task_inbox_busy_max)" ]; then
+      reason="stale: $w (unread firstmate instruction: stuck-busy after $count consecutive busy-deferred due doorbells; $rec stays unhandled and no doorbell was typed; inspect the worker)"
+    else
       return 0
     fi
-    rm -f "$busy_marker" 2>/dev/null || true
-    reason="stale: $w (unread firstmate instruction: $rec is unhandled and the pane has read busy for at least ${BUSY_INBOX_MAX_SECS}s straight, past steering delivery's own patience; inspect the worker)"
-    inbox_steer_escalate_unavailable "$w" "$task" "$rec" "$reason"
-    return 0
+    verb=escalate
+  elif [ "$verb" != retry ] && ! fm_task_inbox_clear_busy "$STATE" "$task"; then
+    reason="stale: $w (steering-inbox busy bookkeeping unwritable: ${rec%/*}/.busy-state cannot be reset after a non-busy check; inspect the inbox directory)"
+    verb=escalate
   fi
-  rm -f "$busy_marker" 2>/dev/null || true
   case "$verb" in
     ring)
       ring_rc=0
@@ -758,7 +721,7 @@ inbox_steer_check() {  # <window> <task>
       triage_log "steer-inbox retry ring: $task ${rec##*/} result=$ring_rc"
       ;;
     escalate)
-      reason="stale: $w (unread firstmate instruction: $rec still unhandled after $count doorbell delivery attempts with an idle pane; inspect the worker)"
+      reason=${reason:-"stale: $w (unread firstmate instruction: $rec still unhandled after $count doorbell delivery attempts with an idle pane; inspect the worker)"}
       if [ ! -d "${rec%/*}" ] || [ ! -f "$rec" ]; then
         fm_task_inbox_due_action "$STATE" "$task" >/dev/null || true
         return 0
