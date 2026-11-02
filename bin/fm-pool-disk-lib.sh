@@ -32,7 +32,7 @@
 #     filesystem holding the pool.
 # bin/fm-teardown.sh owns when the trim runs, bin/fm-pool-sweep.sh owns the
 # idle-copy sweep, bin/fm-spawn.sh owns where the free-space check runs, and
-# docs/pool-disk.md is the operator reference.
+# data/fleet-docs/pool-disk.md is the operator reference.
 #
 # Deleting build output is best effort by design. A containerized build can
 # leave root-owned files that this user cannot delete; the trim reports how many

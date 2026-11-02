@@ -69,7 +69,7 @@ An unrelated tool that ships a binary named exactly `cortex` is still classified
 Kiro is anchored to the exact `kiro-cli` foreground identity for the same reason (its toolbox/aim-sandbox wrapper is the foreground process, with the compiled binary a descendant), so unrelated names containing that fragment remain ambiguous.
 Cursor is identified from its exact `cursor-agent` identity or versioned install tree in the foreground process path or structured argv[0]; a bare `node` or unrelated `agent` remains ambiguous.
 
-The CI-enforced portable regression and the real-harness drift guard follow the split owned by `.agents/skills/firstmate-coding-guidelines/SKILL.md`.
+The CI-enforced portable regression and opt-in real-harness drift guard follow the split owned by `.agents/skills/firstmate-coding-guidelines/SKILL.md`.
 Run the real-harness guard after any harness upgrade and before trusting refreshed evidence.
 
 ### Composer, busy state, and delivery
@@ -114,7 +114,6 @@ tests/fm-backend-tmux-smoke.test.sh
 tests/fm-tmux-agent-liveness.test.sh
 tests/fm-harness-liveness-drift-live-e2e.test.sh
 tests/fm-composer-ghost.test.sh
-tests/fm-composer-pane-shapes.test.sh
 tests/fm-kimi-harness.test.sh
 tests/fm-kimi-trust-prompt-live-e2e.test.sh
 tests/fm-cursor-harness.test.sh
@@ -124,4 +123,4 @@ tests/fm-tmux-submit-busy.test.sh
 tests/fm-bootstrap.test.sh
 ```
 
-[`verification/runtime-backends.md`](verification/runtime-backends.md#tmux) records the active foreground-process, per-harness composer-shape, and submit evidence.
+[`verification/runtime-backends.md`](verification/runtime-backends.md#tmux) records the active foreground-process and submit evidence.

@@ -573,8 +573,6 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 - Kimi has no project-level hook configuration and remains outside the primary guard integrations above.
 - Captain-approved Kimi crew wake support uses `bin/fm-kimi-turnend-hook.sh` to edit only one marker-delimited Firstmate region in that global config and install a silent always-zero hook.
 - The hook remains inert unless the payload `cwd` contains a per-task token pointer that resolves through Firstmate's private registry to one `state/<id>.turn-ended` marker.
-- The global hook is not permanent: teardown of the last Kimi crew task empties that registry and then removes the hook, a relaunch away from Kimi retires through the same path, and `remove` refuses while the registry still holds tokens; [`configuration.md`](configuration.md#harness-support) owns that spawn and teardown lifecycle for Kimi and grok alike.
-- The spawn's pre-flight is the installer's read-only `validate`, its token plus hook files land through `mint` in one step, and both mint and retirement hold the per-harness registry lock, so a retirement racing a spawn can neither destroy the new token nor strip the hook it needs.
 - Installation refuses before writing unless `python3` with `tomllib` and `jq` are available.
 - If `jq` is removed after installation, the hook remains silent and exits 0, turn-end wakes stop, and Kimi crews fall back to idle detection.
 - Unreadable hook input remains fail-open.
@@ -630,13 +628,7 @@ It also covers true-reason banner wording and reason-keyed episode dedup survivi
 - Child-worktree exclusion.
 - That the adapter never exits 2.
 
-`tests/fm-kimi-harness.test.sh` covers the separate Kimi crew hook's format preservation, idempotence, refusal cases, token guard, spawn registration, and teardown cleanup, with the global-hook registry-lock coverage spread across these suites:
-
-- `tests/fm-kimi-harness.test.sh`: reinstallation on a fresh spawn after the hook was retired, the read-only pre-flight on a retired home, and retirement serializing with a locked mint.
-- `tests/fm-teardown.test.sh`: last-task retirement of the grok and Kimi global hooks, preservation while another task is still registered, and the Kimi `remove` refusal on a non-empty registry.
-- `tests/fm-grok-harness.test.sh`: grok's spawn, last-task teardown, respawn path, retirement waiting on the registry lock, and the spawn-side hook install holding that lock.
-- `tests/fm-control-relaunch.test.sh`: relaunching away from grok or Kimi retiring the prior harness's global hooks.
-
+`tests/fm-kimi-harness.test.sh` covers the separate Kimi crew hook's format preservation, idempotence, refusal cases, token guard, spawn registration, and teardown cleanup.
 `tests/fm-supervision-instructions.test.sh` covers recovery-line ownership and pi-signed's identity-preserving reuse of Pi's protocol.
 `tests/fm-omp-harness.test.sh` covers the omp extension pair over a fake omp API (forced continuation on exit 2, the `stop_hook_active` bound, the seatbelt block, the ownership proof).
 

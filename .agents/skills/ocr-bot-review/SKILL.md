@@ -113,9 +113,9 @@ Fleet workers keep their side exactly as today: reply in threads, batch fixes in
 ## Review memory
 
 A project remembers the defect classes its reviews keep finding in one section of its committed `AGENTS.md`.
-[`docs/project-memory-sections.md`](../../../docs/project-memory-sections.md) owns that section's heading, entry shape, cap, retirement rule, and one-copy rule; never restate them here.
+`data/fleet-docs/project-memory-sections.md` owns that section's heading, entry shape, cap, retirement rule, and one-copy rule; never restate them here.
 The review core's question b asks every entry of every diff, a fix-round worker adds or updates an entry through the project's delivery path, and firstmate never writes it.
-When a round's report carries a `Class:` line (question b) naming an earlier instance in the same repository, the fix-round brief carries this sentence verbatim: `This finding is instance <n> of a class: add or update its entry under ## Ask these of every change in AGENTS.md in the same push, in the shape docs/project-memory-sections.md in the firstmate home gives, and move any existing prose that already states this rule into the entry rather than keeping two copies.`
+When a round's report carries a `Class:` line (question b) naming an earlier instance in the same repository, the fix-round brief carries this sentence verbatim: `This finding is instance <n> of a class: add or update its entry under ## Ask these of every change in AGENTS.md in the same push, in the shape data/fleet-docs/project-memory-sections.md in the firstmate home gives, and move any existing prose that already states this rule into the entry rather than keeping two copies.`
 
 ## Fix-round scope: the class, not the site
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fm-maia-notify.sh - send keyed notifications to the maia-firstmate plugin.
 #
-# docs/maia-notify.md owns the operator contract (what is sent, when, and the
+# data/fleet-docs/maia-notify.md owns the operator contract (what is sent, when, and the
 # config file's fields). This header owns the mechanics.
 #
 # Off by default. Every hook guards its call with one file test on the home's

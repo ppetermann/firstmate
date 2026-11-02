@@ -4033,7 +4033,7 @@ if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ -f "$PROJ_ABS/Cargo.t
       if [ "$ALLOW_LOW_DISK" -eq 1 ]; then
         echo "warning: disk nearly full for a Rust build: $FM_POOL_DISK_SUMMARY, below the ${FM_POOL_DISK_REFUSE_PCT}% floor; launching anyway on --allow-low-disk" >&2
       else
-        echo "error: spawn refused: disk nearly full for a Rust build: $FM_POOL_DISK_SUMMARY, below the ${FM_POOL_DISK_REFUSE_PCT}% floor; task $ID was not launched and its backlog item stays queued - free space (docs/pool-disk.md), or spawn it again with --allow-low-disk on the captain's word" >&2
+        echo "error: spawn refused: disk nearly full for a Rust build: $FM_POOL_DISK_SUMMARY, below the ${FM_POOL_DISK_REFUSE_PCT}% floor; task $ID was not launched and its backlog item stays queued - free space (data/fleet-docs/pool-disk.md), or spawn it again with --allow-low-disk on the captain's word" >&2
         exit 1
       fi
       ;;

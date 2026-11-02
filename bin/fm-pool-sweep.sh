@@ -40,7 +40,7 @@
 # root-owned output of a container build) is reported and the walk continues.
 # Exits 0 after a completed walk, 1 when cargo-sweep (default form) or the copy
 # (trim form) is unusable, and 2 on a usage error.
-# docs/pool-disk.md holds the systemd user unit and timer that run this nightly.
+# data/fleet-docs/pool-disk.md holds the systemd user unit and timer that run this nightly.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

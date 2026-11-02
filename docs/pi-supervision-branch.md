@@ -225,7 +225,7 @@ Its header owns the byte-stable-prefix contract (no timestamps, no fleet snapsho
 ### Outcome store
 
 The outcome store is `bin/fm-branch-outcome.sh`.
-Its header owns the append-only format, read cursor, bounded per-task status-coverage indexes, and the `loop-check` circuit breaker that bounds repeated empty or identical outcome rows (upstream has no equivalent guard).
+Its header owns the append-only format, read cursor, and bounded per-task status-coverage indexes.
 
 Outcomes are written to the store before delivery to Pi.
 A captain row advances the cursor only after its matching visible session entry exists.
@@ -237,9 +237,6 @@ That asymmetry is a known limitation of the routine delivery representation rath
 It predates delivery moving off Pi's render thread.
 Closing it means giving routine delivery a durable idempotent record.
 That work is tracked as follow-up `fm-pi-routine-delivery-idempotency-followup-r1`, and `tests/fm-pi-branch-extension.test.sh` pins that asymmetry meanwhile.
-
-The extension runs `loop-check` after every report; a trip reclaims the branch's row grant, marks the branch broken for the rest of the session (falling back to today's wake-to-main path, same as any other broken branch), and delivers one captain-relevant alert naming what tripped it.
-That trip is latched separately from the ordinary broken-branch state, so neither a provider-recovery cooldown nor a model change resumes prompting before the next session start.
 
 ### Consistency
 

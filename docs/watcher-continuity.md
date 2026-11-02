@@ -191,11 +191,6 @@ The durable wake queue preserves actionable events between a watcher close and t
 The bounded turn-end guard enforces recovery at Stop when no watcher is live and no open generation claim is still deciding.
 So a finished, hung, or identity-mismatched claim cannot suppress that recovery ([`turnend-guard.md`](turnend-guard.md#harness-integrations) owns that boundary).
 
-For every supported arm path, a successor that observes an accepted down stretch emits `check: rearm-resurface` through the ordinary durable handling path before settling into its live wait.
-That recovery presentation includes all unacknowledged queue rows, the cursor-folded OPEN DECISIONS set, and still-unread informational status lines, so a still-open decision or a buried `note:` answer reappears even when recovery has no queue row of its own.
-Under the away-supervisor daemon (`state/.afk` present) the watcher restarts as a one-shot in a tight loop, and that loop is bounded by the daemon's own handling sequence: each resurface marks its recovery generation announced (`pending:downtime` advancing to `announced:downtime`), and the daemon's post-close drain acknowledges the generation after routing, so subsequent restarts find nothing to re-fire.
-A restart that lands between an announce and that drain - the crash window - deliberately reopens one fresh generation and re-presents it once (the reopen-announced contract `fm-wake-lib.sh` owns), so a lost announcement cannot silence a still-open decision.
-The ordinary persistent-arm path leaves the marker `announced:downtime` after emitting, so its arm layer can establish a successor and transition handling via `--handling-delivered`; each crash-replay re-arm re-surfaces the same generation until that successor is confirmed, and a handling successor never re-announces.
 The recovery-episode contract below owns once-per-generation announcement.
 A handling successor does not re-announce the predecessor-delivered wake while its handling handoff remains open.
 It enters its poll loop immediately and keeps scanning signals, stale panes, and checks.
@@ -397,12 +392,6 @@ A matching PID and identity lets an attached arm report the delivered reason and
 An unrelated queue producer or a recycled PID cannot satisfy the match.
 Only a cycle with no matching delivery record emits `watcher: FAILED - cycle ended without an actionable reason` and exits nonzero.
 
-An interrupted arm always completes its own stop.
-It ends its watcher child through the shared bounded SIGTERM-then-kill stop instead of an unbounded wait, so a watcher stalled inside its own exit cleanup can never leave the harness-tracked arm impossible to stop.
-The grace before that kill backstop is `FM_ARM_CHILD_STOP_GRACE_SECS` in [`configuration.md`](configuration.md), and it is deliberately far above the watcher's own linger rather than a deadline for normal shutdown, because a normally stopping watcher persists its downtime recovery state from exactly that exit cleanup.
-`FM_WATCHER_STOP_GRACE_SECS` gives the daemon's detached shutdown backstop the same durable-safe grace when the away-mode daemon stops the same watcher, while the daemon itself stops waiting after a fixed short bound to stay inside the `fm-afk-launch.sh` stop budget.
-An interrupted arm whose kill backstop actually fired records the distinct cycle-ledger reason `arm-interrupted-kill-backstop`, so the accepted evidence-loss risk stays distinguishable from a clean `arm-interrupted` interrupt.
-
 ### Cycle exit log
 
 The arm layer appends one tab-separated record per observed cycle to `state/.watch-cycle-exits.log`.
@@ -494,7 +483,6 @@ They also prove that a legacy or handoff-phase watcher marker from an absent rep
 - Interrupted handling replay.
 - Generation-bound acknowledgement.
 - A persistent live successor after recovery.
-- An interrupted arm that still stops a watcher which ignores SIGTERM.
 - An idle live Lavish source that stays quiet until its real result wakes promptly.
 - An append that reopens an announced empty recovery.
 - An external append beside a handling successor's inherited rows that surfaces both before and after the prior handling turn acknowledges its rows, including after a lost or malformed sequence counter and when the new row repeats an acknowledged inherited row byte for byte.
@@ -513,8 +501,6 @@ They also prove that a legacy or handoff-phase watcher marker from an absent rep
 - The once-per-generation announcement bound with the real Pi extension against a refused handling handshake.
 - A handling successor that must surface a real crew event instead of going blind.
 - A handling successor that resurfaces a row appended between its predecessor's close and its own startup handoff.
-
-`tests/fm-wake-daemon-lifecycle-e2e.test.sh` covers the away-supervisor daemon's one-shot watcher restart cycle, including a rearm-resurface idempotent per recovery generation so the tight restart loop cannot re-fire it, while a fresh downtime generation still resurfaces once.
 
 `tests/fm-watch-triage.test.sh` proves TERM stops a watcher blocked inside a poll's pane capture and still releases its lock and records an acknowledgeable stop.
 It also exercises a single TERM with a live foreign downtime-marker lock holder, retained stale singleton and subsequent arm-style recovery, including decimal `08` and zero `00` cleanup bounds.

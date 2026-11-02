@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/fm-maia-notify.test.sh - opt-in maia notifications: bin/fm-maia-notify.sh
 # send, flush and follow, plus its hooks in bin/fm-captain-hold.sh and the
-# watcher. docs/maia-notify.md owns the operator contract. Every delivery goes
+# watcher. data/fleet-docs/maia-notify.md owns the operator contract. Every delivery goes
 # through the FM_MAIA_NOTIFY_EXEC seam or a closed local port, never a real maia.
 set -u
 

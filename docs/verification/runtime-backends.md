@@ -248,9 +248,38 @@ pi-signed
 0.82.0
 ```
 
-### Pi-family launch identity
+### Harness-adapter instruction routing
 
-The signed and plain Pi launch paths were separated with these isolated process and endpoint checks.
+Two checks keep the evidence boundaries separate.
+`tests/fm-harness-adapter-references.test.sh` parses the router's declared JSON contract as normalized data and proves every selected reference is readable, which is structural evidence only.
+`tests/fm-harness-adapter-instructions-live-e2e.test.sh` is an opt-in development check that sends the directly loaded router and every operation scenario across all nine harness identities to a local Ollama model, requires the generated plan as normalized JSON, and makes no external-provider call.
+
+```sh
+FM_HARNESS_ADAPTER_INSTRUCTION_EVAL=1 FM_HARNESS_ADAPTER_LOCAL_MODEL=ambient-router-gemma4:e4b bin/fm-test-run.sh tests/fm-harness-adapter-instructions-live-e2e.test.sh
+```
+
+That local evaluation demonstrates instruction-driven scenario selection, but it does not claim that a native harness loaded the selected files.
+The guard prints the exact installed version or unavailable status for every native harness so absent tools and unexercised provider transports remain explicit rather than becoming passes.
+Native loader behavior still requires the applicable live agent-tool check; no uniform deterministic zero-provider transport currently spans Claude, Codex, OpenCode, and Pi, and the other five tools remain unavailable where their binaries are absent.
+
+Bounded output from the 2026-08-29 local run:
+
+```text
+ok - local model ambient-router-gemma4:e4b selected every operation scenario and all nine harness identities
+# native loader not claimed: claude 2.1.220 (Claude Code) is installed, but this harness-neutral evaluation does not exercise its provider transport
+# native loader not claimed: codex 0.147.0-alpha.6+local.4 is installed, but this harness-neutral evaluation does not exercise its provider transport
+# native loader not claimed: opencode 1.14.48 is installed, but this harness-neutral evaluation does not exercise its provider transport
+# native loader not claimed: pi 0.84.0 is installed, but this harness-neutral evaluation does not exercise its provider transport
+# unverified native loader: pi-signed is not installed on this machine
+# unverified native loader: grok is not installed on this machine
+# unverified native loader: kimi is not installed on this machine
+# unverified native loader: cursor is not installed on this machine
+# unverified native loader: muse is not installed on this machine
+# installed native tools recorded without overstating loader coverage: 4
+# unavailable native tools: pi-signed grok kimi cursor muse
+```
+
+The isolated process and endpoint checks used:
 
 ```sh
 tmux display-message -p -t "$target" '#{pane_current_command}'
@@ -282,8 +311,6 @@ Zellij has no verified recovery-grade agent process probe, while Orca, cmux, and
 
 The current classifier matrix and its refresh guard are recorded in [Composer classification matrix](#composer-classification-matrix), with portable shape coverage in `tests/fm-composer-lib.test.sh` and `tests/fm-composer-ghost.test.sh`.
 Kimi pointer delivery and OpenCode busy-queue behavior remain pinned by `tests/fm-kimi-harness.test.sh`, `tests/fm-tmux-submit-busy.test.sh`, and `tests/fm-composer-lib.test.sh`.
-OpenCode 1.18.4 and 1.18.15 draw their idle composer placeholder in truecolor `38;2;128;128;128` against `38;2;238;238;238` for real typed input (measured 2026-08-09, tmux 3.2a on Linux).
-Perceived luminance of that placeholder is exactly 128, which is why `FM_COMPOSER_GHOST_LUMA_MAX` is compared inclusively; an exclusive bound left the placeholder counting as unsubmitted text.
 Herdr's Claude idle-native submit confirmation is pinned by `tests/fm-backend-herdr.test.sh` and refreshed by `FM_HERDR_SUBMIT_CONFIRM_LIVE=1 tests/fm-herdr-submit-confirm-live-e2e.test.sh`.
 
 ### Cleanup endpoint identity
@@ -829,16 +856,6 @@ This closes only #3436's idle-composer-misclassification symptom (Grok/Herdr com
 Grok has since changed that title again, and the newer accepted shape - the same title at the ALIGNED width carrying an approval mode - is recorded in [Grok approval-titled bottom border](#grok-approval-titled-bottom-border) so the two widths are never conflated.
 Cursor is deliberately outside this cursor-anchored empty-composer matrix because its terminal cursor is parked outside the composer; tmux's Cursor-specific, process-identity-gated cursorless fallback is covered by the [Cursor Agent CLI](#cursor-agent-cli) section's separate live evidence and drift guard.
 
-A second live guard covers the transition this matrix does not:
-
-```sh
-FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh
-```
-
-It drives every installed harness through empty, unsubmitted-text, and empty-again verdicts on tmux, so a vendor change that erases the difference between a cleared composer and one still holding an unsent steer fails there instead of in delivery.
-Its Herdr counterpart, which adds the dead-shell control and the known-gap list, runs under [Away-mode transport](#away-mode-transport) below.
-`docs/verification/composer-drift-versions.tsv` is the machine-readable record of which version this guard last passed against per harness; `bin/fm-bootstrap.sh` compares it to each installed adapter's current version every session and reports `COMPOSER_DRIFT_UNVERIFIED` on drift, so an upgrade this guard has not rerun against is flagged instead of forgotten (`bootstrap-diagnostics` skill).
-
 `zellij action dump-screen --pane-id <id> --ansi` was verified at zellij 0.44.0 to preserve ANSI styling (real Claude Code rendered inside a zellij pane dumped `ESC[m` `❯` U+00A0 for its idle composer row), which is the capability the zellij composer classifier reads.
 
 ### 2026-10-14 opencode 1.19.0 de-emphasised mode/footer row in the left-bar composer
@@ -875,34 +892,6 @@ The portable half lives in `test_matrix_opencode_leftbar_signals` in `tests/fm-c
 The same bytes on a plain backend read `unknown` in both states, because opencode 1.19.0 also draws a de-emphasised `~/.treehouse/fm001-b8697d/1/fm001:fm/` row inside the box that survives an unstyled capture, so the strict posture keeps deferring rather than reading `empty` there.
 Overriding `FM_COMPOSER_LEFTBAR_FOOTER_RE` to a pattern that cannot match puts the false `pending` straight back on the captured idle pane, which pins the exemption as the load-bearing signal rather than an incidental pass.
 `fm_composer_extract_selected_content` applies the same rule to the same run, so the classified-empty pane hands back no composer text and the typed pane hands back only `fix the doorbell skip`; zellij's append proof (`fm_backend_zellij_composer_observed_append` in `bin/backends/zellij.sh`) requires the extracted text to equal the prior content plus the typed text, so a footer leaking into that read fails the send instead of confirming one.
-
-### 2026-11-01 claude 2.1.316 cleared-row region in the rule-delimited composer
-
-Verified on 2026-11-01 on Linux x86_64 against Claude Code 2.1.316 in an 80x24 pane of an isolated private tmux 3.6 server, read through `fm_tmux_composer_state` with the tmux capability descriptor (`styled=1`, `cursor=1`, `identity=1`, `rows=0`).
-The session-start drift check had flagged the composer drift guard failing on claude: after one `C-u` into a composer holding the wrapped steering doorbell, `fm_backend_clear_composer` reported success, the following reads returned `unknown`, and the guard stopped with rows of the doorbell still in the composer.
-
-The live repro pinned the shape:
-`C-u` still kills exactly one wrapped display row per press; the killed row stays behind as a blank row with the cursor parked on it while earlier rows still hold text; and claude now draws a persistent `Ctrl+Y to paste deleted text` hint row above the composer's top rule after any deletion.
-The hint row sits outside the rule pair, so the pair-interior read never sees it; the killed blank row was the break: claude's plain `─` rules complete a separator pair, the strict blank-row posture handed the pair to the separated-shape identity conjunction, the tmux identity probe answered `probe-absent` for claude, and the verdict was `unknown` - which `fm_backend_clear_composer` treats as not-proven-pending and stops on, the one-press stall.
-
-`fm_composer_classify_screen` now routes a cursor-containing separator pair that carries its own recorded glyph proof (`FM_COMPOSER_SCAN_PI_GLYPH_ROW`) to `_fm_composer_classify_bare_pi_region_overlap`: a live pi or polytoken identity keeps the separated conjunction, and every other identity result plus a backend without identity capability classifies the pair interior by content - ghost-stripped rows are the idle placeholder, surviving text is pending when styled can prove it and unknown otherwise.
-A live pi keeps its stricter behavior over the same region: with identity `pi`+`working` the verdict stays `pending` through the content and never reads empty on structure alone.
-
-```sh
-FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh
-```
-
-```text
-# claude 2.1.316 (Claude Code): a 169-character wrapped composer cleared in 3 x C-u
-ok - composer drift: claude 2.1.316 (Claude Code) separates an empty composer from unsubmitted text
-ok - composer drift: opencode 1.18.35 separates an empty composer from unsubmitted text
-ok - composer drift: pi 0.87.0 separates an empty composer from unsubmitted text
-# checked 3 installed harness(es)
-```
-
-The portable owner of the shape is the `test_cleared_row_region_*` group in `tests/fm-composer-pane-shapes.test.sh`: it paints the cleared-row region holding text (pending) and holding only the dim placeholder (empty), asserts that a live pi identity and probe-absent reconcile to different verdicts over the same painted screen so the routing cannot go vacuous, and reasserts the styled=0 refusal.
-`docs/verification/composer-drift-versions.tsv` was refreshed to claude 2.1.316 and opencode 1.18.35 immediately after that passing run; pi 0.87.0's row was already current.
-
 ### Grok approval-titled bottom border
 
 Recorded 2026-10-01; the shape was first observed on Grok 1.0.44 on 2026-09-29, on an idle composer the classifier then read as `unknown`. The classifier update was exercised again on 2026-10-15 against Grok 1.0.62; see the live-validation evidence below.
@@ -1130,69 +1119,6 @@ ok - opencode (1.18.33): the doorbell reached a real worker, which acted and ack
 
 OpenCode needed `FM_SEND_INBOX_LIVE_TIMEOUT=560` because its configured model was still mid-turn at the default 240 seconds.
 Pi 0.87.1 was installed but not verified: its configured model returned an account error (`The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account`) before it read the inbox.
-
-## Post-interrupt composer
-
-`bin/fm-control-lib.sh`'s interrupt tables claim, per harness, which key cancels a turn, how many presses it takes, and whether the harness restores the cancelled prompt into its composer - the last of which decides whether the interrupt must be followed by a composer clear.
-That last claim was wrong for claude, and the cost was a steering channel that failed silently: with the composer left holding firstmate's own restored prompt, the next submitted line concatenated onto it and a steering doorbell rung into that pane reached no one until a bare Enter was typed by hand.
-
-Verified on 2026-09-09 against claude 2.1.266 on Linux, tmux 3.6, in an isolated private tmux server, driving the REAL `bin/fm-control.sh <id> interrupt` against a live turn.
-
-```sh
-FM_INTERRUPT_COMPOSER_LIVE=1 tests/fm-interrupt-composer-live-e2e.test.sh
-```
-
-```text
-ok - claude (2.1.266 (Claude Code)): the composer is empty after its recorded interrupt sequence
-# post-interrupt composer verified for 1 harness(es)
-```
-
-Two measured facts changed the shipped mechanics:
-
-- claude 2.1.266 RESTORES the cancelled prompt into its composer after its single Escape: `fm_tmux_composer_state` read `pending` in 3 of 3 runs, and in a 90-second poll it never cleared on its own.
-  claude therefore needs `C-u` after its interrupt key, like muse.
-- The clear must not follow the interrupt key immediately.
-  An Escape is the single byte ESC, so a terminal reading it followed straight away by another byte parses the pair as one meta-prefixed sequence and the interrupt is consumed rather than delivered: Escape+`C-u` back to back left the turn running in 2 of 2 runs, while the same pair 0.2s apart cancelled it in 2 of 2.
-
-The guard fails loudly with the harness name and version on either defect, and it requires the turn to actually stop before it judges the composer, so a run whose interrupt never landed fails instead of passing on a composer that was empty for the wrong reason.
-Only claude was installed on the verification machine; the other harnesses' recorded verdicts are unchanged and this guard is the command that refreshes them.
-It spends a small number of real tokens per installed harness, reports an absent harness explicitly, and refuses a run that verified nothing.
-
-### One press is not a clear
-
-Re-measured on 2026-09-09 against claude 2.1.266 on Linux, tmux 3.6, after steers kept stalling with the clear key in place.
-`C-u` kills back to the start of the current WRAPPED DISPLAY ROW, not the start of the buffer, so a single press clears a short restored prompt and leaves the leading rows of a long one behind.
-Firstmate's own steering doorbell embeds the absolute inbox path twice and always wraps, so the interrupt reported success while the doorbell stayed in the composer, unsubmitted, until a bare Enter was typed by hand.
-
-Typed into an idle composer and cleared with `C-u`, no model turn involved:
-
-| typed length | pane width | presses to reach a proven-empty composer |
-| --- | --- | --- |
-| 11 | 200 | 1 |
-| 180 | 200 | 1 |
-| 219 (the real doorbell) | 200 | 2 |
-| 400 | 200 | 3 |
-| 227 (the real doorbell) | 80 | 4 |
-
-The restore is also intermittent and can land after the clear: driving the REAL `bin/fm-control.sh <id> interrupt` one second after a submitted doorbell, `fm_tmux_composer_state` read `pending` in 2 of 3 and 2 of 4 runs, and a separate measurement timed the restore arriving 0.19s and 0.22s after the Escape, against the 0.2s settle before the clear.
-
-`bin/fm-control.sh` therefore delivers the clear until the composer stops proving it holds text, bounded by `FM_CONTROL_CLEAR_PRESSES` (default 8), and refuses loudly rather than reporting a clean interrupt over a composer that still holds text.
-With that loop the same four-round reproduction left the composer clean 4 times out of 4; forcing the budget back to a single press with `FM_CONTROL_CLEAR_PRESSES=1` reproduced the stall 2 times out of 4.
-
-```sh
-FM_COMPOSER_DRIFT=1 tests/fm-composer-drift-live-e2e.test.sh
-```
-
-```text
-# claude 2.1.266 (Claude Code): a 227-character wrapped composer cleared in 4 x C-u
-ok - composer drift: claude 2.1.266 (Claude Code) separates an empty composer from unsubmitted text
-```
-
-On 2026-11-01 the same guard re-proved the press-per-row contract against claude 2.1.316, whose firstmate doorbell measured 169 characters and cleared in 3 x `C-u` in an 80-column pane, after the cleared-row classification fix recorded in [the 2026-11-01 claude 2.1.316 record](#2026-11-01-claude-21316-cleared-row-region-in-the-rule-delimited-composer); that run also exposed the one-press stall the fix removes.
-
-That guard spends no model tokens: it types firstmate's real doorbell into an idle composer and clears it through the shipped `fm_backend_clear_composer`, so the press count is measured rather than assumed, and it refuses a probe whose typed line is not longer than the pane is wide.
-The token-spending guard above now cancels a prompt longer than its own pane, because the 123-character prompt it used before occupied one display row and passed while this defect was live.
-Its intermittency is why both guards exist: with `FM_CONTROL_CLEAR_PRESSES=1` the live interrupt guard failed on the first attempt and passed on the second, while the token-free press-count probe is deterministic.
 
 ## Waiting-worker command ceilings
 
@@ -1956,9 +1882,6 @@ ok - forced teardown retains a nested secondmate home and its grandchild's Herdr
 Real captures verified these active distinctions:
 
 - Claude and Codex use bare `❯` and `›` agent composers.
-  Claude's row carries further rule-delimited structure this reader depends on; [Away-mode transport](#away-mode-transport) below owns that shape and the delivery failure it caused.
-- Unicode blank padding around a prompt glyph is padding, not typed input, because no shell trim treats U+00A0 as whitespace.
-- OpenCode uses a left-rail composer container with no right border and no corner rows.
 - Pi uses content between complete separator rows and requires exact native Pi identity.
 - Dim or faint suggestion text is ghost content, while normally styled text is pending input.
 - Grok dark truecolor placeholders are ghost content, while bright truecolor typed input remains pending.
@@ -1968,7 +1891,7 @@ Real captures verified these active distinctions:
 - A bare shell prompt has no safe agent-composer container and is unknown.
 - Codex 0.154's idle braille starfield rows are composer furniture, with the dated Herdr evidence and refresh command in [Composer classification matrix](#composer-classification-matrix).
 
-`tests/fm-composer-ghost.test.sh`, `tests/fm-composer-lib.test.sh`, `tests/fm-composer-pane-shapes.test.sh`, and the Herdr composer cases pin the exact captured ANSI bytes.
+`tests/fm-composer-ghost.test.sh`, `tests/fm-composer-lib.test.sh`, and the Herdr composer cases pin the exact captured ANSI bytes.
 The U+2063 operational and routed-request separators were exercised through a real Pi-on-Herdr path; the byte-exact active regression is:
 
 ```sh
@@ -2216,76 +2139,6 @@ The current guard uses one `enter` call for each entry, so no separate confirmat
 The current catch-up reporting boundary is pinned by `tests/fm-afk-return.test.sh` and the same live entry point: Bearings continues through a pending return catch-up, projects its posture as an action-free warning outside Captain's Call, and drops that warning after the gate clears, while an active away window still refuses.
 The fixture captures submitted input through Pi's `input` extension hook, so the lab agent directory needs no provider credentials.
 The daemon injection transport into a live composer keeps its coverage in `tests/fm-afk-inject-herdr-e2e.test.sh` for the harnesses that still run the daemon, and the dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
-
-#### claude's rule-delimited composer (2026-08-10, claude 2.1.226 on Herdr 0.8.0)
-
-claude delimits its composer with a horizontal rule above and below rather than a box.
-While both rules are plain `─` runs they form a complete separator pair enclosing the composer row, and the reader was already correct.
-Once the pane is wide enough claude inlines its in-progress todo into the TOP rule, which stops that rule being plain, leaves claude's own CLOSING rule unmatched below the live composer, and made the reader answer `unknown`.
-The away-mode injector requires an affirmative `empty`, so every escalation deferred to the max-defer wedge alarm on an idle, injectable pane.
-
-Measured read-only on the captain's pane at 107 columns:
-
-```text
-row 1  ───────────────…─────────── Run tests ──   (107 cols, NOT a plain rule)
-row 2  ❯<U+00A0>                                  (ESC[38;2;153;153;153m)
-row 3  ───────────────…──────────────────────────  (107 cols, plain rule)
-row 4    ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents · esc to interrupt
-```
-
-A headless lab session has no attached client and its panes are fixed at the default grid, measured as 54 columns on Herdr 0.8.0 (`herdr pane layout` reported `{"height":23,"width":54,"x":26,"y":1}`, and `tput cols` inside the pane agreed).
-`COLUMNS`, a wide controlling PTY, and `herdr pane zoom` all left that unchanged, and at 54 columns claude renders the same todo as separate rows above a plain top rule.
-The wide-pane label therefore cannot be redrawn in an isolated lab; the guard below pins the verdicts and the structural invariants instead.
-
-The reader keeps the composer's verdict only when both the closing rule is the composer row's immediate successor and `herdr agent get` names a known non-Pi agent.
-Both signals were confirmed live: `agent get` reported `claude` for a launched claude pane and returned no agent for a plain shell pane in the same session.
-
-The identity half rests on an exited agent LOSING that record, measured against a real exit rather than against a pane that never hosted an agent.
-Method: a claude pane launched in an isolated lab session, read with `fm_backend_herdr_composer_state` and `herdr agent get` before and after its `/exit` quit command.
-
-| Moment | `composer_state` | `agent get` |
-| --- | --- | --- |
-| claude running, idle composer | `empty` | `agent=claude`, `agent_status=idle` |
-| ~8s after the quit command | `unknown` | agent absent, status absent |
-| 20s after the quit command | `unknown` | agent absent, status absent |
-
-That first post-exit sample was taken at about 8 seconds, which bounds the drop only loosely.
-Three further consecutive runs tightened it: the record was already absent at the FIRST sample, taken 0.05 seconds after `pane process-info` showed the pane's shell back in the foreground, so no clearing lag was observed at all.
-The guard still polls for the record to clear rather than reading it once, because Herdr's agent state is event-driven (`pane.agent_status_changed`) and a slower or loaded machine is not bound by these measurements.
-
-`pane process-info` returned the foreground process to the shell (foreground pid equal to `shell_pid`, name `zsh`), and the screen after exit showed only the shell prompt because claude restored the normal screen buffer.
-So no stale glyph row and no rule survived at all, and Herdr had already dropped the record: two independent reasons the rescue cannot fire on an exited agent.
-
-Both ways of submitting that quit command were measured, and both quit claude cleanly, each settling the pane back to its shell, dropping the native agent record, and leaving `composer_state` reading `unknown`: Herdr's atomic `pane run`, and the popup-safe order of a literal send, a 1.2 second settle, then a retried Enter.
-The guard uses the popup-safe order regardless, because a `/`-prefixed send opens a completion popup this repo already guards against everywhere else, not because the atomic path was ever observed failing.
-
-```sh
-tests/fm-afk-inject-herdr-e2e.test.sh
-FM_COMPOSER_DRIFT=1 tests/fm-herdr-composer-drift-live-e2e.test.sh
-```
-
-Scenario E of the injection e2e drives the real daemon over the real Herdr transport against the captain's exact frame.
-Against the pre-fix reader it reproduced the wedge (`reads 'unknown', not empty`); with the fix it delivered exactly one escalation and raised no wedge alarm.
-
-The drift guard launches every installed harness in an isolated lab session and holds each to its empty, pending, and empty-again verdict checks plus the structural frame.
-At the lab's 54 columns both of claude's rules are plain, so the separator pair completes and the reader answers without the rescue at all; the guard observes the frame there but deliberately does not gate on the adjacency and native-identity invariants, because asserting them where the reader does not consult them would abort claiming the wedge is back for a pane the same run had just affirmed as `empty`.
-The wide-pane labelled shape, where the rescue is load-bearing, is pinned by the portable cases in `tests/fm-backend-herdr.test.sh` and by Scenario E instead.
-The guard cannot itself redraw the wide-pane label, so it does not fail against the pre-fix reader; the portable cases and Scenario E are what fail pre-fix, and the guard covers the vendor drift neither of them can see.
-Its dead-shell control, a pane in the same session running only a login shell, read `unknown` with no native agent record, so the emptiness above was not bought by weakening the refusal that keeps an escalation out of a shell.
-It also launched opencode 1.18.16, which read `unknown` against the Herdr-local composer scan of the time - the left-rail limitation that run was excusing as the guard's one known-gap entry.
-That scan has since been retired for the shared classifier, which reads the same shape `empty` under Herdr's exact capability descriptor, so [`docs/herdr-backend.md`](../herdr-backend.md) now records that limitation as closed and the guard's known-gap list is empty.
-The closure is proven portably in `tests/fm-composer-lib.test.sh`, not live: no opencode-on-Herdr pane has been measured since, and the next opt-in `FM_COMPOSER_DRIFT=1` run - now holding opencode to the full empty/pending/empty-again contract - is what confirms away-mode delivery there.
-The guard still fails asking for an entry's removal if a listed harness starts reading correctly, so a future entry cannot outlive the limitation it documents.
-Herdr names its backspace key `backspace` and refuses tmux's `BSpace` with `invalid_key`.
-
-Observed against installed harnesses as of this commit: the dead-shell control, claude's empty, pending and empty-again verdicts, the frame observation above, and opencode's `unknown` under the since-retired Herdr-local scan.
-NOT yet observed: the guard's exited-agent control is newly added and has never run as part of a full guard run, so read claude's pass as covering the verdicts and the frame and never that control.
-The premise that control checks is evidence-backed by the measurement table above, and from the next run on the guard re-checks it live for every harness whose quit command it has measured, reporting a harness without one as skipped rather than assuming it.
-
-This section records durable facts, exact versions, and the commands that reproduce them, and deliberately does not quote the guards' own run-note text.
-The repo asks a maintainer-verification record to carry exact dates, versions, commands and output, and this one still does for every GUARANTEE.
-What is left out on purpose is incidental per-run note wording, which supports no guarantee and goes stale the moment the guard rephrases itself; the guard owns its output, and duplicating it here is what kept this record wrong.
-These commands are what refresh this record; run them after every claude or Herdr upgrade rather than trusting the versions above.
 
 ## Zellij
 
@@ -3427,24 +3280,6 @@ Its native App Server peer and watcher-close process are deterministic fixtures;
 omp runs crewmate, scout, secondmate, and primary work; [`supervision.md`](supervision.md#omp-oh-my-pi-native-delivery-2026-09-05) owns the primary evidence.
 The evidence below was produced on 2026-09-05 against omp 18.1.11 (`~/.local/bin/omp`, a Bun-compiled single binary) on macOS 26 arm64 through the Herdr backend with the `openai-codex/gpt-6-astra` model, building on the 2026-09-02 adapter investigation against 18.1.2.
 
-
-### 2026-09-26 this fleet's away merge grant
-
-The merge, merge-poll security, and branch-supervision suites were run on Ubuntu 26.04.1 LTS (Linux 7.0.0-29-generic x86_64), Node v24.19.0, after this fleet kept its away merge rule on top of the words model above.
-While the away-posture record exists, `bin/fm-pr-merge.sh` grants away authority only for a task whose metadata records `yolo=on` or when `--away-words` states that the captain's away words name that merge (`bin/fm-merge-authority-lib.sh`); any other merge under the record is refused with exit 2 and holds for the return.
-This supersedes, for this fleet, the 2026-09-20 line that any green merge lands under away authority yolo or not.
-The always-draft flow's merge poll arms on a draft pull request, so `bin/fm-pr-check.sh` records a draft like a ready one.
-
-```sh
-bin/fm-test-run.sh tests/fm-pr-merge.test.sh tests/fm-pr-check-security.test.sh tests/fm-branch-supervision.test.sh
-```
-
-```text
-ok - while the away-posture record exists a merge is granted only for yolo or named away words, lands under away authority, and attended merges stay untagged
-ok - fm-pr-merge --allow-missing is single use, attended-only, and GitHub-only like --allow-red
-ok - queued merges retain their away authority after captain return
-ok - arming records and arms a draft, a ready, and an unreadable-draft pull request alike
-```
 ### Process identity and markers
 
 `ps -o comm=` reports the bare name `omp` for the agent process, from both its `!` bash path and the model's bash tool, so identity is the anchored name; `ompd` and `comp` never match.

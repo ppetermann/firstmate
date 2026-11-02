@@ -17,7 +17,7 @@
 # output) there, and opencode puts its tmp directory at $TMPDIR/opencode; every
 # tool a worker runs inherits the same value. So everything a worker writes to
 # temp lands under its own per-task root, and teardown removing that root
-# removes all of it. docs/verification/worker-tmp-root.md records the probe.
+# removes all of it. data/fleet-docs/worker-tmp-root.md records the probe.
 # The file is inherited into secondmate homes (bin/fm-config-inherit-lib.sh), so
 # a secondmate's own workers follow it too.
 #

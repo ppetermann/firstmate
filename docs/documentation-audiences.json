@@ -450,10 +450,6 @@
       "audience": "operator-current"
     },
     {
-      "path": "docs/maia-notify.md",
-      "audience": "operator-current"
-    },
-    {
       "path": "docs/herdr-backend.md",
       "audience": "operator-current"
     },
@@ -479,14 +475,6 @@
     },
     {
       "path": "docs/plans/2026-10-12-2032-feat-pi-stream-silence-plan.md",
-      "audience": "maintainer-architecture"
-    },
-    {
-      "path": "docs/pool-disk.md",
-      "audience": "operator-current"
-    },
-    {
-      "path": "docs/project-memory-sections.md",
       "audience": "maintainer-architecture"
     },
     {
@@ -647,10 +635,6 @@
     },
     {
       "path": "docs/verification/trace-context.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "docs/verification/worker-tmp-root.md",
       "audience": "maintainer-verification"
     },
     {
