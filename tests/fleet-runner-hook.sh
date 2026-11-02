@@ -20,6 +20,7 @@ family_for_basename() {
     fm-composer-drift-live-e2e.test.sh) printf '%s\n' live-harness-optin ;;
     fm-composer-pane-shapes.test.sh) printf '%s\n' pure-contract-unit ;;
     fm-effort-ledger.test.sh) printf '%s\n' pr-forge ;;
+    fm-fleet-snapshot-view-fleet.test.sh) printf '%s\n' snapshot-bearings ;;
     fm-herdr-composer-drift-live-e2e.test.sh) printf '%s\n' live-harness-optin ;;
     fm-interrupt-composer-live-e2e.test.sh) printf '%s\n' live-harness-optin ;;
     fm-local-gate.test.sh) printf '%s\n' pure-contract-unit ;;
