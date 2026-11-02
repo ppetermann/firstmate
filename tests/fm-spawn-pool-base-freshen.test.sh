@@ -1120,6 +1120,7 @@ test_scout_base_branch_refused_on_gerrit_forge() {
   pass "a based scout on a forge=gerrit project is refused at spawn"
 }
 
+
 test_remote_seeded_home_spawns_from_treehouse_pool
 test_pool_slot_claim_follows_the_spawn_outcome
 test_refused_launch_leaves_the_pool_for_a_retry_and_a_second_task
