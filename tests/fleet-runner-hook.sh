@@ -15,6 +15,7 @@ eval "fm_upstream_$(declare -f family_for_basename)"
 family_for_basename() {
   case "$1" in
     fm-afk-shutdown-e2e.test.sh) printf '%s\n' afk ;;
+    fm-brief-fleet.test.sh) printf '%s\n' pure-contract-unit ;;
     fm-claude-trust-gate.test.sh) printf '%s\n' pure-contract-unit ;;
     fm-composer-drift-live-e2e.test.sh) printf '%s\n' live-harness-optin ;;
     fm-composer-pane-shapes.test.sh) printf '%s\n' pure-contract-unit ;;
@@ -27,6 +28,7 @@ family_for_basename() {
     fm-pr-verdict.test.sh) printf '%s\n' pr-forge ;;
     fm-signal-wait-lib.test.sh) printf '%s\n' watcher-wake-lock ;;
     fm-worker-tmp-root.test.sh) printf '%s\n' backend-dispatch ;;
+    fm-watch-triage-fleet.test.sh) printf '%s\n' watcher-wake-lock ;;
     *) fm_upstream_family_for_basename "$1" ;;
   esac
 }
