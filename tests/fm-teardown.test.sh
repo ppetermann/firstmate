@@ -54,10 +54,6 @@
 #   (x) transient lock cleared after first failed return      -> retry ALLOW
 #   (y) persistent lock (never clears, not provably stale)    -> REFUSE loudly
 #
-# Also covers the recorded grok/kimi turn-end token teardown reads before revoking a
-# harness's global registry entry.
-#   (z)  no token file / zero-byte token / populated token -> teardown proceeds
-#   (aa) present, non-empty, unreadable token              -> REFUSE, state retained
 # Nested repositories survive Treehouse's own `git clean -fd`:
 #   (z1) scout + nested clone + scratch file                 -> no untracked entries
 #   (z2) ship + nested clone, no --force                     -> REFUSE, bytes unchanged
@@ -901,284 +897,6 @@ test_local_only_merged_to_local_main_allows() {
   expect_code 0 "$rc" "merged-main: teardown should succeed when work is merged into local main"
   ! grep -q REFUSED "$case_dir/stderr" || fail "merged-main: teardown printed a REFUSED line"
   pass "local-only worktree with work merged into local main is torn down (no regression)"
-}
-
-# Run teardown with the harness registry homes pointed inside the case dir, so the
-# grok/kimi turn-end auth entries teardown revokes are the fixture's own and never
-# the runner's real ~/.grok or ~/.kimi-code. GROK_HOME is set explicitly rather than
-# left to its $HOME default so an ambient GROK_HOME cannot leak in.
-# Args: case_dir [extra args...]
-run_teardown_with_harness_homes() {
-  local case_dir=$1; shift
-  # FM_DATA_OVERRIDE keeps teardown's backlog and effort-ledger writes in the
-  # case dir rather than the code root's own home.
-  mkdir -p "$case_dir/data"
-  FM_ROOT_OVERRIDE="$ROOT" \
-  FM_STATE_OVERRIDE="$case_dir/state" \
-  FM_DATA_OVERRIDE="$case_dir/data" \
-  FM_CONFIG_OVERRIDE="$case_dir/config" \
-  HOME="$case_dir/harness-home" \
-  GROK_HOME="$case_dir/harness-home/.grok" \
-  PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
-    "$TEARDOWN" task-x1 "$@"
-}
-
-# Where a harness's global turn-end registry entry lands under the fake HOME above.
-# Args: case_dir harness
-turnend_auth_dir() {
-  local case_dir=$1 harness=$2
-  case "$harness" in
-    grok) printf '%s\n' "$case_dir/harness-home/.grok/hooks/fm-turn-end.d" ;;
-    kimi) printf '%s\n' "$case_dir/harness-home/.kimi-code/fm-turn-end.d" ;;
-    *) return 1 ;;
-  esac
-}
-
-# The recorded turn-end token (state/<id>.<harness>-turnend-token) names the global
-# registry entry teardown revokes. bin/fm-spawn.sh writes it with a plain redirect,
-# which truncates to zero bytes before the token lands, so a crash, a kill, or ENOSPC
-# in that window leaves an EMPTY token file behind. An empty token names no registry
-# entry, so it is the same nothing-to-revoke case as no token file at all and must not
-# wedge teardown - the pre-fix read treated EOF-on-empty as a read failure, and both
-# call sites abort teardown before any state is removed, so the task could never be
-# torn down again. All three states are asserted against the same teardown entry point
-# so the empty case cannot pass just because teardown ignores tokens entirely.
-test_turnend_token_states_do_not_wedge_teardown() {
-  local harness case_dir auth_dir token_path rc
-  for harness in grok kimi; do
-    case_dir=$(make_case "turnend-$harness-absent")
-    write_meta "$case_dir" local-only ship
-    set +e
-    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-    rc=$?
-    set -e
-    expect_code 0 "$rc" "turnend-$harness-absent: teardown should succeed with no recorded token"
-    assert_absent "$case_dir/state/task-x1.meta" \
-      "turnend-$harness-absent: teardown left the task meta behind"
-
-    case_dir=$(make_case "turnend-$harness-empty")
-    write_meta "$case_dir" local-only ship
-    token_path="$case_dir/state/task-x1.$harness-turnend-token"
-    : > "$token_path"
-    set +e
-    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-    rc=$?
-    set -e
-    expect_code 0 "$rc" \
-      "turnend-$harness-empty: zero-byte token wedged teardown (stderr: $(cat "$case_dir/stderr"))"
-    assert_absent "$token_path" "turnend-$harness-empty: empty token state survived teardown"
-    assert_absent "$case_dir/state/task-x1.meta" \
-      "turnend-$harness-empty: teardown left the task meta behind"
-
-    case_dir=$(make_case "turnend-$harness-populated")
-    write_meta "$case_dir" local-only ship
-    token_path="$case_dir/state/task-x1.$harness-turnend-token"
-    printf 'fm.abcdefabcdef\n' > "$token_path"
-    auth_dir=$(turnend_auth_dir "$case_dir" "$harness")
-    mkdir -p "$auth_dir"
-    : > "$auth_dir/fm.abcdefabcdef"
-    set +e
-    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-    rc=$?
-    set -e
-    expect_code 0 "$rc" "turnend-$harness-populated: teardown should succeed with a recorded token"
-    assert_absent "$auth_dir/fm.abcdefabcdef" \
-      "turnend-$harness-populated: registry entry survived teardown"
-    assert_absent "$token_path" "turnend-$harness-populated: token state survived teardown"
-  done
-  pass "absent, zero-byte, and populated turn-end tokens all let teardown proceed"
-}
-
-# The counterpart to the case above: tolerating an EMPTY token must not tolerate a
-# token that is present and non-empty but cannot be read, because that one really
-# does leave an unrevoked registry entry behind. Teardown must fail loudly and keep
-# every durable record so it can be retried once the file is readable.
-test_unreadable_turnend_token_refuses_before_removing_state() {
-  local harness case_dir auth_dir token_path rc
-  for harness in grok kimi; do
-    case_dir=$(make_case "turnend-$harness-unreadable")
-    write_meta "$case_dir" local-only ship
-    token_path="$case_dir/state/task-x1.$harness-turnend-token"
-    printf 'fm.abcdefabcdef\n' > "$token_path"
-    auth_dir=$(turnend_auth_dir "$case_dir" "$harness")
-    mkdir -p "$auth_dir"
-    : > "$auth_dir/fm.abcdefabcdef"
-    chmod 000 "$token_path"
-    if [ -r "$token_path" ]; then
-      chmod 600 "$token_path"
-      echo "skip: file modes do not deny reads here (running privileged); cannot stage an unreadable token"
-      return 0
-    fi
-
-    set +e
-    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-    rc=$?
-    set -e
-    chmod 600 "$token_path"
-    expect_code 1 "$rc" "turnend-$harness-unreadable: teardown should fail on an unreadable token"
-    assert_present "$auth_dir/fm.abcdefabcdef" \
-      "turnend-$harness-unreadable: teardown dropped the registry entry it could not resolve"
-    assert_present "$case_dir/state/task-x1.meta" \
-      "turnend-$harness-unreadable: teardown removed task state despite the failure"
-  done
-  pass "an unreadable non-empty turn-end token still fails teardown before any state removal"
-}
-
-# Install grok's global hook files (hook script + json + registry dir) so teardown's
-# maybe-retire has something to remove. Args: case_dir
-install_grok_global_hook() {
-  local case_dir=$1 grok_home auth_dir
-  grok_home="$case_dir/harness-home/.grok"
-  auth_dir="$grok_home/hooks/fm-turn-end.d"
-  mkdir -p "$auth_dir"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$grok_home/hooks/fm-turn-end.sh"
-  printf '{"hooks":{"Stop":[]}}\n' > "$grok_home/hooks/fm-turn-end.json"
-}
-
-# Install kimi's global hook via the real installer so remove validates cleanly.
-# Args: case_dir
-install_kimi_global_hook() {
-  local case_dir=$1 home config_dir
-  home="$case_dir/harness-home"
-  config_dir="$home/.kimi-code"
-  mkdir -p "$config_dir"
-  printf '# Kimi test config\ndefault_model = "test"\n' > "$config_dir/config.toml"
-  HOME="$home" "$ROOT/bin/fm-kimi-turnend-hook.sh" install \
-    || fail "kimi hook install failed during test setup"
-}
-
-# The last grok/kimi task teardown removes the global hook files, not just the
-# per-task registry entry. For each harness: install the global hook, populate
-# the registry with exactly one entry matching the task's token, run teardown,
-# and assert the global files are gone. A fresh spawn after removal reinstalls.
-test_last_turnend_task_teardown_removes_global_hook() {
-  local harness case_dir auth_dir token_path rc grok_home config_dir
-  for harness in grok kimi; do
-    case_dir=$(make_case "retire-last-$harness")
-    write_meta "$case_dir" local-only ship
-    token_path="$case_dir/state/task-x1.$harness-turnend-token"
-    printf 'fm.abcdefabcdef\n' > "$token_path"
-    auth_dir=$(turnend_auth_dir "$case_dir" "$harness")
-    if [ "$harness" = grok ]; then
-      install_grok_global_hook "$case_dir"
-    else
-      install_kimi_global_hook "$case_dir"
-    fi
-    mkdir -p "$auth_dir"
-    : > "$auth_dir/fm.abcdefabcdef"
-
-    set +e
-    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-    rc=$?
-    set -e
-    expect_code 0 "$rc" "retire-last-$harness: teardown should succeed"
-    assert_absent "$auth_dir/fm.abcdefabcdef" \
-      "retire-last-$harness: registry entry survived teardown"
-
-    if [ "$harness" = grok ]; then
-      grok_home="$case_dir/harness-home/.grok"
-      assert_absent "$grok_home/hooks/fm-turn-end.sh" \
-        "retire-last-$harness: grok hook script survived last-task teardown"
-      assert_absent "$grok_home/hooks/fm-turn-end.json" \
-        "retire-last-$harness: grok hook json survived last-task teardown"
-      assert_absent "$grok_home/hooks/fm-turn-end.d" \
-        "retire-last-$harness: grok registry dir survived last-task teardown"
-    else
-      config_dir="$case_dir/harness-home/.kimi-code"
-      assert_absent "$config_dir/fm-turn-end.sh" \
-        "retire-last-kimi: kimi hook script survived last-task teardown"
-      assert_absent "$config_dir/fm-turn-end.d" \
-        "retire-last-kimi: kimi registry dir survived last-task teardown"
-      ! grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config_dir/config.toml" \
-        || fail "retire-last-kimi: config.toml Firstmate region survived last-task teardown"
-    fi
-  done
-  pass "last grok/kimi task teardown retires the global hook files"
-}
-
-# A non-last teardown (other tasks' tokens still in the registry) preserves the
-# global hook files. For each harness: install the global hook, populate the
-# registry with TWO entries, run teardown (removes one), and assert the global
-# files survive along with the remaining entry.
-test_non_last_turnend_task_teardown_preserves_global_hook() {
-  local harness case_dir auth_dir token_path rc grok_home config_dir
-  for harness in grok kimi; do
-    case_dir=$(make_case "retire-nonlast-$harness")
-    write_meta "$case_dir" local-only ship
-    token_path="$case_dir/state/task-x1.$harness-turnend-token"
-    printf 'fm.abcdefabcdef\n' > "$token_path"
-    auth_dir=$(turnend_auth_dir "$case_dir" "$harness")
-    if [ "$harness" = grok ]; then
-      install_grok_global_hook "$case_dir"
-    else
-      install_kimi_global_hook "$case_dir"
-    fi
-    mkdir -p "$auth_dir"
-    : > "$auth_dir/fm.abcdefabcdef"
-    : > "$auth_dir/fm.ghijklghijkl"
-
-    set +e
-    run_teardown_with_harness_homes "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-    rc=$?
-    set -e
-    expect_code 0 "$rc" "retire-nonlast-$harness: teardown should succeed"
-    assert_absent "$auth_dir/fm.abcdefabcdef" \
-      "retire-nonlast-$harness: removed task's entry survived teardown (should not)"
-    assert_present "$auth_dir/fm.ghijklghijkl" \
-      "retire-nonlast-$harness: remaining task's entry was swept by teardown"
-
-    if [ "$harness" = grok ]; then
-      grok_home="$case_dir/harness-home/.grok"
-      assert_present "$grok_home/hooks/fm-turn-end.sh" \
-        "retire-nonlast-$harness: grok hook script was removed while tasks remain"
-      assert_present "$grok_home/hooks/fm-turn-end.json" \
-        "retire-nonlast-$harness: grok hook json was removed while tasks remain"
-    else
-      config_dir="$case_dir/harness-home/.kimi-code"
-      assert_present "$config_dir/fm-turn-end.sh" \
-        "retire-nonlast-kimi: kimi hook script was removed while tasks remain"
-      grep -q 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config_dir/config.toml" \
-        || fail "retire-nonlast-kimi: config.toml Firstmate region was removed while tasks remain"
-    fi
-  done
-  pass "non-last grok/kimi task teardown preserves the global hook files"
-}
-
-# Kimi's remove subcommand refuses when the registry is non-empty, so a
-# spawn-teardown race can never sweep another task's auth token via rmtree.
-test_kimi_hook_remove_refuses_nonempty_registry() {
-  local home config_dir hook_dir registry rc out
-  home="$TMP_ROOT/kimi-remove-nonempty"
-  config_dir="$home/.kimi-code"
-  hook_dir="$config_dir"
-  registry="$config_dir/fm-turn-end.d"
-  mkdir -p "$config_dir"
-  printf '# Kimi test config\ndefault_model = "test"\n' > "$config_dir/config.toml"
-  HOME="$home" "$ROOT/bin/fm-kimi-turnend-hook.sh" install \
-    || fail "kimi hook install failed during test setup"
-  mkdir -p "$registry"
-  : > "$registry/fm.aaaaaaaaaaaa"
-
-  set +e
-  out=$(HOME="$home" "$ROOT/bin/fm-kimi-turnend-hook.sh" remove 2>&1)
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "kimi remove accepted a non-empty registry"
-  assert_contains "$out" "not empty" "kimi remove non-empty refusal lacked its reason"
-  assert_present "$registry/fm.aaaaaaaaaaaa" \
-    "kimi remove deleted a registry entry despite refusing"
-  assert_present "$hook_dir/fm-turn-end.sh" \
-    "kimi remove deleted the hook script despite refusing"
-
-  rm -f "$registry/fm.aaaaaaaaaaaa"
-  set +e
-  HOME="$home" "$ROOT/bin/fm-kimi-turnend-hook.sh" remove 2>&1
-  rc=$?
-  set -e
-  expect_code 0 "$rc" "kimi remove should succeed once the registry is empty"
-  assert_absent "$hook_dir/fm-turn-end.sh" \
-    "kimi remove did not remove the hook script after the registry emptied"
-  pass "kimi remove refuses a non-empty registry and succeeds once it is empty"
 }
 
 test_no_mistakes_origin_remote_allows() {
@@ -4563,45 +4281,6 @@ test_teardown_records_unavailable_spend_for_a_gone_worktree() {
   pass "teardown records unavailable pipeline spend for an owned ship task whose copy is gone"
 }
 
-# Cleanup appends the task's dispatch, ready, and landed times, with the
-# planner's backlog estimate, to the effort ledger (bin/fm-effort-ledger.sh)
-# while the task record and status still exist.
-test_teardown_records_the_task_effort() {
-  local case_dir rc=0 ledger
-  case_dir=$(make_case effort-ledger)
-  write_meta "$case_dir" local-only ship
-  land_shippable_commit "$case_dir"
-  seed_backlog_in_flight "$case_dir"
-  tasks-axi update task-x1 --body "local-only. estimate=40m" --file "$case_dir/data/backlog.md" >/dev/null
-  printf 'working [at=1792900000]: setup\ndone [at=1792901200]: ready in branch\n' > "$case_dir/state/task-x1.status"
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  expect_code 0 "$rc" "effort-ledger: teardown should succeed"
-  ledger=$case_dir/data/effort-ledger.jsonl
-  assert_present "$ledger" "effort-ledger: teardown left no effort record"
-  jq -e '
-    .task == "task-x1" and .kind == "ship" and .mode == "local-only"
-    and .dispatched_at == "2026-10-25T03:46:40Z" and .ready_at == "2026-10-25T04:06:40Z"
-    and .ready_source == "done-status" and .landed_source == "teardown" and .estimate_min == 40
-  ' "$ledger" >/dev/null || fail "effort-ledger: the recorded effort is wrong: $(cat "$ledger")"
-  assert_absent "$case_dir/state/task-x1.meta" "effort-ledger: teardown kept the task record"
-  pass "teardown records the task's effort before removing its record"
-}
-
-# A ledger that cannot be written warns and never stops the cleanup.
-test_teardown_continues_when_the_effort_ledger_cannot_be_written() {
-  local case_dir rc=0
-  case_dir=$(make_case effort-ledger-unwritable)
-  write_meta "$case_dir" no-mistakes ship
-  land_shippable_commit "$case_dir"
-  mkdir -p "$case_dir/data/effort-ledger.jsonl"
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  expect_code 0 "$rc" "effort-ledger-unwritable: teardown should succeed"
-  assert_grep "could not record task-x1's effort" "$case_dir/stderr" \
-    "effort-ledger-unwritable: teardown did not warn about the failed record"
-  assert_absent "$case_dir/state/task-x1.meta" "effort-ledger-unwritable: teardown kept the task record"
-  pass 'teardown continues when the effort ledger cannot be written'
-}
-
 test_parked_own_run_is_aborted_before_teardown() {
   local case_dir rc head
   case_dir=$(make_case parked-run-abort)
@@ -6295,8 +5974,6 @@ test_teardown_closes_a_gitlab_task_with_its_merge_request_url_as_a_note
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
-test_turnend_token_states_do_not_wedge_teardown
-test_unreadable_turnend_token_refuses_before_removing_state
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
@@ -6380,8 +6057,6 @@ test_fractional_legacy_retry_wait_refuses_without_arithmetic_error
 test_teardown_records_the_task_pipeline_spend
 test_teardown_skips_pipeline_spend_when_disabled
 test_teardown_records_unavailable_spend_for_a_gone_worktree
-test_teardown_records_the_task_effort
-test_teardown_continues_when_the_effort_ledger_cannot_be_written
 test_parked_own_run_is_aborted_before_teardown
 test_parked_run_in_a_resolved_workspace_home_is_aborted
 test_parked_own_run_concludes_on_passed_with_override_after_abort
@@ -6405,9 +6080,6 @@ test_empty_status_after_abort_refuses_unconfirmed
 test_not_found_status_after_abort_confirms_completion
 test_another_branchs_parked_run_is_never_touched
 test_own_autonomous_run_is_left_alone
-test_last_turnend_task_teardown_removes_global_hook
-test_non_last_turnend_task_teardown_preserves_global_hook
-test_kimi_hook_remove_refuses_nonempty_registry
 test_leaked_worktree_process_is_reaped
 test_leaked_tasktmp_process_is_reaped
 test_lsof_absent_reaps_tmux_process_group

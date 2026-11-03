@@ -31,6 +31,7 @@ family_for_basename() {
     fm-pr-check-security-fleet.test.sh) printf '%s\n' pr-forge ;;
     fm-pr-verdict.test.sh) printf '%s\n' pr-forge ;;
     fm-signal-wait-lib.test.sh) printf '%s\n' watcher-wake-lock ;;
+    fm-teardown-fleet.test.sh) printf '%s\n' pr-forge ;;
     fm-task-inbox-fleet.test.sh) printf '%s\n' watcher-wake-lock ;;
     fm-watch-checkpoint-fleet.test.sh) printf '%s\n' watcher-wake-lock ;;
     fm-worker-tmp-root.test.sh) printf '%s\n' backend-dispatch ;;
