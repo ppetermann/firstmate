@@ -52,7 +52,7 @@ for case_label in $cases; do
     mv "$spawn_root/bin/fm-busy-event.sh" "$spawn_root/bin/fm-busy-event-real.sh"
     # Inject one command stall at the generated extension's executable boundary.
     # The SDK, extension, deadline owner, and subsequent writer calls remain real.
-    fm_fakebin_write "$spawn_root/bin/fm-busy-event.sh"  <<SH
+    cat > "$spawn_root/bin/fm-busy-event.sh" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = stream ] && [ "\${4:-}" = progress ] && [ ! -e "$fault_dir/once" ]; then
   touch "$fault_dir/once"

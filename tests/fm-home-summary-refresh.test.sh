@@ -43,7 +43,7 @@ trap 'cleanup; exit 143' TERM
 
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 
-fm_fakebin_write "$FAKEBIN/tmux" <<'SH'
+cat > "$FAKEBIN/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   display-message) printf '%%1\n' ;;
@@ -51,7 +51,7 @@ case "${1:-}" in
 esac
 exit 0
 SH
-fm_fakebin_write "$FAKEBIN/no-mistakes" <<'SH'
+cat > "$FAKEBIN/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FM_TEST_NM_MARKER:-}" ]; then
   printf '%s\n' "$$" > "$FM_TEST_NM_MARKER"
@@ -441,7 +441,7 @@ pass "writer kill and replacement preserve an atomic JSON ledger"
 # producer records the failure and returns success without touching the ledger.
 FAILBIN="$TMP_ROOT/failbin"
 mkdir -p "$FAILBIN"
-fm_fakebin_write "$FAILBIN/jq" <<'SH'
+cat > "$FAILBIN/jq" <<'SH'
 #!/usr/bin/env bash
 exit 7
 SH
@@ -492,7 +492,7 @@ pass "best-effort refresh bounds publication lock acquisition"
 HANGBIN="$TMP_ROOT/hangbin"
 REAL_JQ=$(command -v jq)
 mkdir -p "$HANGBIN"
-fm_fakebin_write "$HANGBIN/jq" <<'SH'
+cat > "$HANGBIN/jq" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in
@@ -517,7 +517,7 @@ pass "best-effort refresh bounds validation and publication"
 MKBIN="$TMP_ROOT/mkdir-hangbin"
 REAL_MKDIR=$(command -v mkdir)
 mkdir -p "$MKBIN"
-fm_fakebin_write "$MKBIN/mkdir" <<'SH'
+cat > "$MKBIN/mkdir" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   if [ "$arg" = "$FM_TEST_STALLED_STATE" ]; then
@@ -542,7 +542,7 @@ SIGNALBIN="$TMP_ROOT/signalbin"
 SIGNAL_MARKER="$TMP_ROOT/worker-signaled"
 REAL_ENV=$(command -v env)
 mkdir -p "$SIGNALBIN"
-fm_fakebin_write "$SIGNALBIN/env" <<'SH'
+cat > "$SIGNALBIN/env" <<'SH'
 #!/usr/bin/env bash
 if [ ! -e "$FM_TEST_SIGNAL_MARKER" ]; then
   : > "$FM_TEST_SIGNAL_MARKER"
@@ -1010,7 +1010,7 @@ cat > "$ORDER_HOME/data/backlog.md" <<'EOF'
 ## Done
 EOF
 REAL_DATE=$(command -v date)
-fm_fakebin_write "$ORDER_DATE_BIN/date" <<'SH'
+cat > "$ORDER_DATE_BIN/date" <<'SH'
 #!/usr/bin/env bash
 if [ "$#" -eq 2 ] && [ "$1" = -u ] && [ "$2" = +%Y-%m-%dT%H:%M:%SZ ]; then
   python3 - "$FM_TEST_ORDER_START" "$FM_TEST_ORDER_EARLY" "$FM_TEST_ORDER_LATE" <<'PY'

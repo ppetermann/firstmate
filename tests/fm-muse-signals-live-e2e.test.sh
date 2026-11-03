@@ -127,7 +127,7 @@ mkdir -p "$LAB/bin" "$LAB/config" "$LAB/data" "$LAB/workspace"
 git -C "$LAB/workspace" init -q || fail "could not initialize the isolated Muse workspace"
 WORKSPACE=$(cd "$LAB/workspace" && pwd -P) || fail "could not resolve the isolated Muse workspace"
 
-fm_fakebin_write "$LAB/bin/tmux" <<SH
+cat > "$LAB/bin/tmux" <<SH
 #!/usr/bin/env bash
 exec "$REAL_TMUX" -L "$SOCKET" "\$@"
 SH

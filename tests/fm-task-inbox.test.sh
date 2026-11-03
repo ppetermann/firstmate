@@ -315,7 +315,7 @@ test_ring_skips_dead_agent() {
 # FM_FAKE_DROP_ENTERS still holds a count of Enters to swallow.
 make_composer_stub() {  # <dir>
   mkdir -p "$1/fakebin"
-  fm_fakebin_write "$1/fakebin/tmux" <<'SH'
+  cat > "$1/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -701,7 +701,7 @@ test_writer_retries_after_a_vanished_lock_collision() {
   marker="$TMP_ROOT/vanished-lock-race/first-ln-failed"
   mkdir -p "$state" "$fakebin"
   real_ln=$(command -v ln)
-  fm_fakebin_write "$fakebin/ln" <<'SH'
+  cat > "$fakebin/ln" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ ! -e "$FM_FAKE_LN_MARKER" ]; then
@@ -956,7 +956,7 @@ test_watcher_busy_bookkeeping_failure_surfaces() {
 block_busy_reset() {  # <case-dir>
   local real_rm
   real_rm=$(command -v rm)
-  fm_fakebin_write "$1/fakebin/rm" <<SH
+  cat > "$1/fakebin/rm" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   case "\$arg" in */t1.inbox/.busy-state) exit 1 ;; esac

@@ -97,7 +97,7 @@ test_pi_stream_extension_activation_and_lifecycle() {
     esac
     rec=$(make_spawn_case "stream-$label" pi "$id")
     read_case_record "$rec"
-    fm_fakebin_write "$FAKEBIN_DIR/pi"  <<SH
+    cat > "$FAKEBIN_DIR/pi" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = --version ]; then printf '%s\\n' '$version'; fi
 exit 0
@@ -297,7 +297,7 @@ test_opencode_plugin_semantic_lifecycle() {
   # busy-state plugin (OpenCode 1 genuinely needs a busy plugin, so it keeps the
   # exact wiring it had before the OpenCode 2 port). Report 1.18.32 so this test
   # exercises that OpenCode 1 plugin; the v2 execution test covers major >= 2.
-  fm_fakebin_write "$FAKEBIN_DIR/opencode" <<'SH'
+  cat > "$FAKEBIN_DIR/opencode" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' "${FM_FAKE_OPENCODE_VERSION:-1.18.32}"
@@ -374,7 +374,7 @@ test_opencode_plugin_v2_execution_lifecycle() {
   # bare exit-0 that reports nothing, so the probe would fall back to the 1.x
   # session.status plugin. Report a 2.x version (as the dispatch-profile suite
   # does) so the 2.x plugin is generated and these events reach a handler.
-  fm_fakebin_write "$FAKEBIN_DIR/opencode" <<'SH'
+  cat > "$FAKEBIN_DIR/opencode" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' "${FM_FAKE_OPENCODE_VERSION:-2.0.21}"
@@ -753,7 +753,7 @@ secondmate_stall_watch() { # <primary> <id> <out> [seconds]
   rm -f "$state/.watcher-down"
   fakebin="$primary/watch-fake-$id"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<SH
+  cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\${1:-}" in
   list-windows)

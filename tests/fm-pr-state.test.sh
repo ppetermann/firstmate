@@ -22,7 +22,7 @@ OLD_HEAD_2=4dc2291e6969de1bf204fbdb53c9e57a8353d4e2
 # GitHub is still computing one.
 # It evaluates with the local jq, while gh itself embeds gojq; the live guard in
 # tests/fm-pr-state-live-e2e.test.sh runs the real engine.
-fm_fakebin_write "$FAKEBIN/gh" <<'SH'
+cat > "$FAKEBIN/gh" <<'SH'
 #!/usr/bin/env bash
 set -o pipefail
 head=c2eac54c17a1ddc2633ad51b83e21e5fe888142e

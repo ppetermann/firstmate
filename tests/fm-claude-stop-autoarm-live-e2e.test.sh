@@ -62,7 +62,7 @@ cat > "$PROJECT/.claude/settings.local.json" <<'JSON'
 }
 JSON
 
-fm_fakebin_write "$PROJECT/bin/tool-logger.sh" <<'SH'
+cat > "$PROJECT/bin/tool-logger.sh" <<'SH'
 #!/usr/bin/env bash
 P=$(cat 2>/dev/null || true)
 printf '%s\n' "$P" | jq -r '.tool_input.command // "unknown"' >> "$FM_HOME/state/tool-calls.log" 2>/dev/null
@@ -79,7 +79,7 @@ printf '9999999\n' > "$HOME_DIR/state/.lock"
 # Rapid-death arm fixture: started plus an immediate actionable reason, the
 # exact spent-Stop edge shape. Runs 1-2 close actionable; run 3 closes clean so
 # a misbehaving session can never loop forever.
-fm_fakebin_write "$PROJECT/bin/fm-watch-arm.sh" <<'SH'
+cat > "$PROJECT/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 N=$(cat "$FM_HOME/state/arm-count" 2>/dev/null || echo 0); N=$((N+1)); echo "$N" > "$FM_HOME/state/arm-count"
 echo "arm-run=$N pid=$$" >> "$FM_HOME/state/arm-ran"
@@ -97,7 +97,7 @@ SH
 # Drain fixture: session start invokes it once, then the model invokes it once
 # per rewake. The third total drain ends the in-flight need after two complete
 # Stop-owned cycles.
-fm_fakebin_write "$PROJECT/bin/fm-wake-drain.sh" <<'SH'
+cat > "$PROJECT/bin/fm-wake-drain.sh" <<'SH'
 #!/usr/bin/env bash
 N=$(cat "$FM_HOME/state/drain-count" 2>/dev/null || echo 0); N=$((N+1)); echo "$N" > "$FM_HOME/state/drain-count"
 echo "drain-run=$N" >> "$FM_HOME/state/drain-ran"

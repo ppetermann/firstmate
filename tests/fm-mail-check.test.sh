@@ -63,7 +63,7 @@ enter_mailbox() {
   mkdir -p "$home/bin" "$FAKEBIN"
   [ -e "$home/bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$home/bin/fm-wake-lib.sh"
   [ -e "$home/bin/fm-path-lib.sh" ] || ln -s "$ROOT/bin/fm-path-lib.sh" "$home/bin/fm-path-lib.sh"
-  fm_fakebin_write "$FAKEBIN/python3" < <(printf '%s\n' "$generator")
+  printf '%s\n' "$generator" > "$FAKEBIN/python3"
   chmod +x "$FAKEBIN/python3"
 }
 
@@ -242,7 +242,7 @@ test_repeated_failure_that_queued_new_mail_still_wakes() {
   for lib in fm-timeout-lib.sh fm-pr-lib.sh fm-line-cap-lib.sh fm-check-lib.sh; do
     [ -e "$tmpbin/$lib" ] || ln -s "$ROOT/bin/$lib" "$tmpbin/$lib"
   done
-  fm_fakebin_write "$tmpbin/fm-mail.sh" < <(printf '%s\n' '#!/usr/bin/env bash' 'echo "fm-mail: woke for 42"' 'echo "fm-mail: connection refused" >&2' 'exit 1')
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "fm-mail: woke for 42"' 'echo "fm-mail: connection refused" >&2' 'exit 1' > "$tmpbin/fm-mail.sh"
   chmod +x "$tmpbin/fm-mail.sh"
 
   out="$home/out1.txt"
@@ -269,7 +269,7 @@ test_large_poll_output_is_drained() {
   for lib in fm-timeout-lib.sh fm-pr-lib.sh fm-line-cap-lib.sh fm-check-lib.sh; do
     ln -s "$ROOT/bin/$lib" "$tmpbin/$lib"
   done
-  fm_fakebin_write "$tmpbin/fm-mail.sh" <<'SH'
+  cat > "$tmpbin/fm-mail.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'fm-mail: woke for 42\n'
 case "$FM_TEST_POLL_SHAPE" in
@@ -320,7 +320,7 @@ test_repeated_timeout_still_wakes() {
   for lib in fm-timeout-lib.sh fm-pr-lib.sh fm-line-cap-lib.sh fm-check-lib.sh; do
     [ -e "$tmpbin/$lib" ] || ln -s "$ROOT/bin/$lib" "$tmpbin/$lib"
   done
-  fm_fakebin_write "$tmpbin/fm-mail.sh" < <(printf '%s\n' '#!/usr/bin/env bash' 'exit 124')
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 124' > "$tmpbin/fm-mail.sh"
   chmod +x "$tmpbin/fm-mail.sh"
 
   out="$home/out1.txt"
@@ -397,7 +397,7 @@ test_repeated_status2_stays_queued_still_wakes() {
   for lib in fm-timeout-lib.sh fm-pr-lib.sh fm-line-cap-lib.sh fm-check-lib.sh; do
     [ -e "$tmpbin/$lib" ] || ln -s "$ROOT/bin/$lib" "$tmpbin/$lib"
   done
-  fm_fakebin_write "$tmpbin/fm-mail.sh" <<EOF
+  cat > "$tmpbin/fm-mail.sh" <<EOF
 #!/usr/bin/env bash
 printf '1\t1\tcheck\tmail:9\tcheck: mail 9 - stays queued\\n' >> "\$FM_HOME/state/.wake-queue"
 echo "fm-mail: wake for 9 could not be rolled back or durably recorded; the wake stays queued and the next poll heals it - a possible duplicate, never a lost mail" >&2

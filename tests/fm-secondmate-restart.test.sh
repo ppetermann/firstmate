@@ -195,7 +195,7 @@ add_repo_backed_mate() {  # <case-dir> <id> [harness] [backend]
     git clone -q "$dir/origin.git" "$dir/seed" 2>/dev/null
     mkdir -p "$dir/seed/bin" "$dir/seed/.agents/skills"
     printf '# agents\n' > "$dir/seed/AGENTS.md"
-    fm_fakebin_write "$dir/seed/bin/tool.sh" < <(printf 'echo a\n')
+    printf 'echo a\n' > "$dir/seed/bin/tool.sh"
     printf 's1\n' > "$dir/seed/.agents/skills/note.md"
     # The operational dirs a live home carries are gitignored in a real firstmate
     # checkout; without that the home would read as dirty and be skipped.
@@ -338,7 +338,7 @@ test_answer_between_resolution_and_timeout_wins() {
   # its unsuccessful status scan. The real pending-reply machinery publishes
   # that scan signature with mv; this wrapper appends the correlated answer only
   # after that publication, reproducing the boundary race deterministically.
-  fm_fakebin_write "$dir/fakebin/mv" <<'SH'
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 set -u
 /bin/mv "$@" || exit $?
@@ -656,7 +656,7 @@ test_native_ultra_restart_keeps_local_and_remote_profiles() {
   arm_answer "$dir" sm1
   printf 'pi codex-native/gpt-6-astra ultra\n' > "$dir/home/config/secondmate-harness"
   printf 'pi' > "$dir/fake/becomes"
-  fm_fakebin_write "$dir/fakebin/pi" < <(printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n')
+  printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n' > "$dir/fakebin/pi"
   chmod +x "$dir/fakebin/pi"
   out=$(run_restart "$dir" sm1); rc=$?
   expect_code 0 "$rc" "native local restart failed: $out"
@@ -820,7 +820,7 @@ test_result_published_while_reaping_is_honored() {
   dir=$(new_case result-race)
   setup_remote_case "$dir" sm1 slow-relaunch
   export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm1.status"
-  fm_fakebin_write "$dir/fakebin/ps" <<'SH'
+  cat > "$dir/fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 if [ -e "$FM_FAKE_DIR/remote-relaunch-start" ] && [ ! -e "$FM_FAKE_DIR/result-race-injected" ]; then
   result=$(find "$FM_HOME/state" -maxdepth 2 -name '0.result' -print -quit)

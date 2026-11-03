@@ -39,7 +39,7 @@ rmdir "$FAKEBIN-root/bin" "$FAKEBIN-root"
 ln -sf "$(command -v git)" "$FAKEBIN/git"
 ln -sf "$(command -v jq)" "$FAKEBIN/jq"
 ln -sf "$(command -v node)" "$FAKEBIN/node"
-fm_fakebin_write "$FAKEBIN/omp"  <<'SH'
+cat > "$FAKEBIN/omp" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" != models ] || printf '%s\n' '{"models":[{"provider":"anthropic","id":"claude-test","selector":"anthropic/claude-test"}]}'
 exit 0
@@ -47,7 +47,7 @@ SH
 chmod +x "$FAKEBIN/omp"
 
 SSH_LOG="$TMP_ROOT/ssh-hops.log"
-fm_fakebin_write "$FAKEBIN/fake-ssh"  <<SH
+cat > "$FAKEBIN/fake-ssh" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$SSH_LOG"
 exit 255

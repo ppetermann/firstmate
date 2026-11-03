@@ -15,7 +15,7 @@ mkdir -p "$FAKE_STATE"
 printf '%s\n' '/home/test/.config/herdr/herdr.sock' > "$FAKE_STATE/default-socket"
 : > "$FAKE_LOG"
 
-fm_fakebin_write "$FAKEBIN/herdr" <<'SH'
+cat > "$FAKEBIN/herdr" <<'SH'
 #!/usr/bin/env bash
 set -eu
 printf '%s\n' "$*" >> "$FM_FAKE_HERDR_LOG"
@@ -253,7 +253,7 @@ test_failed_delete_retains_tripwire() {
 
 test_timed_out_provision_cancels_late_launch() {
   local name="fm-lab-late-launch-$$" status=0
-  fm_fakebin_write "$FAKEBIN/sleep" <<'SH'
+  cat > "$FAKEBIN/sleep" <<'SH'
 #!/usr/bin/env bash
 if [ "${FM_FAKE_HERDR_FAST_POLL:-}" = 1 ]; then
   while [ -n "${FM_FAKE_HERDR_WAIT_MARKER:-}" ] && [ ! -f "$FM_FAKE_HERDR_WAIT_MARKER" ]; do
@@ -326,7 +326,7 @@ test_viewer_start_cancels_an_unrecorded_launcher() {
   local name="fm-lab-viewer-late-$$" out status=0 launcher_pid
   local started="$TMP_ROOT/viewer-launcher-started"
   run_with_fake fm_herdr_lab_provision "$name" || fail "viewer-late fixture provision failed"
-  fm_fakebin_write "$FAKEBIN/python3" <<'SH'
+  cat > "$FAKEBIN/python3" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" > "$FM_FAKE_VIEWER_STARTED"
 exec "$FM_FAKE_HERDR_REAL_SLEEP" 20
@@ -347,7 +347,7 @@ SH
 test_viewer_timeout_allows_launcher_escalation() {
   local launcher_pid started="$TMP_ROOT/viewer-grace-started"
   local terminating="$TMP_ROOT/viewer-grace-terminating" completed="$TMP_ROOT/viewer-grace-completed"
-  fm_fakebin_write "$FAKEBIN/viewer-launcher" <<'SH'
+  cat > "$FAKEBIN/viewer-launcher" <<'SH'
 #!/usr/bin/env bash
 trap 'printf "" > "$FM_FAKE_VIEWER_TERMINATING"; "$FM_FAKE_HERDR_REAL_SLEEP" 1.2; printf "" > "$FM_FAKE_VIEWER_COMPLETED"; exit 0' TERM
 printf '' > "$FM_FAKE_VIEWER_STARTED"
@@ -373,7 +373,7 @@ test_viewer_start_requires_its_owned_process() {
   local name="fm-lab-viewer-ownership-$$" out status=0 marker="$TMP_ROOT/viewer-launched"
   run_with_fake fm_herdr_lab_provision "$name" || fail "viewer-ownership fixture provision failed"
   printf '%s\n' cleared > "$FAKE_STATE/$name.foreground"
-  fm_fakebin_write "$FAKEBIN/python3" <<'SH'
+  cat > "$FAKEBIN/python3" <<'SH'
 #!/usr/bin/env bash
 : > "$FM_FAKE_VIEWER_MARKER"
 exit 0
@@ -455,7 +455,7 @@ test_interrupted_viewer_start_cancels_launcher() {
   local name="fm-lab-viewer-interrupt-$$" command_pid launcher_pid status=0
   local started="$TMP_ROOT/viewer-interrupt-started" attached="$TMP_ROOT/viewer-interrupt-attached"
   run_with_fake fm_herdr_lab_provision "$name" || fail "viewer-interrupt fixture provision failed"
-  fm_fakebin_write "$FAKEBIN/python3" <<'SH'
+  cat > "$FAKEBIN/python3" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" > "$FM_FAKE_VIEWER_STARTED"
 "$FM_FAKE_HERDR_REAL_SLEEP" 0.5

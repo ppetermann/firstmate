@@ -1719,7 +1719,7 @@ test_undated_unprocessed_outcome_surfaces_and_stays_unprocessed() {
   rm "$fake_root/bin/fm-branch-outcome.sh"
   # A store whose unprocessed listing breaks its contract by dropping the age
   # while $FM_HOME/strip-age exists.
-  fm_fakebin_write "$fake_root/bin/fm-branch-outcome.sh" <<SH
+  cat > "$fake_root/bin/fm-branch-outcome.sh" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = unprocessed ] && [ -e "\$FM_HOME/strip-age" ]; then
   set -o pipefail
@@ -1808,7 +1808,7 @@ test_branch_default_on_heartbeat_afk_and_fallback() {
   cp "$ROOT/bin/fm-branch-outcome.sh" "$ROOT/bin/fm-classify-lib.sh" \
     "$ROOT/bin/fm-lease.sh" "$ROOT/bin/fm-lease-lib.sh" "$ROOT/bin/fm-timeout-lib.sh" \
     "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-path-lib.sh" "$ROOT/bin/fm-wake-grant.sh" "$broken/bin/"
-  fm_fakebin_write "$broken/bin/fm-branch-prompt.sh" <<'SH'
+  cat > "$broken/bin/fm-branch-prompt.sh" <<'SH'
 #!/usr/bin/env bash
 echo "synthetic generator failure" >&2
 exit 1
@@ -2310,7 +2310,7 @@ test_away_unchanged_held_outcome_reaches_the_captain_once_until_a_new_event() {
   old=$(( $(date +%s) - 600 ))
   perl -e 'my $t = shift; utime $t, $t, @ARGV or exit 1' "$old" "$home/state/held.meta" "$home/state/held.status" \
     || fail "fixture: could not age the held task's records"
-  printf '#!/usr/bin/env bash\nprintf "state: done · source: fake\\n"\n' | fm_fakebin_write "$home/fakebin/fm-crew-state.sh"
+  printf '#!/usr/bin/env bash\nprintf "state: done · source: fake\\n"\n' > "$home/fakebin/fm-crew-state.sh"
   chmod +x "$home/fakebin/fm-crew-state.sh"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
@@ -4392,7 +4392,7 @@ test_replacement_activation_cleans_leases_and_retries_failure() {
   real_bash=$(command -v bash)
   mkdir -p "$home/state" "$home/config" "$fakebin"
   install_pi_branch_extension_fixture "$repo"
-  fm_fakebin_write "$fakebin/bash" <<'SH'
+  cat > "$fakebin/bash" <<'SH'
 #!/bin/sh
 if [ "$1" = "$FM_TEST_LEASE_SCRIPT" ] && [ ! -e "$FM_TEST_FAIL_MARKER" ]; then
   : > "$FM_TEST_FAIL_MARKER"
@@ -5824,7 +5824,7 @@ test_session_replacement_during_delivery_neither_loses_nor_duplicates() {
   real_ps=$(command -v ps)
   mkdir -p "$home/state" "$home/config" "$fakebin"
   install_pi_branch_extension_fixture "$repo"
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/bin/sh
 if [ -f "$FM_TEST_PS_ARM" ]; then
   rm -f "$FM_TEST_PS_ARM"
@@ -5941,7 +5941,7 @@ test_store_failure_during_delivery_neither_loses_nor_duplicates() {
   # delivery meets a real failing script rather than a stubbed return value.
   # The driver arms it through that file because the extension snapshots its
   # child environment when it loads.
-  fm_fakebin_write "$fakebin/bash" <<'SH'
+  cat > "$fakebin/bash" <<'SH'
 #!/bin/sh
 armed=$(cat "$FM_TEST_FAIL_ARM" 2>/dev/null || printf '')
 if [ -n "$armed" ] && [ "$1" = "$FM_TEST_OUTCOME_SCRIPT" ] && [ "$2" = "$armed" ]; then
@@ -6036,7 +6036,7 @@ test_mark_read_failure_keeps_routine_redelivery_and_captain_deduplication() {
   real_bash=$(command -v bash)
   mkdir -p "$home/state" "$home/config" "$fakebin"
   install_pi_branch_extension_fixture "$repo"
-  fm_fakebin_write "$fakebin/bash" <<'SH'
+  cat > "$fakebin/bash" <<'SH'
 #!/bin/sh
 armed=$(cat "$FM_TEST_FAIL_ARM" 2>/dev/null || printf '')
 if [ -n "$armed" ] && [ "$1" = "$FM_TEST_OUTCOME_SCRIPT" ] && [ "$2" = "$armed" ]; then

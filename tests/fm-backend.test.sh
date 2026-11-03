@@ -64,7 +64,7 @@ EOF
 # cmux tab would otherwise leak a bundle-id or ancestry match into results).
 FAKE_NONDARWIN_BIN="$TMP_ROOT/fake-nondarwin-bin"
 mkdir -p "$FAKE_NONDARWIN_BIN"
-fm_fakebin_write "$FAKE_NONDARWIN_BIN/uname" < <(printf '#!/bin/sh\necho Linux\n')
+printf '#!/bin/sh\necho Linux\n' > "$FAKE_NONDARWIN_BIN/uname"
 chmod +x "$FAKE_NONDARWIN_BIN/uname"
 
 # make_cmux_fallback_fakebin: PATH fakes for the DETECTING side of the cmux
@@ -806,7 +806,7 @@ test_resolve_selector_three_forms() {
   assert_contains "$out" "no metadata for fm-missing" "missing-meta error text changed"
 
   fakebin="$TMP_ROOT/resolve-fakebin"; mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) printf 'firstmate:adhoc\nother:otherwin\n' ;;

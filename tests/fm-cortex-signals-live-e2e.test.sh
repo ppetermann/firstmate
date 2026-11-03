@@ -62,7 +62,7 @@ jq -n --arg cmd "cat >> '$LAB/events.jsonl'; printf '\n' >> '$LAB/events.jsonl'"
   '{hooks: {SessionStart: [{hooks: [{type: "command", command: $cmd}]}]}}' \
   > "$WT/.cortex/settings.local.json"
 # Route every backend read/write to this guard's own socket only.
-printf '#!/bin/sh\nexec "%s" -S "%s" "$@"\n' "$REAL_TMUX" "$SOCKET" | fm_fakebin_write "$LAB/bin/tmux"
+printf '#!/bin/sh\nexec "%s" -S "%s" "$@"\n' "$REAL_TMUX" "$SOCKET" > "$LAB/bin/tmux"
 chmod +x "$LAB/bin/tmux"
 export PATH="$LAB/bin:$PATH" FM_HOME="$H"
 unset FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE

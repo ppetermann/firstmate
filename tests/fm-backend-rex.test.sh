@@ -35,7 +35,7 @@ DEAD_PID=99999999
 make_rex_fake() {  # <dir>
   local dir=$1
   mkdir -p "$dir/bin" "$dir/fake/process" "$dir/fake/status" "$dir/fake/capture" "$dir/fake/cursor" "$dir/home/state"
-  fm_fakebin_write "$dir/bin/rex" <<'SH'
+  cat >"$dir/bin/rex" <<'SH'
 #!/usr/bin/env bash
 D="${FM_REX_FAKE_DIR:?}"
 S="$D/state.json"
@@ -562,7 +562,7 @@ test_agent_state_sees_a_harness_below_a_shell_foreground() {
   # The real process tree must still start when sleep refuses a foreign name.
   real_sleep=$(command -v sleep) || fail "sleep not found"
   fakebin=$(fm_fakebin "$dir/multicall")
-  fm_fakebin_write "$fakebin/sleep"  <<SH
+  cat >"$fakebin/sleep" <<SH
 #!/usr/bin/env bash
 case "\${0##*/}" in
   sleep) exec "$real_sleep" "\$@" ;;

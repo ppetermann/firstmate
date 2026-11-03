@@ -363,7 +363,7 @@ test_spawn_refuses_and_admits() {
 make_send_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -387,7 +387,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  fm_fakebin_write "$fakebin/sleep" < <(printf '#!/usr/bin/env bash\nexit 0\n')
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fakebin/sleep"
   chmod +x "$fakebin/sleep"
   printf '%s\n' "$fakebin"
 }
@@ -448,10 +448,10 @@ make_teardown_case() {
   case_dir="$TMP/$name"; fakebin="$case_dir/fakebin"
   mkdir -p "$case_dir/state" "$case_dir/config" "$case_dir/data" "$fakebin"
   for t in treehouse tmux; do
-    fm_fakebin_write "$fakebin/$t" < <(printf '#!/usr/bin/env bash\nexit 0\n')
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$fakebin/$t"
     chmod +x "$fakebin/$t"
   done
-  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
+  cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "pr list") printf '%s\n' "count: 0 (showing first 0)" "pull_requests[]: []"; exit 0 ;;
@@ -459,7 +459,7 @@ case "${1:-} ${2:-}" in
 esac
 exit 0
 SH
-  fm_fakebin_write "$fakebin/gh" <<'SH'
+  cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "pr view") echo "error: pull request not found" >&2; exit 1 ;;

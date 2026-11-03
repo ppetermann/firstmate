@@ -95,12 +95,12 @@ new_case() {
   : > "$CASE_FORBIDDEN_LOG"
   [ "$want_gui" != gui ] || touch "$CASE_STATE/gui-session"
 
-  fm_fakebin_write "$CASE_BIN/uname" <<SH
+  cat > "$CASE_BIN/uname" <<SH
 #!/usr/bin/env bash
 printf '%s\n' '$platform'
 SH
 
-  fm_fakebin_write "$CASE_BIN/launchctl" <<'SH'
+  cat > "$CASE_BIN/launchctl" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >> "$FM_FAKE_LAUNCHCTL_LOG"
@@ -203,7 +203,7 @@ SH
   # itself here so the test can prove the doctor never goes near them.
   local forbidden
   for forbidden in fdesetup security defaults; do
-    fm_fakebin_write "$CASE_BIN/$forbidden" <<SH
+    cat > "$CASE_BIN/$forbidden" <<SH
 #!/usr/bin/env bash
 printf '$forbidden %s\n' "\$*" >> "\$FM_FAKE_FORBIDDEN_LOG"
 exit 0
@@ -213,7 +213,7 @@ SH
 
   # The socket owner the birth check sees: the pid in socket-owner, or the
   # Aqua holder when a case never chose one.
-  fm_fakebin_write "$CASE_BIN/lsof" <<'SH'
+  cat > "$CASE_BIN/lsof" <<'SH'
 #!/usr/bin/env bash
 pid=$(cat "$FM_FAKE_STATE/socket-owner" 2>/dev/null || printf '%s' "$FM_FAKE_AQUA_PID")
 [ -n "$pid" ] || exit 0
@@ -222,7 +222,7 @@ printf 'n%s\n' "$FM_FAKE_HERDR_SOCKET"
 SH
   chmod +x "$CASE_BIN/lsof"
 
-  fm_fakebin_write "$CASE_BIN/dscl" <<'SH'
+  cat > "$CASE_BIN/dscl" <<'SH'
 #!/usr/bin/env bash
 set -u
 [ "${FM_FAKE_DSCL_FAIL:-0}" != 1 ] || exit 1
@@ -243,7 +243,7 @@ exit 1
 SH
 
   if [ "$want_herdr" = with-herdr ]; then
-    fm_fakebin_write "$CASE_BIN/herdr" <<'SH'
+    cat > "$CASE_BIN/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
 running=$(cat "$FM_FAKE_HERDR_RUNNING" 2>/dev/null || printf 'false')
@@ -270,7 +270,7 @@ exit 0
 SH
     chmod +x "$CASE_BIN/herdr"
   fi
-  fm_fakebin_write "$CASE_BIN/tasks-axi" <<'SH'
+  cat > "$CASE_BIN/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}:${2:-}" in
   --version:*) printf '0.2.6\n' ;;
@@ -278,16 +278,16 @@ case "${1:-}:${2:-}" in
   mv:--help) printf '%s\n' 'usage: tasks-axi mv <id> [<id>...]' ;;
 esac
 SH
-  fm_fakebin_write "$CASE_BIN/treehouse" <<'SH'
+  cat > "$CASE_BIN/treehouse" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-  fm_fakebin_write "$CASE_BIN/claude" <<'SH'
+  cat > "$CASE_BIN/claude" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$CASE_BIN/uname" "$CASE_BIN/launchctl" "$CASE_BIN/dscl" "$CASE_BIN/tasks-axi" "$CASE_BIN/treehouse" "$CASE_BIN/claude"
-  fm_fakebin_write "$CASE_BIN/sleep" <<'SH'
+  cat > "$CASE_BIN/sleep" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -781,7 +781,7 @@ pass "a non-darwin host skips launch agents and starts its herdr server directly
 
 new_case Linux with-herdr no-gui
 rm -f "$CASE_BIN/claude"
-printf '#!/usr/bin/env bash\nexit 0\n' | fm_fakebin_write "$CASE_BIN/omp"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$CASE_BIN/omp"
 chmod +x "$CASE_BIN/omp"
 doctor --fix
 expect_code 0 "$DOCTOR_RC" "a host whose only harness is omp was not ready after --fix"
@@ -793,8 +793,8 @@ pass "omp alone satisfies the remote harness requirement"
 new_case Linux with-herdr no-gui
 MANAGER_BIN="$CASE_HOME/.nvm/versions/node/v24/bin"
 mkdir -p "$MANAGER_BIN"
-fm_fakebin_write "$MANAGER_BIN/codex" < <(printf '#!/usr/bin/env bash\nexit 0\n')
-fm_fakebin_write "$MANAGER_BIN/grok" < <(printf '#!/usr/bin/env bash\nexit 0\n')
+printf '#!/usr/bin/env bash\nexit 0\n' > "$MANAGER_BIN/codex"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$MANAGER_BIN/grok"
 chmod +x "$MANAGER_BIN/codex" "$MANAGER_BIN/grok"
 mv "$CASE_BIN/tasks-axi" "$MANAGER_BIN/tasks-axi"
 doctor
@@ -822,7 +822,7 @@ assert_absent "$CASE_HOME/.local/bin/grok" "--fix created more harness wrappers 
 
 mv "$CASE_BIN/treehouse" "$MANAGER_BIN/treehouse"
 mkdir -p "$CASE_HOME/.local/bin"
-fm_fakebin_write "$CASE_HOME/.local/bin/treehouse" < <(printf 'operator wrapper\n')
+printf 'operator wrapper\n' > "$CASE_HOME/.local/bin/treehouse"
 doctor --fix
 expect_code 1 "$DOCTOR_RC" "--fix overwrote an operator-owned reserved wrapper"
 assert_contains "$DOCTOR_OUT" 'fix required-treehouse=failed:' \
@@ -877,7 +877,7 @@ pass "doctor refreshes stale worker identity before probing tools"
 new_case Linux with-herdr no-gui
 REMOTE_ROOT="$CASE_DIR/remote-root"
 mkdir -p "$REMOTE_ROOT/bin"
-fm_fakebin_write "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" < <(printf '#!/usr/bin/env bash\n')
+printf '#!/usr/bin/env bash\n' > "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh"
 export FM_ROOT_OVERRIDE="$REMOTE_ROOT"
 doctor
 assert_contains "$DOCTOR_OUT" 'check entrypoint-link=fixable:' "a missing entrypoint symlink was not tagged fixable"
@@ -886,9 +886,9 @@ assert_contains "$DOCTOR_OUT" 'fix entrypoint-link=applied:' "--fix did not repo
 assert_contains "$DOCTOR_OUT" 'check entrypoint-link=ok:' "the recreated entrypoint symlink was not confirmed"
 [ "$(readlink "$CASE_HOME/.local/bin/fm-remote-entrypoint.sh")" = "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" ] \
   || fail "the entrypoint symlink does not point at this code root"
-fm_fakebin_write "$CASE_HOME/.local/bin/other" < <(printf 'not a symlink\n')
+printf 'not a symlink\n' > "$CASE_HOME/.local/bin/other"
 rm -f "$CASE_HOME/.local/bin/fm-remote-entrypoint.sh"
-fm_fakebin_write "$CASE_HOME/.local/bin/fm-remote-entrypoint.sh" < <(printf 'operator wrapper\n')
+printf 'operator wrapper\n' > "$CASE_HOME/.local/bin/fm-remote-entrypoint.sh"
 doctor --fix
 assert_contains "$DOCTOR_OUT" 'check entrypoint-link=human:' "an operator-owned entrypoint file was not left to the operator"
 [ "$(cat "$CASE_HOME/.local/bin/fm-remote-entrypoint.sh")" = 'operator wrapper' ] \

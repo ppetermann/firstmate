@@ -60,7 +60,7 @@ TMP_ROOT=$(fm_test_tmproot fm-kiro-harness)
 test_kiro_ancestry_detects_the_native_command_name() {
   local fakebin out
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-native")
-  fm_fakebin_write "$fakebin/ps"  <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' '/home/user/.toolbox/bin/kiro-cli'; exit 0 ;;
@@ -78,7 +78,7 @@ SH
 test_kiro_ancestry_rejects_unrelated_mentions() {
   local fakebin out
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-negatives")
-  fm_fakebin_write "$fakebin/ps"  <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' "${FAKE_PS_COMM:?}"; exit 0 ;;
@@ -103,7 +103,7 @@ SH
 test_kiro_ancestry_outranks_inherited_claude_marker() {
   local fakebin out
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-marker")
-  fm_fakebin_write "$fakebin/ps"  <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' 'kiro-cli'; exit 0 ;;
@@ -323,7 +323,7 @@ test_kiro_delivery_footer_matches_and_is_scoped() {
 make_kiro_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/tmux"  <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
@@ -384,7 +384,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  fm_fakebin_write "$fakebin/kiro-cli"  <<'SH'
+  cat > "$fakebin/kiro-cli" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "$*" in
@@ -720,7 +720,7 @@ test_kiro_live_e2e_does_not_start_kiro_when_gated_off() {
   local fakebin marker out rc
   fakebin=$(fm_fakebin "$TMP_ROOT/live-gate")
   marker="$TMP_ROOT/live-gate/kiro-started"
-  fm_fakebin_write "$fakebin/kiro-cli"  <<SH
+  cat >"$fakebin/kiro-cli" <<SH
 #!/usr/bin/env bash
 printf 'started\n' >> "$marker"
 printf 'kiro-cli 0.0.0\n'

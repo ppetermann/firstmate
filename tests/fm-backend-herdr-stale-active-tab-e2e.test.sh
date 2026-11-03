@@ -4,11 +4,6 @@
 # foreground client is attached.
 set -u
 
-# This suite does not source tests/lib.sh, so it reaches the fixture
-# tool-directory write carrier directly; that file's header owns the contract.
-# shellcheck source=tests/fakebin-write.sh
-. "$(dirname "${BASH_SOURCE[0]}")/fakebin-write.sh"
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HERDR_LAB_HELPER=${HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
 
@@ -35,7 +30,7 @@ cleanup() {
 trap cleanup EXIT
 "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
 
-fm_fakebin_write "$FAKEBIN/herdr" <<'SH'
+cat > "$FAKEBIN/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
 args=("$@")

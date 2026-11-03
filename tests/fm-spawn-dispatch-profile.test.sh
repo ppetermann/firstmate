@@ -17,7 +17,7 @@ unset LAVISH_AXI_HOST
 
 make_spawn_pi_probe() {
   local fakebin=$1 tool=$2
-  fm_fakebin_write "$fakebin/$tool" <<'SH'
+  cat > "$fakebin/$tool" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = --help ]; then
@@ -37,7 +37,7 @@ SH
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
-  fm_fakebin_write "$fakebin/timeout" <<'SH'
+  cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
 # Match GNU timeout's option shape from bin/fm-timeout-lib.sh fm_run_timed:
 # `timeout -k <grace> <secs> cmd...` or plain `timeout <secs> cmd...`.
@@ -47,7 +47,7 @@ fi
 shift
 exec "$@"
 SH
-  fm_fakebin_write "$fakebin/cursor-agent" <<'SH'
+  cat > "$fakebin/cursor-agent" <<'SH'
 #!/usr/bin/env bash
 # Launch resolution runs a bounded --help probe (bin/fm-cursor-lib.sh
 # fm_cursor_verify_executable) before accepting any candidate. Empty success
@@ -63,7 +63,7 @@ if [ "${1:-}" = --list-models ]; then
 fi
 exit 0
 SH
-  fm_fakebin_write "$fakebin/opencode" <<'SH'
+  cat > "$fakebin/opencode" <<'SH'
 #!/usr/bin/env bash
 # fm-spawn probes `opencode --version` to resolve the installed major. Report a
 # deterministic version so launch-shape assertions never depend on whatever
@@ -1864,7 +1864,7 @@ test_lavish_absent_config_preserves_destination_ambient() {
   read_case_record "$rec"
   pane_log="$CASE_DIR/pane.log"
   seen="$CASE_DIR/lavish-seen"
-  fm_fakebin_write "$FAKEBIN_DIR/claude" <<'SH'
+  cat > "$FAKEBIN_DIR/claude" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${LAVISH_AXI_HOST-unset}" > "$FM_LAVISH_SEEN"
 SH
@@ -2214,7 +2214,7 @@ test_launch_environment_inherited_by_secondmate() {
   expect_code 0 "$status" "secondmate with an allowlist should spawn: $out"
   cmp -s "$HOME_DIR/config/launch-env-allowlist" "$sm/config/launch-env-allowlist" \
     || fail "secondmate did not inherit the launch environment contract"
-  fm_fakebin_write "$FAKEBIN_DIR/codex" <<'SH'
+  cat > "$FAKEBIN_DIR/codex" <<'SH'
 #!/bin/sh
 printf '%s\n' "${FM_TEST_AMBIENT_SENTINEL-unset}" "$FM_TEST_ALLOWED" "$FM_HOME" "${FM_STATE_OVERRIDE-unset}"
 SH
@@ -2268,7 +2268,7 @@ test_launch_environment_inheritance_preserves_on_source_errors() {
     printf 'FM_TEST_ALLOWED\n' > "$HOME_DIR/config/launch-env-allowlist"
     printf -- '- inherited-env - Test route (host: inherit-host; root: %s; home: %s; scope: test; projects: ; added 2026-09-05)\n' \
       "$ROOT" "$dest" > "$HOME_DIR/data/secondmates.md"
-    fm_fakebin_write "$FAKEBIN_DIR/inherit-ssh" <<'SH'
+    cat > "$FAKEBIN_DIR/inherit-ssh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 while [ "$#" -gt 0 ]; do
@@ -2348,7 +2348,7 @@ test_worker_launch_delivers_role_scope() {
       printf '%s\n' "$content" > "$brief"
     fi
     cp "$HOME_DIR/data/$id/brief.md" "$CASE_DIR/brief-before"
-    fm_fakebin_write "$FAKEBIN_DIR/codex" <<'SH'
+    cat > "$FAKEBIN_DIR/codex" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$FM_ROLE_PROMPT"
 SH

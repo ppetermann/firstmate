@@ -105,9 +105,9 @@ fm_test_spawn_brief "$H" "$ID" "Runtime verification only: compute 12345 plus 67
 # Every backend read and write lands on this guard's private server, and the
 # pane's `treehouse get` enters the prepared worktree in a subshell exactly as
 # the real tool does.
-fm_fakebin_write "$LAB/bin/tmux" < <(printf '#!/bin/sh\nexec "%s" "$@"\n' "$REAL_TMUX")
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$REAL_TMUX" > "$LAB/bin/tmux"
 # shellcheck disable=SC2016 # the single-quoted shim expands its own argument
-fm_fakebin_write "$LAB/bin/treehouse" < <(printf '#!/bin/sh\n[ "${1:-}" = get ] || exit 0\ncd "%s" && exec /bin/bash --noprofile --norc\n' "$WT")
+printf '#!/bin/sh\n[ "${1:-}" = get ] || exit 0\ncd "%s" && exec /bin/bash --noprofile --norc\n' "$WT" > "$LAB/bin/treehouse"
 chmod +x "$LAB/bin/tmux" "$LAB/bin/treehouse"
 export PATH="$LAB/bin:$PATH" FM_HOME="$H" HOME="$U" XDG_CONFIG_HOME="$U/.config" XDG_DATA_HOME="$U/.local/share" XDG_STATE_HOME="$U/.local/state" XDG_CACHE_HOME="$U/.cache"
 unset TMUX FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE

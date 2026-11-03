@@ -184,7 +184,7 @@ pass "scout launch carries model, verified effort only, autonomy, typed brief, a
 # Only tmux and Herdr supply the Command Code identity that lets its idle
 # placeholder read empty, so every other spawn-capable backend is refused
 # before any endpoint, worktree, or busy record exists.
-fm_fakebin_write "$fakebin/orca" <<'EOF'
+cat > "$fakebin/orca" <<'EOF'
 #!/bin/sh
 printf '%s\n' '{"ok":true,"result":{"runtime":{"reachable":true,"state":"ready"}}}'
 EOF

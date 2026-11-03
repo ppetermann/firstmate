@@ -37,8 +37,8 @@ make_home() {
 make_probes() {
   local fakebin
   fakebin=$(fm_fakebin "$1")
-  fm_fakebin_write "$fakebin/uname" < <(printf '#!/usr/bin/env bash\necho Darwin\n')
-  fm_fakebin_write "$fakebin/sysctl" <<SH
+  printf '#!/usr/bin/env bash\necho Darwin\n' > "$fakebin/uname"
+  cat > "$fakebin/sysctl" <<SH
 #!/usr/bin/env bash
 case "\$2" in
   vm.loadavg) [ -n "$2" ] && echo "{ $2 1.00 1.00 }" ;;
@@ -48,8 +48,8 @@ case "\$2" in
   kern.boottime) [ -f "$fakebin/boottime" ] && echo "{ sec = \$(cat "$fakebin/boottime"), usec = 0 } Thu Oct  8 21:11:00 2026" ;;
 esac
 SH
-  fm_fakebin_write "$fakebin/getconf" < <(printf '#!/usr/bin/env bash\nexit 1\n')
-  fm_fakebin_write "$fakebin/df" <<SH
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/getconf"
+  cat > "$fakebin/df" <<SH
 #!/usr/bin/env bash
 [ -n "$5" ] || exit 1
 echo "Filesystem 1024-blocks Used Available Capacity Mounted"
@@ -353,7 +353,7 @@ test_cap_only_memory_rule_unchanged() {
   local home fakebin out
   home=$(make_home cap-only 1 0)
   fakebin=$(make_probes "$TMP_ROOT/p-cap-only" 0.50 11 8 20971520)
-  fm_fakebin_write "$fakebin/memsize" < <(printf '%s\n' 8589934592)
+  printf '%s\n' 8589934592 > "$fakebin/memsize"
   printf '4\n' > "$home/config/lane-capacity"
   out=$(run_capacity "$home" "$fakebin")
   assert_contains "$out" 'capacity: free_lanes=3 reason=ok ' "a cap-only config must keep the under-10-percent memory rule"
@@ -405,8 +405,8 @@ test_publish_document() {
   local home fakebin rc doc mode i
   home=$(make_home publish 2 1)
   fakebin=$(make_probes "$TMP_ROOT/p-publish" 0.50 60 8 20971520)
-  fm_fakebin_write "$fakebin/memsize" < <(printf '%s\n' 34359738368)
-  fm_fakebin_write "$fakebin/boottime" < <(printf '%s\n' 1791484127)
+  printf '%s\n' 34359738368 > "$fakebin/memsize"
+  printf '%s\n' 1791484127 > "$fakebin/boottime"
   fm_write_meta "$home/state/ship-1.meta" "kind=ship" "mode=no-mistakes" "pr=https://github.com/o/r/pull/9"
   printf 'lanes-a\n' > "$home/.fm-secondmate-home"
   mkdir -p "$home/projects/alpha" "$home/projects/beta"
@@ -427,12 +427,12 @@ test_publish_document() {
   mode=$(stat -c %a "$home/state/lane-capacity.json" 2>/dev/null || /usr/bin/stat -f %Lp "$home/state/lane-capacity.json")
   assert_equals 600 "$mode" "the published document must be private"
   # A young document is not republished; a new boot is appended, ten kept.
-  fm_fakebin_write "$fakebin/boottime" < <(printf '%s\n' 1791500000)
+  printf '%s\n' 1791500000 > "$fakebin/boottime"
   run_capacity_jq "$home" "$fakebin" --publish >/dev/null
   assert_equals '[1791484127]' "$(jq -c .boots "$home/state/lane-capacity.json")" "a young document must not be republished"
   i=1
   while [ "$i" -le 11 ]; do
-    fm_fakebin_write "$fakebin/boottime" < <(printf '%s\n' "$((1791500000 + i))")
+    printf '%s\n' "$((1791500000 + i))" > "$fakebin/boottime"
     FM_LANE_CAPACITY_PUBLISH_INTERVAL=0 run_capacity_jq "$home" "$fakebin" --publish >/dev/null
     i=$((i + 1))
   done
@@ -456,21 +456,21 @@ test_captain_and_quota() {
   local home fakebin doc
   home=$(make_home captain 0 0)
   fakebin=$(make_probes "$TMP_ROOT/p-captain" 0.50 60 8 20971520)
-  fm_fakebin_write "$fakebin/ioreg" <<SH
+  cat > "$fakebin/ioreg" <<SH
 #!/usr/bin/env bash
 echo "    | |   \\"HIDIdleTime\\" = \$(cat "$fakebin/idle-ns")"
 SH
-  fm_fakebin_write "$fakebin/quota-axi" <<'SH'
+  cat > "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 echo '{"providers":[{"provider":"claude","quotaSemantics":{"effectiveAvailability":[{"scope":"model:x","runway":{"status":"exhausted_now"}},{"scope":"all_models","runway":{"status":"projected_exhaustion"}}]}}]}'
 SH
   chmod +x "$fakebin/ioreg" "$fakebin/quota-axi"
   printf '3\ncaptain-idle 300\nquota-provider claude\n' > "$home/config/lane-capacity"
-  fm_fakebin_write "$fakebin/idle-ns" < <(printf '%s\n' 12000000000)
+  printf '%s\n' 12000000000 > "$fakebin/idle-ns"
   doc=$(capacity_doc "$home" "$fakebin")
   assert_equals 'present|{"provider":"claude","runway":"projected_exhaustion"}' \
     "$(printf '%s\n' "$doc" | jq -c -r '"\(.captain)|\(.quota | tojson)"')" "recent input must read present, quota its all-models runway"
-  fm_fakebin_write "$fakebin/idle-ns" < <(printf '%s\n' 900000000000)
+  printf '%s\n' 900000000000 > "$fakebin/idle-ns"
   doc=$(capacity_doc "$home" "$fakebin")
   assert_equals idle "$(printf '%s\n' "$doc" | jq -r .captain)" "old input must read idle"
   printf 'version: 2\nwords: |\n  gone\n' > "$home/state/.afk-contract"
@@ -479,9 +479,9 @@ SH
   printf '%s\n' "$doc" > "$TMP_ROOT/captain-doc.json"
   assert_no_grep 900000 "$TMP_ROOT/captain-doc.json" "raw idle time must never be published"
   assert_no_grep HIDIdleTime "$TMP_ROOT/captain-doc.json" "raw idle input must never be published"
-  fm_fakebin_write "$fakebin/quota-axi" < <(printf '#!/usr/bin/env bash\nexit 1\n')
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/quota-axi"
   rm -f "$home/state/.afk-contract"
-  fm_fakebin_write "$fakebin/ioreg" < <(printf '#!/usr/bin/env bash\nexit 1\n')
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/ioreg"
   doc=$(capacity_doc "$home" "$fakebin")
   assert_equals 'unknown|unknown' "$(printf '%s\n' "$doc" | jq -r '"\(.captain)|\(.quota.runway)"')" \
     "unreadable presence and quota must read unknown"

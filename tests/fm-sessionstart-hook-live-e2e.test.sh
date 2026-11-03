@@ -110,7 +110,7 @@ make_lab() {  # <harness> -> echoes lab dir
 
   for stub in fm-turnend-guard.sh fm-claude-stop-autoarm.sh fm-arm-pretool-check.sh \
     fm-cd-pretool-check.sh fm-subagent-pretool-check.sh; do
-    fm_fakebin_write "$lab/bin/$stub" < <(printf '#!/usr/bin/env bash\nexit 0\n')
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$lab/bin/$stub"
     chmod +x "$lab/bin/$stub"
   done
 
@@ -123,7 +123,7 @@ make_lab() {  # <harness> -> echoes lab dir
   ln -sf "$ROOT/bin/fm-timeout-lib.sh" "$lab/bin/fm-timeout-lib.sh"
   ln -sf "$ROOT/bin/fm-wake-lib.sh" "$lab/bin/fm-wake-lib.sh"
   ln -sf "$ROOT/bin/fm-session-lock-lib.sh" "$lab/bin/fm-session-lock-lib.sh"
-  fm_fakebin_write "$lab/bin/fm-bootstrap.sh" <<'SH'
+  cat > "$lab/bin/fm-bootstrap.sh" <<'SH'
 #!/usr/bin/env bash
 # Outlives the hook on purpose: the marker can only appear if the worker was
 # still running well after the harness finished with its session-open hook.
@@ -134,7 +134,7 @@ exit 0
 SH
   chmod +x "$lab/bin/fm-bootstrap.sh"
 
-  fm_fakebin_write "$lab/bin/fm-sessionstart-run.sh" <<'SH'
+  cat > "$lab/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
 # Recorder standing in for the real wrapper: logs the source the harness
 # supplied and prints a source-stamped token for the model to quote back.
@@ -352,11 +352,11 @@ probe_pi_sessionstart_prerequisite() {
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" \
     "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$project/.pi/extensions/lib/"
   cp "$ROOT/bin/fm-operational-input.sh" "$project/bin/"
-  fm_fakebin_write "$project/bin/fm-turnend-guard.sh" <<'SH'
+  cat > "$project/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-  fm_fakebin_write "$project/bin/fm-sessionstart-run.sh" <<'SH'
+  cat > "$project/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
 state=${FM_HOME:?}/state
@@ -379,7 +379,7 @@ printf 'RACE_NATIVE generation=%s\n' "$count"
 : > "$state/native-completed-$count"
 printf 'clear-complete:%s:%s\n' "$count" "$$" >> "$state/events"
 SH
-  fm_fakebin_write "$project/bin/fm-session-start.sh" <<'SH'
+  cat > "$project/bin/fm-session-start.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
 state=${FM_HOME:?}/state

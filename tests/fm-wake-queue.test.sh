@@ -374,7 +374,7 @@ test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once() {
     "$sub" > "$state/mate.meta"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
-  fm_fakebin_write "$fakebin/date" <<SH
+  cat > "$fakebin/date" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = +%s ]; then
   cat "\${FM_FAKE_NOW_FILE:?}"
@@ -673,7 +673,7 @@ test_secondmate_declared_pause_rows_do_not_feed_stall_escalation() {
   printf 'window=firstmate:fm-mate\nkind=secondmate\nhome=%s\n' "$sub" > "$state/mate.meta"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
-  fm_fakebin_write "$fakebin/date" <<SH
+  cat > "$fakebin/date" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = +%s ]; then
   cat "\${FM_FAKE_NOW_FILE:?}"
@@ -722,7 +722,7 @@ test_secondmate_reprovisioned_queue_starts_a_fresh_interval() {
     "$sub" > "$state/mate.meta"
   fakebin="$dir/fakebin"
   real_date=$(command -v date)
-  fm_fakebin_write "$fakebin/date" <<SH
+  cat > "$fakebin/date" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = +%s ]; then
   cat "\${FM_FAKE_NOW_FILE:?}"
@@ -786,7 +786,7 @@ test_secondmate_active_turn_defers_stall_until_the_turn_ends() {
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$row_epoch" \
     > "$sub/state/.wake-queue"
   fakebin="$dir/fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) printf '%s\n' 'firstmate:fm-mate' ;;
@@ -848,7 +848,7 @@ test_secondmate_long_lived_mate_mid_turn_is_not_a_stall() {
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$row_epoch" \
     > "$sub/state/.wake-queue"
   fakebin="$dir/fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) printf '%s\n' 'firstmate:fm-mate' ;;
@@ -892,7 +892,7 @@ SH
 # and a claude foreground command so a proven-idle mate can actually be rung.
 install_secondmate_alive_tmux() {  # <fakebin>
   local fakebin=$1
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -929,7 +929,7 @@ SH
 install_secondmate_stall_date() {  # <fakebin>
   local fakebin=$1 real_date
   real_date=$(command -v date)
-  fm_fakebin_write "$fakebin/date" <<SH
+  cat > "$fakebin/date" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = +%s ]; then
   cat "\${FM_FAKE_NOW_FILE:?}"
@@ -1036,7 +1036,7 @@ test_term_stops_a_watcher_blocked_in_the_drain_ring_idle_capture() {
   # The active-turn read returns, then the idle-proof read blocks on a FIFO
   # whose write end the holder keeps open without writing.
   mv "$fakebin/tmux" "$fakebin/tmux-alive"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = capture-pane ]; then
   n=$(( $(cat "$FM_FAKE_CAPTURE_COUNT" 2>/dev/null || echo 0) + 1 ))
@@ -1224,7 +1224,7 @@ test_secondmate_stall_marker_rejects_symlink() {
   printf '%s\t%s-7\n' "$(( $(date +%s) - 2 ))" "$epoch" > "$state/.secondmate-wake-progress-mate"
   ln -s "$outside" "$marker"
   fakebin="$dir/fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) printf '%s\n' 'firstmate:fm-mate' ;;
@@ -1377,7 +1377,7 @@ test_structural_signal_enrichment_preserves_raw_rows() {
   printf 'must-not-be-read\n' > "$outside"
   ln -s "$outside" "$state/escape.status"
   perl_bin=$(command -v perl) || fail "perl is required for safe status reads"
-  fm_fakebin_write "$dir/fakebin/perl" <<'SH'
+  cat > "$dir/fakebin/perl" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -MFcntl=:DEFAULT ]; then
   for arg in "$@"; do
@@ -1723,7 +1723,7 @@ test_uncountable_queue_still_raises_the_pending_alarm() {
   # An awk that still runs its END rule after failing to open its input: it
   # prints a 0 count and exits non-zero. Every other invocation is the real awk.
   real_awk=$(command -v awk) || fail "no awk on PATH"
-  fm_fakebin_write "$awkbin/awk" <<SH
+  cat > "$awkbin/awk" <<SH
 #!/usr/bin/env bash
 set -u
 for _arg in "\$@"; do _last=\$_arg; done
@@ -1977,7 +1977,7 @@ test_wake_publish_requires_atomic_recovery_evidence() {
   fakebin="$dir/fakebin"
   real_mv=$(command -v mv) || fail "could not locate mv for recovery publication fixture"
   printf 'pending:handling:existing\n' > "$state/.watcher-down"
-  fm_fakebin_write "$fakebin/mv" <<'SH'
+  cat > "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "${FM_TEST_PUBLISH_MARKER:-}" ]; then
@@ -2392,7 +2392,7 @@ test_recovery_ack_failure_is_reported() {
     || fail "initial recovery drain failed"
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through 0 --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$dir/initial.err")
   [ -n "$generation" ] || fail "initial recovery drain omitted its generation"
-  fm_fakebin_write "$fakebin/mv" <<'SH'
+  cat > "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "${FM_TEST_ACK_MARKER:-}" ]; then
@@ -2837,7 +2837,7 @@ test_bounded_lock_handoff_after_contention() {
   lock="$state/.fixture.lock"
   sleep_log="$dir/waiter-sleeps"
   real_sleep=$(command -v sleep) || fail "sleep is unavailable for the handoff fixture"
-  fm_fakebin_write "$dir/fakebin/sleep" <<'SH'
+  cat > "$dir/fakebin/sleep" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$1" >> "$FM_HANDOFF_SLEEP_LOG"
 exec "$FM_HANDOFF_REAL_SLEEP" "$@"
@@ -3252,7 +3252,7 @@ make_secondmate_liveness_case() {
   printf 'codex\n' > "$dir/config/crew-harness"
   printf 'window=firstmate:fm-sm1\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
     "$home" > "$dir/state/sm1.meta"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 log=${FM_TMUX_CALL_LOG:-/dev/null}
@@ -3711,7 +3711,7 @@ EOF
 - rsm1 - Remote mate (host: lab-host; root: /remote/root; home: /remote/rsm1-home; scope: remote work; projects: alpha; added 2026-01-01)
 EOF
   cp "$state/rsm1.meta" "$dir/rsm1.meta.before"
-  fm_fakebin_write "$dir/fakebin/ssh" <<'SH'
+  cat > "$dir/fakebin/ssh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FM_FAKE_SSH_LOG:?}"
 exit 255

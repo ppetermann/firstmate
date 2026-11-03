@@ -19,13 +19,13 @@ new_home() { # name -> home with the monitor flag on
   mkdir -p "$home/data" "$home/state" "$home/config" "$home/fakebin" "$home/forge" "$home/root/bin"
   printf '# Backlog\n\n## Queued\n' > "$home/data/backlog.md"
   : > "$home/config/pr-health-monitor"
-  fm_fakebin_write "$home/root/bin/fm-guard.sh" < <(printf '#!/bin/sh\nexit 0\n')
-  fm_fakebin_write "$home/fakebin/tmux" < <(printf '#!/bin/sh\nexit 1\n')
-  fm_fakebin_write "$home/fakebin/no-mistakes" < <(printf '#!/bin/sh\nexit 0\n')
+  printf '#!/bin/sh\nexit 0\n' > "$home/root/bin/fm-guard.sh"
+  printf '#!/bin/sh\nexit 1\n' > "$home/fakebin/tmux"
+  printf '#!/bin/sh\nexit 0\n' > "$home/fakebin/no-mistakes"
   # REST serves the PR state and mergeability, GraphQL the base branch
   # commit, review requests, reviews and the head's check rollup; both render
   # from one model file per PR. Every read is logged.
-  fm_fakebin_write "$home/fakebin/gh" <<'SH'
+  cat > "$home/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 printf '%s\n' "$*" >> "$FORGE/calls.log"
@@ -115,7 +115,7 @@ case "$1 $2" in
 esac
 SH
   # gh-axi resolves the open PR for a branch, as fm-teardown.sh's lookup reads it.
-  fm_fakebin_write "$home/fakebin/gh-axi" <<'SH'
+  cat > "$home/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 printf 'gh-axi %s\n' "$*" >> "$FORGE/calls.log"
 branch=

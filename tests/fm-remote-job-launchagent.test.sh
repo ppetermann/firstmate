@@ -30,7 +30,7 @@ git -C "$REMOTE_ROOT" commit -qm 'launchagent fixture'
 # The first sequence-claim removal holds the real worker inside its sweep until
 # the test releases it, far beyond the probe's freshness bound and wait.
 REAL_RMDIR=$(command -v rmdir)
-fm_fakebin_write "$STUB_BIN/rmdir" <<'SH'
+cat > "$STUB_BIN/rmdir" <<'SH'
 #!/bin/bash
 last=${!#}
 case "$last" in
@@ -49,7 +49,7 @@ SH
 # Fault injection keeps the heartbeat process alive but prevents timestamp
 # refresh, so ensure must handle a genuinely stale live owner's readiness.
 REAL_TOUCH=$(command -v touch)
-fm_fakebin_write "$STUB_BIN/touch" <<'SH'
+cat > "$STUB_BIN/touch" <<'SH'
 #!/bin/bash
 last=${!#}
 if [ "$last" = "$FM_TEST_STATE/worker.ready" ] && [ -f "$FM_TEST_STALE_GATE" ]; then
@@ -61,7 +61,7 @@ SH
 # Hold lock-owner publication so probes run against crash leftovers before
 # the replacement has recorded ownership or published its code identity.
 REAL_MV=$(command -v mv)
-fm_fakebin_write "$STUB_BIN/mv" <<'SH'
+cat > "$STUB_BIN/mv" <<'SH'
 #!/bin/bash
 last=${!#}
 if [ "$last" = "$FM_TEST_STATE/worker.lock/pid" ] && [ -f "$FM_TEST_OWNER_GATE" ]; then
@@ -74,7 +74,7 @@ if [ "$last" = "$FM_TEST_STATE/worker.lock/pid" ] && [ -f "$FM_TEST_OWNER_GATE" 
 fi
 exec "$FM_TEST_REAL_MV" "$@"
 SH
-fm_fakebin_write "$STUB_BIN/launchctl" <<'SH'
+cat > "$STUB_BIN/launchctl" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$FM_TEST_LAUNCH_LOG"
 tracked_pid() {
@@ -322,7 +322,7 @@ pass 'stale readiness logs the named condition without reloading a verified laun
 # launchd lost the worker while it kept the lock, then code changed under it.
 ORPHAN_PID=$FRESH_PID
 rm -f "$FM_TEST_TRACKED"
-printf '\n# updated fixture code\n' | fm_fakebin_write --append "$REMOTE_ROOT/bin/fm-remote-job-worker.sh"
+printf '\n# updated fixture code\n' >> "$REMOTE_ROOT/bin/fm-remote-job-worker.sh"
 git -C "$REMOTE_ROOT" commit -qam 'updated worker identity'
 : > "$LAUNCH_LOG"
 ensure_darwin > "$TMP_ROOT/ensure-orphan.out" 2>&1 \

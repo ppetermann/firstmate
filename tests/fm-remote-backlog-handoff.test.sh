@@ -81,7 +81,7 @@ remote_target=fm-remote:w1:p1
 EOF
 : > "$WAKE_LOG"
 
-fm_fakebin_write "$FAKEBIN/fake-ssh" <<'SH'
+cat > "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 count=$(cat "$FM_FAKE_SSH_COUNT" 2>/dev/null || echo 0)
 printf '%s\n' "$((count + 1))" > "$FM_FAKE_SSH_COUNT"
@@ -451,7 +451,7 @@ pass "a permanently unconfirmable wake never jams later durable handoffs"
 RM_FAKEBIN="$TMP_ROOT/rm-fakebin"
 mkdir -p "$RM_FAKEBIN"
 REAL_RM=$(command -v rm)
-fm_fakebin_write "$RM_FAKEBIN/rm" <<'SH'
+cat > "$RM_FAKEBIN/rm" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "$FM_FAIL_RM_PATH" ]; then
@@ -520,7 +520,7 @@ pass "confirmed marker cleanup cannot fail a completed remote handoff"
 CONFIRM_MV_FAKEBIN="$TMP_ROOT/confirm-mv-fakebin"
 mkdir -p "$CONFIRM_MV_FAKEBIN"
 REAL_MV=$(command -v mv)
-fm_fakebin_write "$CONFIRM_MV_FAKEBIN/mv" <<'SH'
+cat > "$CONFIRM_MV_FAKEBIN/mv" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "$FM_CONFIRM_MV_PATH" ]; then
@@ -568,7 +568,7 @@ pass "delivered pending state cannot suppress a new handoff wake"
 MV_FAKEBIN="$TMP_ROOT/mv-fakebin"
 mkdir -p "$MV_FAKEBIN"
 REAL_MV=$(command -v mv)
-fm_fakebin_write "$MV_FAKEBIN/mv" <<'SH'
+cat > "$MV_FAKEBIN/mv" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "$FM_FAIL_MV_PATH" ]; then

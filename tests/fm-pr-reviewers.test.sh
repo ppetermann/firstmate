@@ -14,7 +14,7 @@ command -v jq >/dev/null 2>&1 \
 # The fake gh answers every query with the JSON shape GitHub returns and runs
 # the --jq program it received with the real jq, so field selection is what is
 # under test.
-fm_fakebin_write "$FAKEBIN/gh" <<'SH'
+cat > "$FAKEBIN/gh" <<'SH'
 #!/usr/bin/env bash
 set -o pipefail
 serve() {

@@ -74,7 +74,7 @@ make_case() {  # <name> [task-id...]
   mkdir -p "$case_dir"
   fakebin=$(fm_fakebin "$case_dir")
   : > "$case_dir/calls.log"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_CALL_LOG"
 window_file="$FM_FAKE_CALL_LOG.window"
@@ -122,7 +122,7 @@ case "${1:-}" in
 esac
 exit 0
 SH
-  fm_fakebin_write "$fakebin/treehouse" <<'SH'
+  cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 printf 'treehouse %s\n' "$*" >> "$FM_FAKE_CALL_LOG"
 exit 0
@@ -594,7 +594,7 @@ test_orca_spawn_is_admitted_under_the_shared_project_lock() {
   }
   case_dir=$(make_case orca task-o)
   home="$case_dir/home"
-  fm_fakebin_write "$case_dir/fakebin/orca" <<'SH'
+  cat > "$case_dir/fakebin/orca" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = status ]; then
   printf '{"ok":true,"result":{"runtime":{"reachable":true,"state":"ready"}}}\n'

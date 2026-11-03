@@ -56,7 +56,7 @@ make_isolated_checkpoint() {  # <home> <tool...>
 }
 
 write_non_gnu_timeout_stub() {  # <path>
-  fm_fakebin_write "$1" <<'SH'
+  cat > "$1" <<'SH'
 #!/bin/bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' 'uutils 0.12.0'
@@ -69,7 +69,7 @@ SH
 
 # A GNU stub records its name and arguments, then reports a timeout.
 write_gnu_timeout_stub() {  # <path>
-  fm_fakebin_write "$1" <<'SH'
+  cat > "$1" <<'SH'
 #!/bin/bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' 'timeout (GNU coreutils) 9.5'
@@ -121,7 +121,7 @@ test_non_gnu_timeout_falls_back_to_perl_before_escalating() {
   fallback_bin="$home/fixture-bin"
   make_isolated_checkpoint "$home" bash dirname mktemp rm perl grep cat
   write_non_gnu_timeout_stub "$fallback_bin/timeout"
-  fm_fakebin_write "$home/root/bin/fm-watch.sh" <<'PL'
+  cat > "$home/root/bin/fm-watch.sh" <<'PL'
 #!/usr/bin/env perl
 use strict;
 use warnings;
@@ -314,7 +314,7 @@ make_host_home() {  # <name>
   mkdir -p "$home/root/bin"
   cp "$CHECKPOINT" "$home/root/bin/fm-watch-checkpoint.sh"
   cp "$ROOT/bin/fm-supervision-engine-lib.sh" "$home/root/bin/fm-supervision-engine-lib.sh"
-  fm_fakebin_write "$home/root/bin/fm-supervision-host.sh" <<'SH'
+  cat > "$home/root/bin/fm-supervision-host.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'args=%s\nprimary=%s\npark=%s\nlimit=%s\n' "$*" "${FM_SUPERVISION_HOST_PRIMARY:-}" \
   "${FM_SUPERVISION_HOST_PARK_SECONDS:-}" "${FM_SUPERVISION_HOST_PARK_LIMIT:-}" > "$FM_HOME/host-env"

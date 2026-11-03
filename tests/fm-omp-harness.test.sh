@@ -565,19 +565,19 @@ test_turnend_guard_extension_compels_one_continuation() {
   repo="$TMP_ROOT/guard/repo"; home="$TMP_ROOT/guard/home"
   install_omp_extension_fixture "$repo"
   mkdir -p "$home/state"
-  fm_fakebin_write "$repo/bin/fm-turnend-guard.sh" <<'SH'
+  cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 payload=$(cat); printf '%s\n' "$payload" >> "${FM_GUARD_LOG:?}"
 case "$payload" in *'"stop_hook_active":true'*) exit 0 ;; esac
 printf 'guard says: repair with fm_watch_arm_omp\n' >&2; exit 2
 SH
-  fm_fakebin_write "$repo/bin/fm-arm-pretool-check.sh" <<'SH'
+  cat > "$repo/bin/fm-arm-pretool-check.sh" <<'SH'
 #!/usr/bin/env bash
 case "$*" in *fm-watch-arm.sh*'&'*) printf 'fm watcher-arm seatbelt: blocked\n' >&2; exit 2 ;; esac; exit 0
 SH
-  fm_fakebin_write "$repo/bin/fm-cd-pretool-check.sh" < <(printf '#!/usr/bin/env bash\nexit 0\n')
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/bin/fm-cd-pretool-check.sh"
   # shellcheck disable=SC2016 # $2 expands in the generated script
-  fm_fakebin_write "$repo/bin/fm-sessionstart-run.sh" < <(printf '#!/usr/bin/env bash\nprintf "OMP DIGEST source=%%s\\n" "$2"\n')
+  printf '#!/usr/bin/env bash\nprintf "OMP DIGEST source=%%s\\n" "$2"\n' > "$repo/bin/fm-sessionstart-run.sh"
   chmod +x "$repo/bin/"*.sh
   out=$(FM_GUARD_LOG="$TMP_ROOT/guard/guard.log" FM_HOME="$home" EXT="$repo/.omp/extensions/fm-primary-turnend-guard.ts" node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
@@ -628,7 +628,7 @@ test_watch_extension_arms_and_delivers() {
   mkdir -p "$home/state"
   # The first arm child closes with one actionable reason; every successor
   # stays up, so exactly one wake exists to consume.
-  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'watcher: started pid=%s (beacon 0s) recovery-generation=gen-1\n' "$$"
 if [ ! -e "${FM_HOME:?}/state/.e2e-fired" ]; then
@@ -700,7 +700,7 @@ test_watch_extension_runs_the_supervision_host() {  # [away|quiet]
   else
     : > "$home/state/.afk-contract"
   fi
-  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --handling-delivered ]; then
   printf 'confirmed generation=%s watcher=%s\n' "$2" "$4" >> "${FM_ARM_LOG:?}"
@@ -709,7 +709,7 @@ fi
 printf 'plain-arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 exit 1
 SH
-  fm_fakebin_write "$repo/bin/fm-supervision-host.sh" <<'SH'
+  cat > "$repo/bin/fm-supervision-host.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'host=%s args=%s primary=%s predecessor=%s\n' "$$" "$*" "${FM_SUPERVISION_HOST_PRIMARY:-}" \
   "${FM_WATCH_PREDECESSOR_ARM_PID:-none}" >> "${FM_ARM_LOG:?}"
@@ -781,14 +781,14 @@ test_watch_extension_keeps_the_arm_without_the_file_or_with_off() {
     install_omp_extension_fixture "$repo"
     mkdir -p "$home/state" "$home/config"
     [ "$line" = - ] || : > "$home/config/supervision-host-off"
-    fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
+    cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = --handling-delivered ] && exit 0
 printf 'plain-arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
 sleep 30
 SH
-    fm_fakebin_write "$repo/bin/fm-supervision-host.sh" <<'SH'
+    cat > "$repo/bin/fm-supervision-host.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'host=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -835,12 +835,12 @@ test_watch_extension_replays_a_host_only_boundary_across_replacement() {
   install_omp_extension_fixture "$repo"
   mkdir -p "$home/state" "$home/config"
   : > "$home/config/supervision-host"
-  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = --handling-delivered ] && exit 0
 exit 1
 SH
-  fm_fakebin_write "$repo/bin/fm-supervision-host.sh" <<'SH'
+  cat > "$repo/bin/fm-supervision-host.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'host=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 printf 'watcher: started pid=%s (beacon fresh) recovery-generation=gen-%s\n' "$$" "$$"
@@ -905,12 +905,12 @@ test_watch_extension_delivers_a_split_host_close_whole() {
   install_omp_extension_fixture "$repo"
   mkdir -p "$home/state" "$home/config"
   : > "$home/config/supervision-host"
-  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = --handling-delivered ] && exit 0
 exit 1
 SH
-  fm_fakebin_write "$repo/bin/fm-supervision-host.sh" <<'SH'
+  cat > "$repo/bin/fm-supervision-host.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'host=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 started="watcher: started pid=$$ (beacon fresh) recovery-generation=gen-$$"

@@ -221,7 +221,7 @@ pass "scout launch carries autonomy, plugin, typed brief and hooks; xhigh effort
 # Only tmux and Herdr supply the Cortex identity that lets its titled composer
 # read empty, so every other spawn-capable backend is refused before any
 # endpoint, worktree, or busy record exists.
-fm_fakebin_write "$fakebin/orca"  <<'EOF'
+cat > "$fakebin/orca" <<'EOF'
 #!/bin/sh
 printf '%s\n' '{"ok":true,"result":{"runtime":{"reachable":true,"state":"ready"}}}'
 EOF

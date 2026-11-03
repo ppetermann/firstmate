@@ -364,7 +364,7 @@ test_prefilter_skips_node_without_cd_substring() {
     tool_path=$(command -v "$tool") || continue
     ln -s "$tool_path" "$fakebin/$tool"
   done
-  fm_fakebin_write "$fakebin/node" <<EOF
+  cat > "$fakebin/node" <<EOF
 #!/usr/bin/env bash
 : > "$marker"
 exit 0

@@ -57,7 +57,7 @@ test_version_named_session_is_identified_on_both_platforms() {
   dir="$TMP_ROOT/version-named"
   fakebin=$(fm_fakebin "$dir")
   mkdir -p "$dir/state"
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -103,7 +103,7 @@ test_harness_at_namespace_pid1_is_examined() {
   dir="$TMP_ROOT/namespace-pid1"
   fakebin=$(fm_fakebin "$dir")
   mkdir -p "$dir/state"
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -145,7 +145,7 @@ test_ordinary_paths_are_never_harness_processes() {
   dir="$TMP_ROOT/ordinary-paths"
   fakebin=$(fm_fakebin "$dir")
   mkdir -p "$dir/state"
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -192,7 +192,7 @@ test_harness_beyond_a_gap_never_owns_the_lock() {
   dir="$TMP_ROOT/gap"
   fakebin=$(fm_fakebin "$dir")
   mkdir -p "$dir/state"
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -237,7 +237,7 @@ test_competing_version_named_session_is_seen_as_live() {
   dir="$TMP_ROOT/competing"
   fakebin=$(fm_fakebin "$dir")
   mkdir -p "$dir/state"
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -440,11 +440,11 @@ test_anchor_pid_is_the_model_loop_process_only_for_a_trusted_id() {
 cygwin_fakebin() {  # <dir>
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/uname"  <<'SH'
+  cat > "$fakebin/uname" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' 'MINGW64_NT-10.0-26200'
 SH
-  fm_fakebin_write "$fakebin/ps"  <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 for a in "$@"; do
@@ -680,13 +680,13 @@ test_tagged_lock_is_inert_off_windows() {
   local dir fakebin state got value
   dir="$TMP_ROOT/win-tag-off-windows"
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/uname"  <<'SH'
+  cat > "$fakebin/uname" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' Linux
 SH
   # Answers ps -W as if a live Windows harness held the lock, so only the
   # platform gate can keep the tag from being honored.
-  fm_fakebin_write "$fakebin/ps"  <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' '      PID    PPID    PGID     WINPID   TTY         UID    STIME COMMAND'
 printf '%s\n' '  4201508       0       0       7204  ?              0 22:24:48 C:\Users\u\.local\bin\claude.exe'
@@ -799,7 +799,7 @@ install_autoarm_scripts() {
   # of the supervision host a Claude home otherwise runs by default.
   mkdir -p "$dir/config"
   : > "$dir/config/supervision-host-off"
-  fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
+  cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"

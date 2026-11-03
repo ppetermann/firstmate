@@ -100,7 +100,7 @@ write_arm_fixture() {  # <dir> <kind>
   local dir=$1 kind=$2
   case "$kind" in
     actionable)
-      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" >> "$FM_HOME/state/arm-ran"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -109,7 +109,7 @@ exit 0
 SH
       ;;
     failed)
-      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" >> "$FM_HOME/state/arm-ran"
 printf 'watcher: FAILED - no live watcher with a fresh beacon\n'
@@ -119,7 +119,7 @@ SH
     switchable)
       # Slow until state/arm-fast appears, so a second invocation can be made
       # fast WITHOUT rewriting a script the first one is still executing.
-      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" >> "$FM_HOME/state/arm-ran"
 if [ -e "$FM_HOME/state/arm-fast" ]; then
@@ -222,7 +222,7 @@ test_autoarm_stands_down_on_cursor_payload() {
 test_sessionstart_run_stands_down_on_cursor_payload() {
   local dir out
   dir=$(make_primary_dir "$TMP_ROOT/host-sessionstart")
-  fm_fakebin_write "$dir/bin/fm-session-start.sh" <<'SH'
+  cat > "$dir/bin/fm-session-start.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" >> "$FM_HOME/state/digest-ran"
 printf 'DIGEST BODY\n'
@@ -393,7 +393,7 @@ test_park_serializes_supersession_with_followup_commit() {
   : > "$dir/state/task1.meta"
   printf 'session=sess-cursor\ncount=1\n' > "$dir/state/.turnend-cursor-blocks"
   write_arm_fixture "$dir" actionable
-  fm_fakebin_write --append "$dir/bin/fm-operational-input.sh" <<'SH'
+  cat >> "$dir/bin/fm-operational-input.sh" <<'SH'
 fm_operational_input_encode() {
   local kind=${1-} body=${2-} result_var=${3-}
   [ -n "$result_var" ] && fm_operational_kind_is_current "$kind" && [ -n "$body" ] || return 2
@@ -430,7 +430,7 @@ test_superseded_park_does_not_consume_nag_budget() {
   dir=$(make_primary_dir "$TMP_ROOT/park-nag-supersede")
   : > "$dir/state/task1.meta"
   write_arm_fixture "$dir" failed
-  fm_fakebin_write "$dir/bin/fm-turnend-guard.sh" <<'SH'
+  cat > "$dir/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 if ( set -C; : > "$FM_HOME/state/first-guard-entered" ) 2>/dev/null; then
   while [ ! -e "$FM_HOME/state/first-guard-release" ]; do sleep 0.05; done
@@ -498,7 +498,7 @@ write_host_fixture() {  # <dir> <kind>
         ;;
     esac
     printf 'exit 0\n'
-  } | fm_fakebin_write "$dir/bin/fm-supervision-host.sh"
+  } > "$dir/bin/fm-supervision-host.sh"
   chmod +x "$dir/bin/fm-supervision-host.sh"
 }
 
@@ -634,7 +634,7 @@ test_park_stands_down_when_away_mode_activates_before_commit() {
   : > "$dir/state/task1.meta"
   printf 'session=sess-cursor\ncount=1\n' > "$dir/state/.turnend-cursor-blocks"
   write_arm_fixture "$dir" actionable
-  fm_fakebin_write --append "$dir/bin/fm-operational-input.sh" <<'SH'
+  cat >> "$dir/bin/fm-operational-input.sh" <<'SH'
 fm_operational_input_encode() {
   local kind=${1-} body=${2-} result_var=${3-}
   [ -n "$result_var" ] && fm_operational_kind_is_current "$kind" && [ -n "$body" ] || return 2
@@ -702,8 +702,8 @@ test_park_stands_down_after_session_takeover() {
 windows_session_fakebin() {  # <dir> <uname>
   local fakebin
   fakebin=$(fm_fakebin "$1")
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" %s\n' "$2" | fm_fakebin_write "$fakebin/uname"
-  fm_fakebin_write "$fakebin/ps"  <<'SH'
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" %s\n' "$2" > "$fakebin/uname"
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 pid=
 while [ "$#" -gt 0 ]; do
@@ -823,7 +823,7 @@ test_park_ignores_malformed_payload() {
 # --- SESSION -----------------------------------------------------------------
 
 install_digest_fixture() {  # <dir>
-  fm_fakebin_write "$1/bin/fm-session-start.sh" <<'SH'
+  cat > "$1/bin/fm-session-start.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_HOME/state/digest-args"
 printf 'FIRSTMATE DIGEST "quoted" line\nsecond line\n'

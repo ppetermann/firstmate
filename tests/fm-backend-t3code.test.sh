@@ -144,7 +144,7 @@ SH
 neutral_fm_root() {  # <dir> -> echoes a minimal root with a quiet guard
   local root="$1/root"
   mkdir -p "$root/bin"
-  printf '#!/usr/bin/env bash\nexit 0\n' | fm_fakebin_write "$root/bin/fm-guard.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-guard.sh"
   chmod +x "$root/bin/fm-guard.sh"
   printf '%s\n' "$root"
 }
@@ -2592,7 +2592,7 @@ test_t3_secondmate_missing_thread_reproves_close_before_replacement() {
   t3_world "$(t3_thread_json "$thread" completed true)"
   root="$CASE_DIR/fake-root"
   mkdir -p "$root/bin"
-  printf '#!/usr/bin/env bash\nprintf "SPAWN %%s\\n" "$*" >> "%s"\n' "$CASE_DIR/spawns" | fm_fakebin_write "$root/bin/fm-spawn.sh"
+  printf '#!/usr/bin/env bash\nprintf "SPAWN %%s\\n" "$*" >> "%s"\n' "$CASE_DIR/spawns" > "$root/bin/fm-spawn.sh"
   chmod +x "$root/bin/fm-spawn.sh"
   run_relaunch() {  # <state-dir> <js run between probe and relaunch>
     mkdir -p "$1"

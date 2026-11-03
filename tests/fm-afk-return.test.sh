@@ -43,7 +43,7 @@ install_runner() {  # <case-dir>
   printf '## In flight\n\n## Queued\n\n## Done\n' > "$dir/home/data/backlog.md"
   # The fake stop mirrors the real one's ordering: the away flag goes, then the
   # posture record is archived through its owner.
-  fm_fakebin_write "$dir/bin/fm-afk-launch.sh" <<'SH'
+  cat > "$dir/bin/fm-afk-launch.sh" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = stop ] || exit 2
 printf 'stop\n' >> "$FM_HOME/stop.log"
@@ -55,7 +55,7 @@ fi
 rm -f "$FM_HOME/state/.afk-daemon-terminal"
 "$(dirname "$0")/fm-afk-contract.sh" archive >/dev/null
 SH
-  fm_fakebin_write "$dir/bin/fm-wake-drain.sh" <<'SH'
+  cat > "$dir/bin/fm-wake-drain.sh" <<'SH'
 #!/usr/bin/env bash
 file="$FM_HOME/state/.fake-drain"
 if [ "${1:-}" = --ack-through ]; then
@@ -567,7 +567,7 @@ test_return_keeps_catchup_gated_when_the_drain_cannot_record_outcomes() {
   outcome_in "$dir" append --task demo --verdict routine --summary 'rebased while away' >/dev/null || fail "could not seed the routine row"
   outcome_in "$dir" append --task demo --verdict captain --summary 'PR ready for review' >/dev/null || fail "could not seed the captain row"
   mv "$dir/bin/fm-branch-outcome.sh" "$dir/bin/fm-branch-outcome.real.sh"
-  fm_fakebin_write "$dir/bin/fm-branch-outcome.sh" <<'EOF'
+  cat > "$dir/bin/fm-branch-outcome.sh" <<'EOF'
 #!/usr/bin/env bash
 [ "${1:-}" != mark-read ] || [ ! -e "$FM_HOME/cursor-stuck" ] || exit 1
 exec "$(dirname "$0")/fm-branch-outcome.real.sh" "$@"
@@ -764,7 +764,7 @@ test_failed_held_listing_keeps_catchup_gated() {
   dir="$TMP_ROOT/held-list-failure"
   install_runner "$dir"
   mkdir -p "$dir/fakebin"
-  fm_fakebin_write "$dir/fakebin/tasks-axi" <<'SH'
+  cat > "$dir/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 printf 'synthetic held backlog failure\n' >&2
 exit 1

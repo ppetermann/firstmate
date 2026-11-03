@@ -29,7 +29,7 @@ TMP_ROOT=$(fm_test_tmproot fm-x-mode-tests)
 make_fake_curl() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/curl" <<'SH'
+  cat > "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 ofile="" method=GET data="" url="" auth=""
 argv=$*
@@ -489,7 +489,7 @@ test_poll_inbox_commit_failure_reports_error() {
   local home fakebin out rc body
   home="$TMP_ROOT/poll-mv-fail"; mkdir -p "$home"
   fakebin=$(make_fake_curl "$home")
-  fm_fakebin_write "$fakebin/mv" <<'SH'
+  cat > "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 dest=
 for arg in "$@"; do
@@ -669,7 +669,7 @@ test_reply_auth_header_tempfile_cleans_up_on_interrupted_post() {
   home="$TMP_ROOT/reply-auth-interrupt"; mkdir -p "$home"
   fakebin=$(fm_fakebin "$home")
   log="$home/auth-file.txt"
-  fm_fakebin_write "$fakebin/curl" <<'SH'
+  cat > "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 auth_file=
 while [ $# -gt 0 ]; do
@@ -874,7 +874,7 @@ test_bootstrap_reports_missing_x_dependency() {
   fakebin=$(fm_fakebin "$home")
   fm_fake_exit0 "$fakebin" tmux node no-mistakes chrome-devtools-axi curl
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.80
-  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
+  cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.29'
@@ -887,7 +887,7 @@ SH
     tool_path=$(command -v "$tool") || fail "test host must provide $tool"
     ln -s "$tool_path" "$fakebin/$tool"
   done
-  fm_fakebin_write "$fakebin/gh" <<'SH'
+  cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
   exit 0
@@ -895,7 +895,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh"
-  fm_fakebin_write "$fakebin/treehouse" <<'SH'
+  cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
   printf '%s\n' 'Usage: treehouse get [--lease] [--lease-holder <holder>]'
@@ -982,7 +982,7 @@ test_bootstrap_preserves_nonrelay_watcher_tuning() {
   copy="$TMP_ROOT/boot-nonrelay-watcher-tuning"; home="$copy/home"
   mkdir -p "$home/config" "$home/state"
   cp -R "$ROOT/bin" "$copy/bin"
-  fm_fakebin_write "$copy/bin/fm-watch.sh" <<'SH'
+  cat > "$copy/bin/fm-watch.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${FM_PAUSE_RESURFACE_SECS:-unset}" > "$FM_HOME/watcher-saw"
 SH
@@ -1097,7 +1097,7 @@ test_bootstrap_opt_out_reports_cleanup_failure() {
   assert_present "$home/state/x-watch.check.sh" "opt-in must create the shim before cleanup failure"
   assert_present "$home/config/x-mode.env" "opt-in must create the cadence config before cleanup failure"
   fakebin=$(fm_fakebin "$home")
-  fm_fakebin_write "$fakebin/rm" <<'SH'
+  cat > "$fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -2357,7 +2357,7 @@ test_dismiss_transport_failure_fails() {
   home="$TMP_ROOT/dismiss-transport"; mkdir -p "$home"
   fakebin=$(fm_fakebin "$home")
   # A curl that fails to reach the relay (non-zero exit, no HTTP code).
-  fm_fakebin_write "$fakebin/curl" <<'SH'
+  cat > "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 exit 7
 SH
@@ -2994,7 +2994,7 @@ test_followup_post_record_failure_clears_link() {
   flag="$home/fail-followups-write"
   mvflag="$home/mv-failed-once"
   err="$home/err.txt"
-  fm_fakebin_write "$fakebin/mv" <<'SH'
+  cat > "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 # Fail the counter publication, not an unrelated lock-pid publication.
 dest=

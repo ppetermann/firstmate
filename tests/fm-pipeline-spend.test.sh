@@ -41,7 +41,7 @@ make_case() {
     "kind=ship" \
     "mode=no-mistakes" \
     "spawn_gen=s$SPAWN_EPOCH.1.abc"
-  fm_fakebin_write "$d/fakebin/no-mistakes" <<'SH'
+  cat > "$d/fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FAKE_NM_LOG:-}" ] || printf '%s\n' "$*" >> "$FAKE_NM_LOG"
 [ -z "${FAKE_NM_HOME_LOG:-}" ] || printf '%s|%s\n' "$*" "${NM_HOME-<unset>}" >> "$FAKE_NM_HOME_LOG"

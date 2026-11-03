@@ -736,7 +736,7 @@ test_grok_adapter_forces_one_resume_when_unhealthy() {
   : > "$dir/state/task1.meta"
   fakebin=$(fm_fakebin "$TMP_ROOT/grok-adapter-fakebin")
   log="$TMP_ROOT/grok-adapter-call.log"
-  fm_fakebin_write "$fakebin/grok" <<EOF
+  cat > "$fakebin/grok" <<EOF
 #!/usr/bin/env bash
 {
   printf 'active=%s\n' "\${GROK_TURNEND_GUARD_ACTIVE:-}"
@@ -767,7 +767,7 @@ test_grok_adapter_loop_guard_skips_resume() {
   : > "$dir/state/task1.meta"
   fakebin=$(fm_fakebin "$TMP_ROOT/grok-adapter-loop-fakebin")
   log="$TMP_ROOT/grok-adapter-loop-call.log"
-  fm_fakebin_write "$fakebin/grok" <<EOF
+  cat > "$fakebin/grok" <<EOF
 #!/usr/bin/env bash
 printf 'called\n' >> "$log"
 EOF
@@ -785,7 +785,7 @@ test_grok_adapter_native_false_blocks_without_resume() {
   : > "$dir/state/task1.meta"
   fakebin=$(fm_fakebin "$TMP_ROOT/grok-native-false-bin")
   log="$TMP_ROOT/grok-native-false.log"
-  fm_fakebin_write "$fakebin/grok" < <(printf '#!/usr/bin/env bash\nprintf called >> %q\n' "$log")
+  printf '#!/usr/bin/env bash\nprintf called >> %q\n' "$log" > "$fakebin/grok"
   chmod +x "$fakebin/grok"
   out=$(printf '%s' '{"sessionId":"native","stopHookActive":false}' | PATH="$fakebin:$PATH" GROK_WORKSPACE_ROOT="$dir" bash "$dir/bin/fm-turnend-guard-grok.sh" 2>&1); status=$?
   expect_code 2 "$status" "native stopHookActive=false must return the shared blocking status"
@@ -800,7 +800,7 @@ test_grok_adapter_native_true_allows_without_resume() {
   : > "$dir/state/task1.meta"
   fakebin=$(fm_fakebin "$TMP_ROOT/grok-native-true-bin")
   log="$TMP_ROOT/grok-native-true.log"
-  fm_fakebin_write "$fakebin/grok" < <(printf '#!/usr/bin/env bash\nprintf called >> %q\n' "$log")
+  printf '#!/usr/bin/env bash\nprintf called >> %q\n' "$log" > "$fakebin/grok"
   chmod +x "$fakebin/grok"
   out=$(printf '%s' '{"sessionId":"native","stopHookActive":true}' | PATH="$fakebin:$PATH" GROK_WORKSPACE_ROOT="$dir" bash "$dir/bin/fm-turnend-guard-grok.sh" 2>&1); status=$?
   expect_code 0 "$status" "native stopHookActive=true must allow the bounded continuation to stop"
@@ -829,7 +829,7 @@ test_grok_adapter_invalid_inputs_start_neither_path() {
   : > "$dir/state/task1.meta"
   fakebin=$(fm_fakebin "$TMP_ROOT/grok-invalid-bin")
   log="$TMP_ROOT/grok-invalid.log"
-  fm_fakebin_write "$fakebin/grok" < <(printf '#!/usr/bin/env bash\nprintf called >> %q\n' "$log")
+  printf '#!/usr/bin/env bash\nprintf called >> %q\n' "$log" > "$fakebin/grok"
   chmod +x "$fakebin/grok"
   for payload in \
     ' ' \
@@ -864,7 +864,7 @@ test_grok_adapter_missing_jq_and_no_supervision_allow() {
     tool_path=$(command -v "$tool") || fail "test host must provide $tool"
     ln -s "$tool_path" "$fakebin/$tool"
   done
-  fm_fakebin_write "$fakebin/grok" < <(printf '#!/usr/bin/env bash\nprintf called >> %q\n' "$log")
+  printf '#!/usr/bin/env bash\nprintf called >> %q\n' "$log" > "$fakebin/grok"
   chmod +x "$fakebin/grok"
   out=$(printf '%s' '{"sessionId":"x","stopHookActive":false}' | PATH="$fakebin" GROK_WORKSPACE_ROOT="$dir" bash "$dir/bin/fm-turnend-guard-grok.sh" 2>&1); status=$?
   expect_code 0 "$status" "missing jq must conservatively allow"
@@ -896,7 +896,7 @@ test_tracked_claude_entries_inert_under_grok() {
   mkdir -p "$dir/bin"
   for script in fm-turnend-guard.sh fm-claude-stop-autoarm.sh fm-sessionstart-run.sh \
     fm-arm-pretool-check.sh fm-cd-pretool-check.sh fm-subagent-pretool-check.sh fm-host-mirror.sh; do
-    fm_fakebin_write "$dir/bin/$script" < <(printf '#!/usr/bin/env bash\nprintf ran >> %q\n' "$dir/invoked")
+    printf '#!/usr/bin/env bash\nprintf ran >> %q\n' "$dir/invoked" > "$dir/bin/$script"
     chmod +x "$dir/bin/$script"
   done
 
@@ -952,7 +952,7 @@ test_codex_hook_uses_process_pwd_when_payload_cwd_is_outside_root() {
   expected_root=$(cd "$dir" && pwd -P)
   outside="$TMP_ROOT/codex-hook-outside"
   mkdir -p "$outside"
-  fm_fakebin_write "$dir/bin/fm-turnend-guard.sh" <<'EOF'
+  cat > "$dir/bin/fm-turnend-guard.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'guard=%s\n' "$0"
 cat
@@ -982,13 +982,13 @@ test_codex_hook_ignores_nested_git_root_guard() {
   mkdir -p "$nested/bin" "$nested/.codex"
   : > "$nested/AGENTS.md"
   printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"fm-turnend-guard.sh"}]}]}}\n' > "$nested/.codex/hooks.json"
-  fm_fakebin_write "$nested/bin/fm-turnend-guard.sh" <<'EOF'
+  cat > "$nested/bin/fm-turnend-guard.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'nested guard executed\n'
 exit 99
 EOF
   chmod +x "$nested/bin/fm-turnend-guard.sh"
-  fm_fakebin_write "$dir/bin/fm-turnend-guard.sh" <<'EOF'
+  cat > "$dir/bin/fm-turnend-guard.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'guard=%s\n' "$0"
 cat
@@ -1013,7 +1013,7 @@ test_opencode_plugin_anchors_guard_to_worktree() {
   worktree_dir="$parent/nested/opencode-plugin-worktree"
   wrong_dir="$TMP_ROOT/opencode-plugin-cwd/subdir"
   mkdir -p "$worktree_dir/bin" "$wrong_dir"
-  fm_fakebin_write "$worktree_dir/bin/fm-turnend-guard.sh" <<'EOF'
+  cat > "$worktree_dir/bin/fm-turnend-guard.sh" <<'EOF'
 #!/usr/bin/env bash
 cat >/dev/null
 printf 'guard-fired\n' >&2
@@ -1073,14 +1073,14 @@ test_pi_extension_injects_once_per_logical_agent_run() {
   cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$ext"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$repo/.pi/extensions/lib/fm-operational-input.ts"
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/fm-operational-input.sh"
-  fm_fakebin_write "$repo/bin/fm-turnend-guard.sh" <<'SH'
+  cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 cat >/dev/null
 printf 'guard\n' >> "${FM_GUARD_LOG:?}"
 printf 'logical-run guard fired\n' >&2
 exit 2
 SH
-  fm_fakebin_write "$repo/bin/fm-arm-pretool-check.sh" <<'SH'
+  cat > "$repo/bin/fm-arm-pretool-check.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -1139,13 +1139,13 @@ test_pi_extension_retries_after_followup_delivery_failure() {
   cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$ext"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$repo/.pi/extensions/lib/fm-operational-input.ts"
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/fm-operational-input.sh"
-  fm_fakebin_write "$repo/bin/fm-turnend-guard.sh" <<'SH'
+  cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 cat >/dev/null
 printf 'delivery failure guard\n' >&2
 exit 2
 SH
-  fm_fakebin_write "$repo/bin/fm-arm-pretool-check.sh" <<'SH'
+  cat > "$repo/bin/fm-arm-pretool-check.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -1432,7 +1432,7 @@ run_integrated_autoarm_unowned() {
 
 write_integrated_failed_arm() {
   local dir=$1
-  fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
+  cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'watcher: FAILED - persistent fixture failure\n'
 exit 1
@@ -1542,7 +1542,7 @@ test_hook_claude_mode_terminal_boundary_excludes_starting_owner() {
   guard_status="$dir/guard.status"
   mkdir -p "$fakebin"
   mkfifo "$ready" "$release"
-  fm_fakebin_write "$fakebin/cat" <<'SH'
+  cat > "$fakebin/cat" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = "$FM_TERMINAL_ROLE_PATH" ] \
   && [ "$(/bin/cat "$1" 2>/dev/null || true)" = terminal-check ] \
@@ -2013,10 +2013,10 @@ assert_autoarm_commits_attended_alarm_on_exhausted_continuation() {
   install_integrated_autoarm "$dir"
   case "$variant" in
     arm|alarm-signal)
-      printf '#!/usr/bin/env bash\nsleep 1\nprintf '"'"'watcher: FAILED - persistent fixture failure\\n'"'"'\nexit 1\n' | fm_fakebin_write "$dir/bin/fm-watch-arm.sh"
+      printf '#!/usr/bin/env bash\nsleep 1\nprintf '"'"'watcher: FAILED - persistent fixture failure\\n'"'"'\nexit 1\n' > "$dir/bin/fm-watch-arm.sh"
       ;;
     signal)
-      printf '#!/usr/bin/env bash\nexec sleep 30\n' | fm_fakebin_write "$dir/bin/fm-watch-arm.sh"
+      printf '#!/usr/bin/env bash\nexec sleep 30\n' > "$dir/bin/fm-watch-arm.sh"
       ;;
     lost-handback|lost-announced-handback)
       local marker=pending
@@ -2030,7 +2030,7 @@ printf 'signal: fixture.status\n'
 printf 'supervision-host: watcher downtime could not be restored for the main hand-back\n'
 exit 1
 SH
-      } | fm_fakebin_write "$dir/bin/fm-supervision-host.sh"
+      } > "$dir/bin/fm-supervision-host.sh"
       chmod +x "$dir/bin/fm-supervision-host.sh"
       ;;
   esac
@@ -2038,7 +2038,7 @@ SH
     # Deterministically TERM after the alarm commit, at budget-lock release.
     # The final-rewake contract requires exit 2 with the banner, not the quiet
     # exit used when some earlier invocation committed the episode's alarm.
-    fm_fakebin_write --append "$dir/bin/fm-wake-lib.sh" <<'SH'
+    cat >> "$dir/bin/fm-wake-lib.sh" <<'SH'
 fixture_alarm_present=0
 [ ! -e "$FM_HOME/state/.claude-autoarm-failure-alarmed" ] || fixture_alarm_present=1
 eval "$(declare -f fm_lock_release | sed '1s/fm_lock_release/fixture_lock_release/')"
@@ -2134,7 +2134,7 @@ SH
   # the next failure episode restarts its own attended budget. The recovery
   # cycle closes non-actionably beside the verified healthy watcher.
   : > "$dir/config/supervision-host-off"
-  printf '#!/usr/bin/env bash\nprintf '"'"'watcher: FAILED - persistent fixture failure\\n'"'"'\nexit 1\n' | fm_fakebin_write "$dir/bin/fm-watch-arm.sh"
+  printf '#!/usr/bin/env bash\nprintf '"'"'watcher: FAILED - persistent fixture failure\\n'"'"'\nexit 1\n' > "$dir/bin/fm-watch-arm.sh"
   sleep 60 &
   pid=$!
   identity=$(watcher_identity "$dir" "$pid") || fail "could not identify recovery watcher"

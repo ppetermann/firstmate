@@ -28,7 +28,7 @@ TOKEN_A='AbCdEfGhIjKlMnOpQrStUv'
 make_fake_herdr() {  # <dir> -> fakebin
   local fakebin
   fakebin=$(fm_fakebin "$1")
-  fm_fakebin_write "$fakebin/herdr" <<'SH'
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 {
   printf 'herdr'
@@ -46,7 +46,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/herdr"
-  fm_fakebin_write "$fakebin/agent-view" <<'SH'
+  cat > "$fakebin/agent-view" <<'SH'
 #!/usr/bin/env bash
 printf '%s\t%s\n' "$1" "$2" >> "$FAKE_VIEW_LOG"
 exit 0

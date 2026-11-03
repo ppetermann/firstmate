@@ -163,7 +163,7 @@ test_known_receiver_failure_remains_retryable_after_grace() {
 EOF
   printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
   basebin=$(make_fake_tmux "$TMP_ROOT/known-fail-fake")
-  fm_fakebin_write "$rejectbin/tmux" <<'SH'
+  cat > "$rejectbin/tmux" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" != send-keys ] || exit 1
 exec "$FM_BASE_TMUX" "$@"
@@ -209,7 +209,7 @@ test_known_failure_restores_retry_after_reconciliation_race() {
 EOF
   printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
   basebin=$(make_fake_tmux "$TMP_ROOT/reconcile-race-fake")
-  fm_fakebin_write "$blockbin/tmux" <<'SH'
+  cat > "$blockbin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = send-keys ]; then
   touch "$FM_RECONCILE_RACE_ENTERED"
@@ -274,7 +274,7 @@ EOF
   printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
   real_tasks=$(command -v tasks-axi)
   fm_fake_crash_injector "$fakebin"
-  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
+  cat > "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 "$FM_REAL_TASKS_AXI" "$@"
 rc=$?
@@ -350,7 +350,7 @@ EOF
   printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
   real_tasks=$(command -v tasks-axi)
   fm_fake_crash_injector "$fakebin"
-  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
+  cat > "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case " $* " in
   *" --file "*" --to "*)
@@ -425,7 +425,7 @@ EOF
   printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
   real_rm=$(command -v rm)
   fm_fake_crash_injector "$fakebin"
-  fm_fakebin_write "$fakebin/rm" <<'SH'
+  cat > "$fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   if [ "$arg" = "$FM_CONFIRM_WAKE_MARKER" ] \
@@ -504,7 +504,7 @@ EOF
   printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
   real_mv=$(command -v mv)
   fm_fake_crash_injector "$fakebin"
-  fm_fakebin_write "$fakebin/mv" <<'SH'
+  cat > "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   if [ -f "$arg" ] && grep -q '^confirmed=' "$arg" 2>/dev/null; then
@@ -556,7 +556,7 @@ test_concurrent_local_handoffs_serialize_move_and_wake() {
 ## Done
 EOF
   basebin=$(make_fake_tmux "$TMP_ROOT/concurrent-fake")
-  fm_fakebin_write "$blockbin/tmux" <<'SH'
+  cat > "$blockbin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"Firstmate instruction waiting:"*)
@@ -630,7 +630,7 @@ test_local_teardown_waits_for_handoff_wake() {
 ## Done
 EOF
   basebin=$(make_fake_tmux "$TMP_ROOT/teardown-race-fake")
-  fm_fakebin_write "$blockbin/tmux" <<'SH'
+  cat > "$blockbin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"Firstmate instruction waiting:"*)
@@ -695,7 +695,7 @@ test_local_teardown_preserves_wake_when_home_removal_fails() {
   cp -p -- "$rec" "$rec_before"
   real_rm=$(command -v rm)
   fail_home=$(cd "$sub" && pwd -P)
-  fm_fakebin_write "$rm_bin/rm" <<'SH'
+  cat > "$rm_bin/rm" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   [ "$arg" != "$FM_FAIL_HOME" ] || exit 1

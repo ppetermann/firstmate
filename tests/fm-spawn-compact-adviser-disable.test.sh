@@ -396,7 +396,7 @@ test_launch_preserves_literal_home_and_brief_paths() {
     status=$?
     expect_code 0 "$status" "$name path spawn should succeed: $out"
     # Capture the environment and final prompt received by the fake agent.
-    fm_fakebin_write "$FAKEBIN_DIR/codex"  <<'SH'
+    cat > "$FAKEBIN_DIR/codex" <<'SH'
 #!/bin/sh
 printf '%s\n' "$FM_TASK_INBOX"
 for arg do :; done

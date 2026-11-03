@@ -237,7 +237,7 @@ test_drift_quarantine_collision_and_repeated_convergence() {
 
   fakebin="$TMP_ROOT/fake-date"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/date" <<'SH'
+  cat > "$fakebin/date" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' 20260102T030405Z
 SH
@@ -376,7 +376,7 @@ make_fake_spawn_toolchain() {
   local dir=$1 fakebin
   fakebin="$dir/fakebin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -389,7 +389,7 @@ add_bootstrap_compatible_tools() {
   local fakebin=$1
   fm_fake_exit0 "$fakebin" node chrome-devtools-axi gh treehouse
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.80
-  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
+  cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.29'
@@ -397,7 +397,7 @@ if [ "${1:-}" = --version ]; then
 fi
 exit 0
 SH
-  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
+  cat > "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' 'no-mistakes version v1.46.0 (fake)'
@@ -405,7 +405,7 @@ if [ "${1:-}" = --version ]; then
 fi
 exit 0
 SH
-  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
+  cat > "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "--version ") printf '%s\n' '0.2.6' ;;
@@ -414,7 +414,7 @@ case "${1:-} ${2:-}" in
 esac
 exit 0
 SH
-  fm_fakebin_write "$fakebin/quota-axi" <<'SH'
+  cat > "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.51'
@@ -442,7 +442,7 @@ new_git_world() {
   } > "$root/.gitignore"
   printf '%s\n' "instructions" > "$root/AGENTS.md"
   mkdir -p "$root/bin" "$root/.agents/skills"
-  fm_fakebin_write "$root/bin/fm-spawn.sh" < <(printf '%s\n' "echo spawn")
+  printf '%s\n' "echo spawn" > "$root/bin/fm-spawn.sh"
   printf '%s\n' "skill" > "$root/.agents/skills/example.md"
   git -C "$root" add -A
   git -C "$root" commit -qm initial

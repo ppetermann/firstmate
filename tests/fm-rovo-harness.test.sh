@@ -29,7 +29,7 @@ TMP_ROOT=$(fm_test_tmproot fm-rovo-harness)
 make_rovo_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
@@ -378,7 +378,7 @@ test_rovo_detection_precedence_and_ancestry() {
   fakebin=$(fm_fakebin "$dir")
   cfg="$dir/config"
   mkdir -p "$cfg"
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field=

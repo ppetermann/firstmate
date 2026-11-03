@@ -263,7 +263,7 @@ test_the_cooldown_starts_when_delivery_finishes() {
   snap="$home/snapshot.json"
   write_snapshot "$snap" mate '{"kind":"orphan_in_flight","ids":["ghost"]}'
   mv "$fakebin/tmux" "$fakebin/tmux-real"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = send-keys ]; then sleep 2; fi
@@ -287,7 +287,7 @@ test_the_window_is_four_hours() {
   write_snapshot "$snap" mate '{"kind":"terminal_in_flight","ids":["done-row"]}'
   run_notify "$home" "$fakebin" fourhours "$snap" >/dev/null || fail "the first ask failed"
   now=$(date +%s)
-  fm_fakebin_write "$fakebin/date" <<'SH'
+  cat > "$fakebin/date" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FM_TEST_DATE_NOW:-}" ] && [ "${1:-}" = +%s ]; then
   printf '%s\n' "$FM_TEST_DATE_NOW"
@@ -527,7 +527,7 @@ test_teardown_cannot_leave_its_replacement_in_cooldown() {
   cooldown="$home/state/mate.reconcile-nudged"
   write_snapshot "$snap" mate '{"kind":"orphan_in_flight","ids":["ghost"]}'
   mv "$fakebin/tmux" "$fakebin/tmux-real"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = send-keys ]; then
@@ -645,7 +645,7 @@ test_route_replacement_during_send_is_refused() {
   release="$home/release-fm-send"
   write_remote_snapshot "$snap" remote-send-race-mate old-host \
     '{"kind":"orphan_in_flight","ids":["old-ghost"]}'
-  fm_fakebin_write "$fakebin/dirname" <<'SH'
+  cat > "$fakebin/dirname" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in

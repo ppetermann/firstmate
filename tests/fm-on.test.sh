@@ -37,7 +37,7 @@ printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
 cp "$ROOT/bin/fm-remote-entrypoint.sh" "$ROOT/bin/fm-remote-job-lib.sh" \
   "$ROOT/bin/fm-remote-job-worker.sh" "$REMOTE_ROOT/bin/"
 
-fm_fakebin_write "$REMOTE_ROOT/bin/fm-probe-one.sh" <<'SH'
+cat > "$REMOTE_ROOT/bin/fm-probe-one.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
 out=$1
@@ -49,16 +49,16 @@ printf 'stderr: separate\n' >&2
 while IFS= read -r line || [ -n "$line" ]; do printf 'stdin: %s\n' "$line"; done
 exit "$rc"
 SH
-fm_fakebin_write "$REMOTE_ROOT/bin/fm-probe-two.sh" <<'SH'
+cat > "$REMOTE_ROOT/bin/fm-probe-two.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'home=%s\nroot=%s\nworker=%s\n' "$FM_HOME" "$FM_ROOT_OVERRIDE" "${FM_REMOTE_JOB_ACTIVE:-}"
 if [ -n "${TOP_SECRET:-}" ]; then printf 'secret=leaked\n'; else printf 'secret=absent\n'; fi
 SH
-fm_fakebin_write "$REMOTE_ROOT/bin/fm-probe-path.sh" <<'SH'
+cat > "$REMOTE_ROOT/bin/fm-probe-path.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$PATH"
 SH
-fm_fakebin_write "$REMOTE_ROOT/bin/tasks-axi" <<SH
+cat > "$REMOTE_ROOT/bin/tasks-axi" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\${FM_REMOTE_JOB_ACTIVE:-absent}" >> "$TOOL_PROBE_LOG"
 case "\${1:-}:\${2:-}" in
@@ -71,7 +71,7 @@ cp "$ROOT/bin/fm-remote-doctor.sh" "$ROOT/bin/fm-tasks-axi-lib.sh" \
   "$ROOT/bin/fm-remote-herdr-owner-lib.sh" "$ROOT/bin/fm-backend.sh" "$REMOTE_ROOT/bin/"
 mkdir -p "$REMOTE_ROOT/bin/backends"
 cp "$ROOT/bin/backends/herdr.sh" "$REMOTE_ROOT/bin/backends/herdr.sh"
-fm_fakebin_write "$REMOTE_ROOT/bin/fm-mutate.sh" <<'SH'
+cat > "$REMOTE_ROOT/bin/fm-mutate.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'mutation\n' >> "$1"
 SH
@@ -83,7 +83,7 @@ git -C "$REMOTE_ROOT" config user.name Test
 git -C "$REMOTE_ROOT" add AGENTS.md bin
 git -C "$REMOTE_ROOT" commit -qm 'tracked remote fixture'
 
-fm_fakebin_write "$FAKEBIN/fake-ssh" <<'SH'
+cat > "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 count=$(cat "$FM_FAKE_SSH_COUNT" 2>/dev/null || echo 0)
 printf '%s\n' "$((count + 1))" > "$FM_FAKE_SSH_COUNT"
@@ -358,7 +358,7 @@ mkdir -p "$DOCTOR_BIN" "$DOCTOR_HOME"
 ln -sf "$(command -v bash)" "$DOCTOR_BIN/bash"
 # Report a non-darwin host so this file keeps testing tool resolution alone and
 # never reads or writes the real account's launch agents.
-fm_fakebin_write "$DOCTOR_BIN/uname" <<'SH'
+cat > "$DOCTOR_BIN/uname" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = -s ] && { printf 'Linux\n'; exit 0; }
 printf 'Linux\n'
@@ -377,9 +377,9 @@ ln -sf "$(command -v git)" "$DOCTOR_BIN/git"
 # The direct doctor fixture needs the complete required tool set. These stubs
 # exercise resolution only; the dedicated doctor suite owns worker and Herdr
 # lifecycle behavior against controlled launchctl fixtures.
-fm_fakebin_write "$DOCTOR_BIN/jq" < <(printf '#!/usr/bin/env bash\nexit 0\n')
-fm_fakebin_write "$DOCTOR_BIN/herdr" < <(printf '#!/usr/bin/env bash\nprintf "{\\\"server\\\":{\\\"running\\\":false}}\\n"\n')
-fm_fakebin_write "$DOCTOR_BIN/tasks-axi" <<'SH'
+printf '#!/usr/bin/env bash\nexit 0\n' > "$DOCTOR_BIN/jq"
+printf '#!/usr/bin/env bash\nprintf "{\\\"server\\\":{\\\"running\\\":false}}\\n"\n' > "$DOCTOR_BIN/herdr"
+cat > "$DOCTOR_BIN/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}:${2:-}" in
   --version:*) printf '0.2.6\n' ;;
@@ -387,8 +387,8 @@ case "${1:-}:${2:-}" in
   mv:--help) printf '%s\n' 'usage: tasks-axi mv <id> [<id>...]' ;;
 esac
 SH
-fm_fakebin_write "$DOCTOR_BIN/treehouse" < <(printf '#!/usr/bin/env bash\nexit 0\n')
-fm_fakebin_write "$DOCTOR_BIN/claude" < <(printf '#!/usr/bin/env bash\nexit 0\n')
+printf '#!/usr/bin/env bash\nexit 0\n' > "$DOCTOR_BIN/treehouse"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$DOCTOR_BIN/claude"
 chmod +x "$DOCTOR_BIN/jq" "$DOCTOR_BIN/herdr" "$DOCTOR_BIN/tasks-axi" "$DOCTOR_BIN/treehouse" "$DOCTOR_BIN/claude"
 set +e
 out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" "$ROOT/bin/fm-remote-doctor.sh" 2>&1)
@@ -425,13 +425,13 @@ ln -s fm-probe-one.sh "$REMOTE_ROOT/bin/fm-symlink.sh"
 if fm_on ios fm-symlink.sh >/dev/null 2>&1; then
   fail "a symlinked command was accepted"
 fi
-fm_fakebin_write "$REMOTE_ROOT/bin/fm-untracked.sh" <<'SH'
+cat > "$REMOTE_ROOT/bin/fm-untracked.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'untracked command ran\n'
 SH
 chmod +x "$REMOTE_ROOT/bin/fm-untracked.sh"
 GIT_SHADOW_LOG="$TMP_ROOT/git-shadow.log"
-fm_fakebin_write "$REMOTE_ROOT/bin/git" <<'SH'
+cat > "$REMOTE_ROOT/bin/git" <<'SH'
 #!/usr/bin/env bash
 printf 'consulted\n' >> "$FM_GIT_SHADOW_LOG"
 exit 0
@@ -468,7 +468,7 @@ out=$(
 )
 set -e
 assert_contains "$out" 'mode=check' "the trusted doctor could not bootstrap while git was unavailable"
-fm_fakebin_write --append "$REMOTE_ROOT/bin/fm-remote-doctor.sh" < <(printf '\n')
+printf '\n' >> "$REMOTE_ROOT/bin/fm-remote-doctor.sh"
 set +e
 out=$(
   # shellcheck disable=SC2329 # Exported for indirect use by fm_on.

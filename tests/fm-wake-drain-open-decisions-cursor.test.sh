@@ -249,7 +249,7 @@ test_cursor_cache_read_failure_refolds_without_replaying_unread_status() {
   printf 'working: appended before cache failure\n' >> "$statusfile"
   status_bytes=$(LC_ALL=C wc -c < "$statusfile" | tr -d '[:space:]')
   : > "$probe"
-  fm_fakebin_write "$fakebin/cat" <<SH
+  cat > "$fakebin/cat" <<SH
 #!/usr/bin/env bash
 if [ "\$#" -eq 1 ] && [ "\$1" = "$cursor" ]; then
   exit 1

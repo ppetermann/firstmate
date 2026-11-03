@@ -18,24 +18,24 @@ cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$project/.pi/extensions/"
 cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" \
   "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$project/.pi/extensions/lib/"
 
-fm_fakebin_write "$project/bin/fm-sessionstart-run.sh" <<'SH'
+cat >"$project/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'sessionstart:%s\n' "$*" >> "$FM_WINDOWS_SHELL_LOG"
 SH
-fm_fakebin_write "$project/bin/fm-cd-pretool-check.sh" <<'SH'
+cat >"$project/bin/fm-cd-pretool-check.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'cd:%s\n' "$*" >> "$FM_WINDOWS_SHELL_LOG"
 SH
-fm_fakebin_write "$project/bin/fm-arm-pretool-check.sh" <<'SH'
+cat >"$project/bin/fm-arm-pretool-check.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm:%s\n' "$*" >> "$FM_WINDOWS_SHELL_LOG"
 SH
-fm_fakebin_write "$project/bin/fm-turnend-guard.sh" <<'SH'
+cat >"$project/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 cat >/dev/null
 printf 'turnend:%s\n' "$*" >> "$FM_WINDOWS_SHELL_LOG"
 SH
-fm_fakebin_write "$project/bin/fm-operational-input.sh" <<'SH'
+cat >"$project/bin/fm-operational-input.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'operational:%s\n' "$*" >> "$FM_WINDOWS_SHELL_LOG"
 input=$(cat)

@@ -270,7 +270,7 @@ assert_contains "$CHECK_OUT" "fail mate: the inherited supervision-host-off flag
 : > "$C/mate/config/supervision-host-off"
 run_check "$C"
 expect_code 0 "$CHECK_RC" "off readiness accepts the mate's inherited flag and disabled gate: $CHECK_OUT"
-printf '#!/usr/bin/env bash\nexit 0\n' | fm_fakebin_write "$C/mate/bin/fm-supervision-engine-lib.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$C/mate/bin/fm-supervision-engine-lib.sh"
 run_check "$C"
 expect_code 1 "$CHECK_RC" "off readiness refuses a mate whose gate reads on"
 assert_contains "$CHECK_OUT" "fail mate: the supervision-host gate did not read off" "mate names the enabled gate"
@@ -626,16 +626,16 @@ git -C "$UPSRC" -c user.name=t -c user.email=t@example.invalid commit -qm source
 # turn on the gate instead of running a foreground polling command.
 WORKSRC="$TMP_ROOT/worker-source"
 cp -R "$UPSRC" "$WORKSRC"
-fm_fakebin_write "$WORKSRC/bin/fm-brief.sh" <<'SH'
+cat > "$WORKSRC/bin/fm-brief.sh" <<'SH'
 #!/usr/bin/env bash
 mkdir -p "$FM_HOME/data/$1"
 printf '{TASK}\n{FIRSTMATE_SPEC}\n' > "$FM_HOME/data/$1/brief.md"
 SH
-fm_fakebin_write "$WORKSRC/bin/fm-tasks-axi.sh" <<'SH'
+cat > "$WORKSRC/bin/fm-tasks-axi.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-fm_fakebin_write "$WORKSRC/bin/fm-spawn.sh" <<'SH'
+cat > "$WORKSRC/bin/fm-spawn.sh" <<'SH'
 #!/usr/bin/env bash
 id=$1
 tmux new-window -d -t firstmate: -n "fm-$id" -c "$FM_HOME" 'exec sleep 45 >/dev/null 2>&1' || exit 1
@@ -674,7 +674,7 @@ pass "up launches primary after worker status without weakening final parked rea
 
 # If a spawn reports success without a pane, fail at the missing PID rather
 # than invoking ps with an empty -p argument or waiting for readiness.
-fm_fakebin_write "$WORKSRC/bin/fm-spawn.sh" <<'SH'
+cat > "$WORKSRC/bin/fm-spawn.sh" <<'SH'
 #!/usr/bin/env bash
 id=$1
 printf 'window=firstmate:fm-%s\n' "$id" > "$FM_HOME/state/$id.meta"
@@ -693,7 +693,7 @@ pass "up fails immediately when a spawned worker has no pane PID"
 
 FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$FAKEBIN"
-fm_fakebin_write "$FAKEBIN/claude" <<'SH'
+cat > "$FAKEBIN/claude" <<'SH'
 #!/usr/bin/env bash
 sleep 1.5
 if node -e 'const [s,k]=process.argv.slice(1);const j=JSON.parse(require("node:fs").readFileSync(s,"utf8"));process.exit(j.projects?.[k]?.hasTrustDialogAccepted===true?0:1)' "$HOME/.claude.json" "$FM_HOME"; then

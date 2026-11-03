@@ -86,7 +86,7 @@ ln -s "$STANDIN_BIN" "$LAB/bin/muse-bind"
 # a child in the same foreground process group - the shape the real Pi Launcher
 # path takes, and the one where trusting a single name source can produce a
 # false `dead`.
-fm_fakebin_write "$LAB/bin/agent-launcher" <<SH
+cat > "$LAB/bin/agent-launcher" <<SH
 #!/bin/sh
 "$LAB/bin/pi" 900 &
 wait

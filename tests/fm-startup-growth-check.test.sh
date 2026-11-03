@@ -17,9 +17,9 @@ make_world() {
   mkdir -p "$root/bin" "$home/config" "$home/data" "$home/state"
   printf '# Firstmate\n' > "$root/AGENTS.md"
   printf 'See AGENTS.md\n' > "$root/CLAUDE.md"
-  printf '#!/usr/bin/env bash\nexit 0\n' | fm_fakebin_write "$root/bin/fm-session-start.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' | fm_fakebin_write "$root/bin/fm-bootstrap.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' | fm_fakebin_write "$root/bin/fm-supervision-instructions.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-session-start.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-bootstrap.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-supervision-instructions.sh"
   printf '7500\n' > "$home/config/startup-memory-budget"
   printf 'projects\n' > "$home/data/projects.md"
   printf 'secondmates\n' > "$home/data/secondmates.md"
@@ -274,7 +274,7 @@ test_metadata_read_failure_keeps_the_retained_baseline() {
   real_stat=$(command -v stat) || fail "no stat(1) on PATH"
   fakebin="$TMP_ROOT/unreadable/fakebin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/stat" <<FAKE
+  cat > "$fakebin/stat" <<FAKE
 #!/usr/bin/env bash
 case "\${1:-}:\${2:-}" in
   -c:%s) exit 1 ;;
@@ -341,7 +341,7 @@ test_unknown_budget_verdict_fields_are_reported_as_unparseable() {
   local rec root home fixbin out
   fixbin=$(make_isolated_bin verdict 0)
 
-  fm_fakebin_write "$fixbin/fm-startup-memory-budget.sh" <<'STUB'
+  cat > "$fixbin/fm-startup-memory-budget.sh" <<'STUB'
 #!/usr/bin/env bash
 printf 'role=primary
 '
@@ -360,7 +360,7 @@ STUB
     "$fixbin/fm-startup-growth-check.sh" check 2>&1) || fail "unknown-status check failed: $out"
   assert_contains "$out" 'reason=unparseable report' "an unrecognized budget_status was accepted as within-budget"
 
-  fm_fakebin_write "$fixbin/fm-startup-memory-budget.sh" <<'STUB'
+  cat > "$fixbin/fm-startup-memory-budget.sh" <<'STUB'
 #!/usr/bin/env bash
 printf 'role=primary
 '

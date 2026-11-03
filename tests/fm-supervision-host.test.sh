@@ -19,7 +19,7 @@ set -u
 test_park_exit_probe_uses_half_second_child_sleeps() {
   local home host_pid
   home=$(make_home park-cadence attended)
-  fm_fakebin_write "$home/fakebin/sleep"  <<'SH'
+  cat > "$home/fakebin/sleep" <<'SH'
 #!/bin/bash
 pid=''
 if [ -f "$FM_HOME/probe-host" ]; then
@@ -322,7 +322,7 @@ test_close_accepted_away_that_turns_attended_passes_to_main() {
   real_mktemp=$(command -v mktemp)
   # Starting the successor arm is the first step after the loop's away check;
   # once the decision line is queued, the captain returns there.
-  fm_fakebin_write "$home/fakebin/mktemp" <<SH
+  cat > "$home/fakebin/mktemp" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *.supervision-host-arm.*)
@@ -451,7 +451,7 @@ for a in "$@"; do
 done
 exec "$REAL_NODE" "$@"
 SH
-  } | fm_fakebin_write "$home/fakebin/node"
+  } > "$home/fakebin/node"
   chmod +x "$home/fakebin/node"
   old=$(umask)
   umask 022
@@ -482,7 +482,7 @@ test_undelivered_dialog_is_fed_again_on_the_next_turn() {
   local home real_node second third fourth
   home=$(make_home mirror-boundary attended)
   real_node=$(command -v node)
-  fm_fakebin_write "$home/fakebin/node" <<SH
+  cat > "$home/fakebin/node" <<SH
 #!/usr/bin/env bash
 if [ "\${2:-}" = wake-prompt ] && [ -e "\$FM_HOME/slow-render" ]; then echo 120 > "\$FM_HOME/park-clock"; fi
 exec "$real_node" "\$@"
@@ -600,7 +600,7 @@ test_attended_wake_with_an_unreadable_mirror_reaches_main() {
   main_drain_and_ack "$home"
 
   printf '#!/usr/bin/env bash\nprev=\nfor a in "$@"; do [ "$prev" != --mirror-file ] || chmod 000 "$a"; prev=$a; done\nexec %q "$@"\n' \
-    "$(command -v node)" | fm_fakebin_write "$home/fakebin/node"
+    "$(command -v node)" > "$home/fakebin/node"
   chmod +x "$home/fakebin/node"
   park_again "$home"
   append_status "$home" 'mirror lost before the prompt'

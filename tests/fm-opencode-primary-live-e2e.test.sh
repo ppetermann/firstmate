@@ -243,17 +243,16 @@ run_ahoy_transcript_regressions() {
   cp "$ROOT/.agents/skills/ahoy/SKILL.md" "$AHOY_PROJECT/.agents/skills/ahoy/SKILL.md"
   chmod +x "$AHOY_PROJECT/bin/fm-sessionstart-nudge.sh"
   # shellcheck disable=SC2016 # Variables expand in the generated script, not this test shell.
-  fm_fakebin_write "$AHOY_PROJECT/bin/fm-session-start.sh" < <(
-    printf '%s\n' \
-      '#!/usr/bin/env bash' \
-      'set -u' \
-      'file="${FM_HOME:?}/state/session-start-count"' \
-      'count=0' \
-      '[ ! -f "$file" ] || count=$(sed -n "1p" "$file")' \
-      'count=$((count + 1))' \
-      'printf "%s\n" "$count" > "$file"' \
-      'printf "SESSION_START_DONE count=%s\n" "$count"'
-  )
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -u' \
+    'file="${FM_HOME:?}/state/session-start-count"' \
+    'count=0' \
+    '[ ! -f "$file" ] || count=$(sed -n "1p" "$file")' \
+    'count=$((count + 1))' \
+    'printf "%s\n" "$count" > "$file"' \
+    'printf "SESSION_START_DONE count=%s\n" "$count"' \
+    > "$AHOY_PROJECT/bin/fm-session-start.sh"
   chmod +x "$AHOY_PROJECT/bin/fm-session-start.sh"
   # shellcheck disable=SC2016 # Backticks are literal prompt markup.
   printf '%s\n' \

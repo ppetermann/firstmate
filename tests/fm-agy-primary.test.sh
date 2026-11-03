@@ -88,7 +88,7 @@ make_primary_dir() {
 
 install_digest_fixture() {
   local dir=$1
-  fm_fakebin_write "$dir/bin/fm-session-start.sh"  <<'SH'
+  cat > "$dir/bin/fm-session-start.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -107,7 +107,7 @@ write_arm_fixture() {  # <dir> <kind>
   local dir=$1 kind=$2
   case "$kind" in
     actionable)
-      fm_fakebin_write "$dir/bin/fm-watch-arm.sh"  <<'SH'
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" >> "$FM_HOME/state/arm-ran"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -116,7 +116,7 @@ exit 0
 SH
       ;;
     failed)
-      fm_fakebin_write "$dir/bin/fm-watch-arm.sh"  <<'SH'
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" >> "$FM_HOME/state/arm-ran"
 printf 'watcher: FAILED - no live watcher with a fresh beacon\n'
@@ -124,7 +124,7 @@ exit 1
 SH
       ;;
     slow-failed)
-      fm_fakebin_write "$dir/bin/fm-watch-arm.sh"  <<'SH'
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" >> "$FM_HOME/state/arm-ran"
 sleep 1.5
@@ -133,7 +133,7 @@ exit 1
 SH
       ;;
     attached-close)
-      fm_fakebin_write "$dir/bin/fm-watch-arm.sh"  <<'SH'
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" >> "$FM_HOME/state/arm-ran"
 printf 'watcher: attached pid=%s (beacon 1s)\n' "$$"
@@ -141,7 +141,7 @@ exit 0
 SH
       ;;
     slow)
-      fm_fakebin_write "$dir/bin/fm-watch-arm.sh"  <<'SH'
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" >> "$FM_HOME/state/arm-ran"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -176,7 +176,7 @@ write_host_fixture() {  # <dir> <kind>
         ;;
     esac
     printf 'exit 0\n'
-  } | fm_fakebin_write "$dir/bin/fm-supervision-host.sh"
+  } > "$dir/bin/fm-supervision-host.sh"
   chmod +x "$dir/bin/fm-supervision-host.sh"
 }
 
@@ -184,7 +184,7 @@ make_healthy_watcher() {
   local dir=$1 pid=${2:-$$} identity
   mkdir -p "$dir/state/.watch.lock"
   [ -f "$dir/bin/fm-watch.sh" ] || {
-    printf '#!/usr/bin/env bash\nexit 0\n' | fm_fakebin_write "$dir/bin/fm-watch.sh"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/bin/fm-watch.sh"
     chmod +x "$dir/bin/fm-watch.sh"
   }
   identity=$(fm_test_pid_identity "$pid")

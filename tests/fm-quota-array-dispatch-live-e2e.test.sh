@@ -37,7 +37,7 @@ trap cleanup EXIT
 mkdir -p "$PROJECT/.agents/skills/quota-array-dispatch" "$FAKEBIN"
 cp "$OWNER" "$PROJECT/.agents/skills/quota-array-dispatch/SKILL.md"
 
-fm_fakebin_write "$FAKEBIN/quota-axi" <<'SH'
+cat > "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
 # Fake quota-axi: default TOON from the schema-5 JSON fixture; --json dumps it.
 set -u

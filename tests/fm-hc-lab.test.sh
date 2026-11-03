@@ -15,11 +15,11 @@ printf 'real state\n' > "$XDG_STATE_HOME/herdr-core/state"
 export REAL_FIND REAL_CAT
 REAL_FIND=$(command -v find)
 REAL_CAT=$(command -v cat)
-fm_fakebin_write "$TMP_ROOT/fakebin/hc"  <<'SH'
+cat > "$TMP_ROOT/fakebin/hc" <<'SH'
 #!/usr/bin/env bash
 printf '{"pid":123}\n'
 SH
-fm_fakebin_write "$TMP_ROOT/fakebin/find"  <<'SH'
+cat > "$TMP_ROOT/fakebin/find" <<'SH'
 #!/usr/bin/env bash
 [ "${FAIL_READ:-}" != find ] || exit 1
 if [ "${FAIL_READ:-}" = metadata ]; then
@@ -29,7 +29,7 @@ if [ "${FAIL_READ:-}" = metadata ]; then
 fi
 exec "$REAL_FIND" "$@"
 SH
-fm_fakebin_write "$TMP_ROOT/fakebin/cat"  <<'SH'
+cat > "$TMP_ROOT/fakebin/cat" <<'SH'
 #!/usr/bin/env bash
 case "${FAIL_READ:-}:$*" in
   roots:*/fleet-roots.txt|baseline:*/fleet-state.txt) exit 1 ;;
@@ -37,8 +37,8 @@ esac
 exec "$REAL_CAT" "$@"
 SH
 # No real Core processes exist in these tests.
-printf '#!/usr/bin/env bash\nexit 0\n' | fm_fakebin_write "$TMP_ROOT/fakebin/ps"
-printf '#!/usr/bin/env bash\nexit 0\n' | fm_fakebin_write "$TMP_ROOT/fakebin/sleep"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP_ROOT/fakebin/ps"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP_ROOT/fakebin/sleep"
 chmod +x "$TMP_ROOT/fakebin/"*
 export FM_HC_BIN="$TMP_ROOT/fakebin/hc" PATH="$TMP_ROOT/fakebin:$PATH"
 

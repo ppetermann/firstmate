@@ -53,7 +53,7 @@ mkdir -p "$SENDER_HOME/state" "$SENDER_HOME/data" "$SENDER_HOME/config" "$SENDER
 # Route production adapter invocations through the same guarded helper as every
 # explicit E2E probe. The helper itself runs with the original PATH, preventing
 # recursion into this shim.
-fm_fakebin_write "$FAKEBIN/herdr" <<EOF
+cat > "$FAKEBIN/herdr" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 helper='$LAB_HELPER'
@@ -104,7 +104,7 @@ export default function (pi: any) {
   });
 }
 EOF
-fm_fakebin_write "$FAKEBIN/pi" < <(printf '#!/usr/bin/env bash\nexec %q -e %q "$@"\n' "$REAL_PI" "$CAPTURE_EXTENSION")
+printf '#!/usr/bin/env bash\nexec %q -e %q "$@"\n' "$REAL_PI" "$CAPTURE_EXTENSION" > "$FAKEBIN/pi"
 chmod +x "$FAKEBIN/pi"
 
 "$LAB_HELPER" provision "$SESSION"

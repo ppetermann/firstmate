@@ -124,7 +124,7 @@ test_cursor_marker_detection() {
   local dir fakebin got
   dir="$TMP_ROOT/cursor-marker"
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *'ppid='*) printf '%s\n' 1 ;;
@@ -311,7 +311,7 @@ test_pi_signed_detection_and_session_lock_identity() {
   local dir fakebin got
   dir="$TMP_ROOT/pi-signed-identity"
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -373,7 +373,7 @@ test_dash_leading_process_names_are_basename_operands() {
   local dir fakebin got err status
   dir="$TMP_ROOT/dash-leading-process-names"
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 field= pid=
@@ -605,7 +605,7 @@ test_propagate_lib() {
 make_noop_tmux() {
   local dir=$1 fakebin="$1/fakebin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 window_file="$(dirname "$0")/.spawn-window"
 case "${1:-}" in
@@ -845,7 +845,7 @@ meta_field() { grep "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2-; }
 make_launch_capturing_tmux() {
   local dir=$1 fakebin="$1/fakebin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "$*" in
@@ -1208,7 +1208,7 @@ test_spawned_secondmate_uses_its_harness_supervision_model() {
     # happens to be running from. The guard also reports a tangled primary
     # checkout, so without this the branch a contributor is working on decides
     # whether this assertion passes.
-    fm_fakebin_write "$fakebin/$harness" <<SH
+    cat > "$fakebin/$harness" <<SH
 #!/usr/bin/env bash
 FM_ROOT_OVERRIDE="$sm" "$ROOT/bin/fm-guard.sh"
 SH
@@ -1312,7 +1312,7 @@ new_world() {
   printf 'v1\n' > "$w/main/AGENTS.md"
   printf 'r1\n' > "$w/main/README.md"
   mkdir -p "$w/main/bin"
-  fm_fakebin_write "$w/main/bin/tool.sh" < <(printf 'echo a\n')
+  printf 'echo a\n' > "$w/main/bin/tool.sh"
   git -C "$w/main" add -A
   git -C "$w/main" commit -qm c1
   printf '%s\n' "$w"
@@ -1349,7 +1349,7 @@ make_fake_toolchain() {
   mkdir -p "$fakebin"
   fm_fake_exit0 "$fakebin" node chrome-devtools-axi
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.80
-  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
+  cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.29'
@@ -1360,7 +1360,7 @@ SH
   chmod +x "$fakebin/gh-axi"
   # tmux fake supports fm-send's composer-verified submit path and optional
   # FM_FAKE_TMUX_LOG / FM_FAKE_TMUX_FAIL_LITERAL for reread-nudge assertions.
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FM_FAKE_TMUX_LOG:-}" ]; then
   printf '%s\n' "$*" >> "$FM_FAKE_TMUX_LOG"
@@ -1386,12 +1386,12 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  fm_fakebin_write "$fakebin/gh" <<'SH'
+  cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$fakebin/gh"
-  fm_fakebin_write "$fakebin/treehouse" <<'SH'
+  cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
   printf '%s\n' 'Usage: treehouse get [--lease]'
@@ -1399,7 +1399,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/treehouse"
-  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
+  cat > "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' 'no-mistakes version v1.46.0 (fake)'
@@ -1408,7 +1408,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/no-mistakes"
-  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
+  cat > "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "--version ") printf '%s\n' '0.2.6' ;;
@@ -1418,7 +1418,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tasks-axi"
-  fm_fakebin_write "$fakebin/quota-axi" <<'SH'
+  cat > "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.51'
@@ -2352,7 +2352,7 @@ test_config_reread_publication_failure_retries_exact_generation() {
   fakebin=$(make_fake_toolchain "$w")
   real_mv=$(command -v mv)
   alpha_state=$(cd "$w/alpha/state" && pwd -P)
-  fm_fakebin_write "$fakebin/mv" <<SH
+  cat > "$fakebin/mv" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *"$alpha_state/.fm-inherited-config-reread."*) exit 1 ;;
@@ -2402,7 +2402,7 @@ test_config_reread_write_failure_retains_exact_retry_generation() {
   real_mv=$(command -v mv)
   mkdir -p "$w/home/state/.fm-inherited-config-reread-retry/sm"
   retry_dir=$(cd "$w/home/state/.fm-inherited-config-reread-retry/sm" && pwd -P)
-  fm_fakebin_write "$fakebin/mv" <<SH
+  cat > "$fakebin/mv" <<SH
 #!/usr/bin/env bash
 target=
 for arg in "\$@"; do target="\$arg"; done
@@ -2462,7 +2462,7 @@ test_config_reread_exact_temp_survives_adoption_failure() {
   real_cp=$(command -v cp)
   mkdir -p "$w/home/state/.fm-inherited-config-reread-retry/sm"
   retry_dir=$(cd "$w/home/state/.fm-inherited-config-reread-retry/sm" && pwd -P)
-  fm_fakebin_write "$fakebin/mv" <<SH
+  cat > "$fakebin/mv" <<SH
 #!/usr/bin/env bash
 target=
 for arg in "\$@"; do target="\$arg"; done
@@ -2472,7 +2472,7 @@ esac
 exec "$real_mv" "\$@"
 SH
   chmod +x "$fakebin/mv"
-  fm_fakebin_write "$fakebin/cp" <<SH
+  cat > "$fakebin/cp" <<SH
 #!/usr/bin/env bash
 target=
 for arg in "\$@"; do target="\$arg"; done
@@ -2531,7 +2531,7 @@ test_config_reread_serializes_concurrent_pushes() {
   marker="$w/first-send.marker"
   entered="$w/first-send.entered"
   log="$w/config-reread-serialized.tmux.log"
-  fm_fakebin_write "$fakebin/tmux" <<SH
+  cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *send-keys*)
@@ -2641,7 +2641,7 @@ test_config_reread_cleanup_runs_after_mixed_delivery_failure() {
   # generation's pointer path in its body, so a content-matching mv wrapper
   # rejects exactly that one atomic publish and nothing else.
   real_mv=$(command -v mv)
-  fm_fakebin_write "$fakebin/mv" <<SH
+  cat > "$fakebin/mv" <<SH
 #!/usr/bin/env bash
 if [ -f "\${1:-}" ] && grep -q '\.9999-fail' "\${1:-}" 2>/dev/null; then
   exit 1
@@ -2686,7 +2686,7 @@ test_config_reread_stops_after_failed_generation() {
     || fail "could not mark newer generation pending"
   fakebin=$(make_fake_toolchain "$w")
   mv "$fakebin/tmux" "$fakebin/tmux.real"
-  fm_fakebin_write "$fakebin/tmux" <<SH
+  cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *send-keys*'.0000-fail'*) exit 1 ;;
@@ -2853,7 +2853,7 @@ test_bootstrap_respawns_before_config_reread() {
     || fail "could not create stale reread marker"
   log="$w/config-reread-respawn-order.log"
 
-fm_fakebin_write "$w/main/bin/fm-spawn.sh" <<SH
+cat > "$w/main/bin/fm-spawn.sh" <<SH
 #!/usr/bin/env bash
 . '$w/main/bin/fm-config-inherit-lib.sh'
 printf '%s' spawn >> '$log'
@@ -2862,7 +2862,7 @@ printf '%s\n' 7500 > '$w/sm/config/startup-memory-budget'
 SH
   chmod +x "$w/main/bin/fm-spawn.sh"
   fakebin=$(make_fake_toolchain "$w")
-  fm_fakebin_write "$fakebin/tmux" <<SH
+  cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *display-message*'#{pane_current_command}'*) printf '%s' zsh ;;
@@ -2915,7 +2915,7 @@ test_spawn_quarantines_pending_rereads_on_cleanup_failure() {
   done
   fakebin=$(make_launch_capturing_tmux "$w/tmux-spawn-quarantine")
   real_rm=$(command -v rm)
-  fm_fakebin_write "$fakebin/rm" <<SH
+  cat > "$fakebin/rm" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *'.fm-inherited-config-reread.'*) exit 1 ;;

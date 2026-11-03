@@ -117,7 +117,7 @@ write_response() {  # <path> <choice> <confidence>
 JSON
 }
 
-fm_fakebin_write "$FAKEBIN/curl" <<'SH'
+cat > "$FAKEBIN/curl" <<'SH'
 #!/usr/bin/env bash
 # Fake curl: records argv (minus the -o target), the stdin body, and the header
 # read from fd 3, then answers with FAKE_CURL_RESPONSE and FAKE_CURL_HTTP.
@@ -161,7 +161,7 @@ printf '%s' "${FAKE_CURL_HTTP:-200}"
 SH
 chmod +x "$FAKEBIN/curl"
 
-fm_fakebin_write "$FAKEBIN/quota-axi" <<'SH'
+cat > "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ -n "${TYPESAFE_API_KEY+x}" ] || [ -n "${TYPESAFE_API_KEY_PRIVATE+x}" ] ||
@@ -183,7 +183,7 @@ cat "${QUOTA_AXI_FIXTURE:?}"
 SH
 chmod +x "$FAKEBIN/quota-axi"
 
-fm_fakebin_write "$FAKEBIN/security"  <<'SH'
+cat > "$FAKEBIN/security" <<'SH'
 #!/usr/bin/env bash
 # Fake security: the Keychain stand-in. It answers only an exact
 # `find-generic-password -s <service> [-a <account>] -w` query, from the item
@@ -228,7 +228,7 @@ cat "$item"
 SH
 chmod +x "$FAKEBIN/security"
 
-fm_fakebin_write "$FAKEBIN/uname"  <<'SH'
+cat > "$FAKEBIN/uname" <<'SH'
 #!/usr/bin/env bash
 # Fake uname: the host is macOS unless FAKE_UNAME names another system.
 printf '%s\n' "${FAKE_UNAME:-Darwin}"

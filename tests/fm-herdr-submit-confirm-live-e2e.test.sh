@@ -52,7 +52,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-fm_fakebin_write "$FAKEBIN/herdr" <<EOF
+cat > "$FAKEBIN/herdr" <<EOF
 #!/usr/bin/env bash
 set -u
 args=("\$@")

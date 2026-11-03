@@ -73,7 +73,7 @@ command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; exit
 make_fake_curl() {  # <home>
   local fakebin
   fakebin=$(fm_fakebin "$1")
-  fm_fakebin_write "$fakebin/curl" <<'SH'
+  cat > "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 ofile="" url="" data=""
 while [ $# -gt 0 ]; do
@@ -829,7 +829,7 @@ test_local_secondmate_seed_publishes_parent_before_identity() {
   release="$TMP_ROOT/seed-publication-release"
   manifest_out="$TMP_ROOT/seed-publication.out"
   real_mv=$(command -v mv)
-  fm_fakebin_write "$fakebin/mv" <<'SH'
+  cat > "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 destination=${!#}
 case "$destination" in
@@ -1114,7 +1114,7 @@ test_relay_disabled_unmarked_teardown_skips_public_path() {
   fm_git_init_commit "$home/projects/worktree"
   tasks_log="$home/tasks-axi.log"; : > "$tasks_log"
   printf 'manual\n' > "$home/config/backlog-backend"
-  fm_fakebin_write "$home/fakebin/tasks-axi" <<'SH'
+  cat > "$home/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE_TASKS_AXI_LOG"
 exit 99
@@ -1150,7 +1150,7 @@ test_relay_disabled_parent_allows_marked_child_teardown() {
   fm_write_meta "$parent/state/disabled-mate.meta" "kind=secondmate" "home=$child"
   tasks_log="$child/tasks-axi.log"; : > "$tasks_log"
   printf 'manual\n' > "$child/config/backlog-backend"
-  fm_fakebin_write "$child/fakebin/tasks-axi" <<'SH'
+  cat > "$child/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE_TASKS_AXI_LOG"
 exit 99
@@ -1229,7 +1229,7 @@ test_pending_rejects_malformed_listing() {
   local home out
   home=$(make_home pending-malformed)
   seed_commitment "$home" pf-malformed req-malformed discord main work-malformed
-  fm_fakebin_write "$home/fakebin/tasks-axi" <<'SH'
+  cat > "$home/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s' '{"public_followups":['
 SH
@@ -1315,7 +1315,7 @@ test_relay_disabled_home_pays_nothing() {
   home=$(make_home relay-disabled relay-off)
   tasks_log="$home/tasks-axi.log"; : > "$tasks_log"
   # Any tasks-axi invocation at all is a failure here, so make it loud.
-  fm_fakebin_write "$home/fakebin/tasks-axi" <<'SH'
+  cat > "$home/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE_TASKS_AXI_LOG"
 exit 0
@@ -1371,7 +1371,7 @@ test_relay_enabled_empty_state_makes_no_calls() {
   local home tasks_log out rc cmd
   home=$(make_home relay-enabled-empty)
   tasks_log="$home/tasks-axi.log"; : > "$tasks_log"
-  fm_fakebin_write "$home/fakebin/tasks-axi" <<'SH'
+  cat > "$home/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE_TASKS_AXI_LOG"
 exit 0
@@ -1593,7 +1593,7 @@ test_rechain_delivers_second_post_on_same_thread() {
   assert_contains "$out" "--deliverable pr_url=<pr_url>" \
     "rechain brief must name the actual required deliverable key"
   command_log="$parent/brief-command.args"
-  fm_fakebin_write "$parent/fakebin/record-emit" <<'SH'
+  cat > "$parent/fakebin/record-emit" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$RECORD_ARGS"
 SH
@@ -1651,7 +1651,7 @@ test_rechain_resumes_after_partial_add() {
 
   real_tasks=$(command -v tasks-axi)
   marker="$home/rechain-bind-failed"
-  fm_fakebin_write "$home/fakebin/tasks-axi" <<'SH'
+  cat > "$home/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = public-followup ] && [ "$2" = bind-work ] \
     && [ "$3" = public-final-resume-b ] && [ ! -e "$RECHAIN_FAIL_MARKER" ]; then
@@ -1742,7 +1742,7 @@ test_failed_rechain_retirement_keeps_source_claimed() {
     || fail "deliver failed"
 
   registry_file="$home/state/public-followup/registry/public-final-retire-a"
-  fm_fakebin_write "$home/fakebin/rm" <<EOF
+  cat > "$home/fakebin/rm" <<EOF
 #!/usr/bin/env bash
 for arg in "\$@"; do
   [ "\$arg" != '$registry_file' ] || exit 1
@@ -2065,7 +2065,7 @@ test_pending_skips_concurrent_retirement() {
   [ -e "$home/lock-ready" ] || fail "race locker did not start"
 
   real_tasks=$(command -v tasks-axi)
-  fm_fakebin_write "$home/fakebin/tasks-axi" <<'SH'
+  cat > "$home/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 "$REAL_TASKS_AXI" "$@"
 rc=$?
@@ -2104,7 +2104,7 @@ test_retire_reason_closes_the_open_loop() {
   assert_present "$home/state/public-followup/registry/pf-retire" \
     "a reason-less retire must keep the registration"
   registry_file="$home/state/public-followup/registry/pf-retire"
-  fm_fakebin_write "$home/fakebin/rm" <<EOF
+  cat > "$home/fakebin/rm" <<EOF
 #!/usr/bin/env bash
 for arg in "\$@"; do
   [ "\$arg" != '$registry_file' ] || exit 1
@@ -2244,7 +2244,7 @@ test_brief_fails_without_typed_deliverable_keys() {
   home=$(make_home brief-keys)
   seed_commitment "$home" pf-brief req-brief discord main work-brief
   real_tasks=$(command -v tasks-axi)
-  fm_fakebin_write "$home/fakebin/tasks-axi" <<'SH'
+  cat > "$home/fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${FAKE_INVALID_KEYS:-}" = unreadable ]; then
   exit 69
@@ -2439,7 +2439,7 @@ remote_fixture_prepare() {
   git -C "$REMOTE_FIXTURE_ROOT" commit -qm 'tracked remote fixture'
 
   fakebin=$(fm_fakebin "$TMP_ROOT/remote-transport")
-  fm_fakebin_write "$fakebin/fake-ssh" <<'SH'
+  cat > "$fakebin/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   case "$1" in

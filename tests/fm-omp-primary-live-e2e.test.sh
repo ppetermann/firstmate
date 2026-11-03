@@ -114,7 +114,7 @@ mkdir -p "$PROJECT/state" "$PROJECT/config" "$PROJECT/data"
 # whether the rpc stream echoes additionalContext.
 GUARD_SPY_LOG="$LAB/guard-spy.log"
 mv "$PROJECT/bin/fm-turnend-guard.sh" "$PROJECT/bin/fm-turnend-guard.real.sh"
-fm_fakebin_write "$PROJECT/bin/fm-turnend-guard.sh" <<SH
+cat > "$PROJECT/bin/fm-turnend-guard.sh" <<SH
 #!/usr/bin/env bash
 payload=\$(cat)
 printf '%s' "\$payload" | "\$(dirname "\$0")/fm-turnend-guard.real.sh" "\$@"

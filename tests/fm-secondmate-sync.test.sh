@@ -63,7 +63,7 @@ new_world() {
   printf 'v1\n' > "$w/main/AGENTS.md"
   printf 'r1\n' > "$w/main/README.md"
   mkdir -p "$w/main/bin" "$w/main/.agents/skills"
-  fm_fakebin_write "$w/main/bin/tool.sh" < <(printf 'echo a\n')
+  printf 'echo a\n' > "$w/main/bin/tool.sh"
   printf 's1\n' > "$w/main/.agents/skills/note.md"
   git -C "$w/main" add -A
   git -C "$w/main" commit -qm c1
@@ -93,11 +93,11 @@ bump_primary() {
   printf 'r-%s\n' "$mode" >> "$w/main/README.md"
   if [ "$mode" = instr ]; then
     printf 'v-%s\n' "$mode" > "$w/main/AGENTS.md"
-    fm_fakebin_write "$w/main/bin/tool.sh" < <(printf 'echo %s\n' "$mode")
+    printf 'echo %s\n' "$mode" > "$w/main/bin/tool.sh"
     printf 's-%s\n' "$mode" > "$w/main/.agents/skills/note.md"
   fi
   if [ "$mode" = bin ]; then
-    fm_fakebin_write "$w/main/bin/tool.sh" < <(printf 'echo %s-%s\n' "$mode" "$RANDOM")
+    printf 'echo %s-%s\n' "$mode" "$RANDOM" > "$w/main/bin/tool.sh"
   fi
   git -C "$w/main" add -A
   git -C "$w/main" commit -qm "bump-$mode"
@@ -279,7 +279,7 @@ test_no_fetch_in_local_path() {
   log="$w/fetch.log"
   real_git=$(command -v git)
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/git" <<SH
+  cat > "$fakebin/git" <<SH
 #!/usr/bin/env bash
 for a in "\$@"; do
   if [ "\$a" = fetch ]; then printf 'FETCH\n' >> '$log'; fi
@@ -323,7 +323,7 @@ make_fake_toolchain() {
   mkdir -p "$fakebin"
   fm_fake_exit0 "$fakebin" node chrome-devtools-axi
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.80
-  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
+  cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' '0.1.29'
@@ -332,7 +332,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh-axi"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FM_FAKE_TMUX_LOG:-}" ]; then
   printf '%s\n' "$*" >> "$FM_FAKE_TMUX_LOG"
@@ -354,12 +354,12 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  fm_fakebin_write "$fakebin/gh" <<'SH'
+  cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$fakebin/gh"
-  fm_fakebin_write "$fakebin/treehouse" <<'SH'
+  cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
   printf '%s\n' 'Usage: treehouse get [--lease]'
@@ -367,7 +367,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/treehouse"
-  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
+  cat > "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' 'no-mistakes version v1.46.0 (fake)'
@@ -376,7 +376,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/no-mistakes"
-  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
+  cat > "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "--version ") printf '%s\n' '0.2.6' ;;
@@ -386,7 +386,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tasks-axi"
-  fm_fakebin_write "$fakebin/quota-axi" <<'SH'
+  cat > "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' 'quota-axi 0.1.51 (fake)'
@@ -400,7 +400,7 @@ SH
 add_real_jq() {
   local fakebin=$1 real_jq
   real_jq=$(command -v jq 2>/dev/null) || return 1
-  fm_fakebin_write "$fakebin/jq" <<SH
+  cat > "$fakebin/jq" <<SH
 #!/usr/bin/env bash
 exec '$real_jq' "\$@"
 SH
@@ -616,7 +616,7 @@ test_bootstrap_nudge_retry_refuses_changed_home() {
 make_nudge_herdr_fake() {
   local dir=$1 stale=$2 fresh=$3 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/herdr" <<SH
+  cat > "$fakebin/herdr" <<SH
 #!/usr/bin/env bash
 set -u
 cmd=\${1:-}; sub=\${2:-}; arg=\${3:-}
@@ -772,7 +772,7 @@ test_spawn_fast_forwards_before_launch() {
   # tmux stub: accept every subcommand, print nothing (so no window pre-exists).
   fakebin="$w/fakebin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -806,7 +806,7 @@ test_spawn_warns_when_sync_skipped_before_launch() {
   fakebin="$w/fakebin"
   err="$w/spawn.err"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -918,7 +918,7 @@ new_remote_world() {
   printf 'projects/\nstate/\ndata/\nconfig/\n.no-mistakes/\n.fm-secondmate-home\n' > "$w/main/.gitignore"
   printf 'v1\n' > "$w/main/AGENTS.md"
   mkdir -p "$w/main/bin" "$w/main/.agents/skills"
-  fm_fakebin_write "$w/main/bin/tool.sh" < <(printf 'echo a\n')
+  printf 'echo a\n' > "$w/main/bin/tool.sh"
   printf 's1\n' > "$w/main/.agents/skills/note.md"
   git -C "$w/main" add -A
   git -C "$w/main" commit -qm c1

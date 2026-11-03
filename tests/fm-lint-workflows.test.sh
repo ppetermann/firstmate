@@ -25,7 +25,7 @@ ACTIONLINT_SHA_DARWIN_ARM64=aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea
 
 fm_install_stub_uname() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/uname" <<'SH'
+  cat > "$fakebin/uname" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   -s) printf '%s\n' "${FM_TEST_UNAME_S:-Linux}" ;;
@@ -38,7 +38,7 @@ SH
 
 fm_install_stub_curl() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/curl" <<'SH'
+  cat > "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 count=0
 [ ! -f "${CURL_COUNT:-}" ] || count=$(cat "$CURL_COUNT")
@@ -72,7 +72,7 @@ SH
 
 fm_install_stub_hasher() {
   local fakebin=$1 name=$2
-  fm_fakebin_write "$fakebin/$name" <<'SH'
+  cat > "$fakebin/$name" <<'SH'
 #!/usr/bin/env bash
 self=${0##*/}
 if [ -n "${HASHER_LOG:-}" ]; then
@@ -103,7 +103,7 @@ SH
 
 fm_install_stub_tar_actionlint() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/tar" <<'SH'
+  cat > "$fakebin/tar" <<'SH'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-C" ]; then
@@ -123,7 +123,7 @@ SH
 
 fm_install_stub_sleep() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/sleep" <<'SH'
+  cat > "$fakebin/sleep" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -275,7 +275,7 @@ test_rejects_wrong_actionlint_version() {
   fakebin=$(fm_fakebin "$tmp")
   mkdir -p "$tmp/.github/workflows"
   write_valid_workflow "$tmp/.github/workflows/ci.yml"
-  fm_fakebin_write "$fakebin/actionlint" <<'SH'
+  cat > "$fakebin/actionlint" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = "-version" ]; then
   printf '0.0.0\n'
@@ -473,7 +473,7 @@ test_fm_lint_default_path_catches_broken_ci_yml() {
 
   fakebin=$(fm_fakebin "$tmp")
   log="$tmp/shellcheck.log"
-  fm_fakebin_write "$fakebin/git" <<'SH'
+  cat > "$fakebin/git" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   "rev-parse --is-inside-work-tree") printf 'true\n'; exit 0 ;;
@@ -489,7 +489,7 @@ esac
 SH
   chmod +x "$fakebin/git"
   : > "$log"
-  fm_fakebin_write "$fakebin/shellcheck" <<SH
+  cat > "$fakebin/shellcheck" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = --version ]; then
   printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'

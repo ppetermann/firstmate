@@ -129,8 +129,8 @@ mkdir -p "$FM/state" "$FM/config" "$FM/data"
 printf 'idle-seconds=60\nmin-context-tokens=5000\n' > "$FM/config/warm-compact"
 printf 'project=demo\nwindow=fm-demo\nharness=claude\n' > "$FM/state/demo.meta"
 : > "$FM/state/demo.status"
-printf '#!/usr/bin/env bash\nexit 1\n' | fm_fakebin_write "$LAB/bin/tmux"
-fm_fakebin_write "$LAB/bin/herdr"  <<SH
+printf '#!/usr/bin/env bash\nexit 1\n' > "$LAB/bin/tmux"
+cat > "$LAB/bin/herdr" <<SH
 #!/usr/bin/env bash
 set -euo pipefail
 args=("\$@")

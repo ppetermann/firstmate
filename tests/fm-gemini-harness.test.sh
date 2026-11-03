@@ -74,7 +74,7 @@ test_gemini_ancestry_matches_only_a_native_command_name() {
   # it with a fake ps so the arm cannot rot, and clear every marker so ONLY
   # ancestry can produce the verdict.
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-native")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' '/usr/local/bin/gemini'; exit 0 ;;
@@ -93,7 +93,7 @@ SH
 test_gemini_ancestry_rejects_unrelated_mentions() {
   local fakebin out
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-negatives")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' "${FAKE_PS_COMM:?}"; exit 0 ;;

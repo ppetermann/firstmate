@@ -17,7 +17,7 @@ make_case() {
   HOME_DIR="$CASE/home"
   META="$HOME_DIR/state/local-task.meta"
   mkdir -p "$HOME_DIR/state" "$HOME_DIR/data" "$HOME_DIR/config" "$HOME_DIR/bin"
-  printf '#!/bin/sh\nexit 0\n' | fm_fakebin_write "$HOME_DIR/bin/fm-guard.sh"
+  printf '#!/bin/sh\nexit 0\n' > "$HOME_DIR/bin/fm-guard.sh"
   chmod +x "$HOME_DIR/bin/fm-guard.sh"
   fm_git_worktree "$PROJ" "$WT" fm/local-task
   BASE=$(git -C "$PROJ" rev-parse HEAD)
@@ -93,7 +93,7 @@ test_change_after_hold_check_refuses() {
   Y=$(git -C "$WT" rev-parse HEAD)
   git -C "$WT" reset -q --hard "$X"
   mkdir -p "$CASE/fakebin"
-  fm_fakebin_write "$CASE/fakebin/git"  <<'SH'
+  cat > "$CASE/fakebin/git" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *' merge --ff-only '*|*' update-ref '*' --stdin')
@@ -215,7 +215,7 @@ test_two_tasks_cannot_undo_a_same_tree_landing() {
   real_sleep=$(command -v sleep)
   project_lock="$(git -C "$PROJ" rev-parse --absolute-git-dir)/fm-local-landing.lock"
   mkdir -p "$CASE/fakebin"
-  fm_fakebin_write "$CASE/fakebin/git"  <<'SH'
+  cat > "$CASE/fakebin/git" <<'SH'
 #!/usr/bin/env bash
 wait_for() {
   local i=0
@@ -254,7 +254,7 @@ case "$*" in
 esac
 exec "$REAL_GIT" "$@"
 SH
-  fm_fakebin_write "$CASE/fakebin/sleep"  <<'SH'
+  cat > "$CASE/fakebin/sleep" <<'SH'
 #!/usr/bin/env bash
 if [ "$RACE_ROLE" = second ] && [ -d "$RACE_PROJECT_LOCK" ] \
   && [ -d "$RACE_CONTROL_LOCK" ] && [ ! -f "$RACE_DIR/second.ready" ]; then

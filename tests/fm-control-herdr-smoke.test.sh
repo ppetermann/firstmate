@@ -191,7 +191,7 @@ pass "real herdr $HERDR_VERSION: a gone session reads recoverable while a live p
 
 FAKEBIN="$SCRATCH/fakebin"
 mkdir -p "$FAKEBIN"
-fm_fakebin_write "$FAKEBIN/codex" <<EOF
+cat > "$FAKEBIN/codex" <<EOF
 #!/usr/bin/env bash
 : > "$SCRATCH/codex-launched"
 EOF

@@ -3,11 +3,6 @@
 # Drives the public argv interface with a mocked quota-axi JSON source.
 set -u
 
-# This suite does not source tests/lib.sh, so it reaches the fixture
-# tool-directory write carrier directly; that file's header owns the contract.
-# shellcheck source=tests/fakebin-write.sh
-. "$(dirname "${BASH_SOURCE[0]}")/fakebin-write.sh"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 BIN="$FM_ROOT/bin"
@@ -153,7 +148,7 @@ cat > "$FIXTURE" <<'JSON'
 }
 JSON
 
-fm_fakebin_write "$FAKEBIN/quota-axi" <<'SH'
+cat > "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
 printf 'called\n' >> "${QUOTA_AXI_CALLS:?}"
 if [ "${1:-}" = "--version" ]; then

@@ -104,7 +104,7 @@ test_send_passes_body() {
   stdin_file="$TMP_ROOT/stdin_capture.txt"
 
   # Fake python3 that reads stdin (the body pipe) and writes it to a file.
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 cat > "${FM_MAIL_TEST_STDIN_FILE:-/dev/null}"
 exit 0
@@ -133,7 +133,7 @@ test_poll_error_propagates() {
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
   # Fake python3 that exits with an error (simulating IMAP failure).
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 echo "fm-mail poll error: connection refused" >&2
 exit 1
@@ -156,7 +156,7 @@ test_poll_dedupes_surfaces_by_uid() {
 
   # Fake python3 that emits the mailbox generation guard then one UID'd
   # poll_list line (uidvalidity, uid \t date \t from \t subj).
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t10001\n'
 printf '42\t2026-09-05T00:00:00Z\talice@example.com\tHello\n'
@@ -198,7 +198,7 @@ test_poll_resurfaces_uid_after_generation_change() {
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
   # First mailbox generation surfaces uid 77 under uidvalidity 30003.
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t30003\n'
 printf '77\t2026-09-05T00:00:00Z\talice@example.com\tHello\n'
@@ -213,7 +213,7 @@ SH
   assert_contains "$out" "woke for 77" "first generation wakes uid 77"
 
   # Recreated mailbox: same numeric uid 77 under a new UIDVALIDITY.
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t40004\n'
 printf '77\t2026-09-06T00:00:00Z\tbob@example.com\tAgain\n'
@@ -235,7 +235,7 @@ test_poll_heals_wake_without_cursor_record() {
   mkdir -p "$homedir_bin"
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t60006\n'
 printf '99\t2026-09-05T00:00:00Z\talice@example.com\tHello\n'
@@ -275,7 +275,7 @@ local fakebin homedir_bin
 
   # Fresh-generation fake python3 that pauses so two concurrently started
   # polls genuinely overlap and contend on the cursor.
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 sleep 0.2
 printf 'uidvalidity\t50005\n'
@@ -308,7 +308,7 @@ test_poll_recovers_journaled_wake_after_ack() {
   mkdir -p "$homedir_bin"
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t70007\n'
 printf '55\t2026-09-05T00:00:00Z\talice@example.com\tHello\n'
@@ -354,7 +354,7 @@ test_poll_duplicate_wakes_on_interrupted_poll() {
   mkdir -p "$homedir_bin" "$interrupted_home/state"
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity	80008\n'
 printf '33\t2026-09-05T00:00:00Z\talice@example.com\tHello\n'
@@ -404,7 +404,7 @@ test_poll_acknowledged_wake_evading_recovery() {
   mkdir -p "$homedir_bin" "$acked_home/state"
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '44\t2026-09-05T00:00:00Z\talice@example.com\tHello\n'
@@ -448,7 +448,7 @@ test_poll_legacy_wake_does_not_leak_into_generation() {
   # Fresh mailbox generation (uidvalidity 90009) whose uid 42 is currently
   # unseen. A legacy generation-less wake `mail:42` from an earlier era is
   # still queued.
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '42\t2026-09-05T00:00:00Z\talice@example.com\tHello\n'
@@ -480,7 +480,7 @@ test_poll_missing_wake_lib_does_not_suppress() {
   cp "$ROOT/bin/fm-mail.py" "$miss_bin/fm-mail.py"
   chmod +x "$miss_bin/fm-mail.sh"
 
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t10010\n'
 printf '33\t2026-09-05T00:00:00Z\talice@example.com\tHello\n'
@@ -506,7 +506,7 @@ test_poll_rolls_back_wake_without_durable_record() {
   mkdir -p "$homedir_bin"
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '66\t2026-09-05T00:00:00Z\nalice@example.com\tHello\n'
@@ -554,7 +554,7 @@ test_poll_rollback_failure_never_leaves_unrecorded_ackable_wake() {
   mkdir -p "$roll_home/bin" "$roll_home/state"
   [ -e "$roll_home/bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$roll_home/bin/fm-wake-lib.sh"
 
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '88\t2026-09-05T00:00:00Z\talice@example.com\tHello\n'
@@ -840,7 +840,7 @@ test_poll_restores_retry_when_recovered_wake_cannot_append() {
   fakebin=$(fm_fakebin "$TMP_ROOT")
   mkdir -p "$HOME_DIR/bin"
   [ -e "$HOME_DIR/bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$HOME_DIR/bin/fm-wake-lib.sh"
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '77\t\tfrom@x\tRe: hi\tretry\n'
@@ -875,7 +875,7 @@ test_poll_death_between_retry_remove_and_publish_does_not_strand() {
   mkdir -p "$homedir_bin" "$test_home/state"
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity	90009\n'
 printf '77\t2026-09-05T00:00:00Z\tfrom@x\tRe: hi\tretry\n'
@@ -920,7 +920,7 @@ test_poll_fails_closed_when_poll_list_fails() {
   fakebin=$(fm_fakebin "$TMP_ROOT")
   mkdir -p "$HOME_DIR/bin"
   [ -e "$HOME_DIR/bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$HOME_DIR/bin/fm-wake-lib.sh"
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 if [ -f "$FM_POLL_FAIL_MARKER" ]; then
   echo 'fm-mail poll error: simulated failure' >&2
@@ -962,7 +962,7 @@ test_poll_fails_closed_when_retry_clear_fails() {
   homedir_bin="$test_home/bin"
   mkdir -p "$homedir_bin" "$test_home/state"
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '77\t\tfrom@x\tRe: hi\tretry\n'
@@ -1015,7 +1015,7 @@ test_poll_fails_closed_when_stale_retry_clear_fails() {
   homedir_bin="$test_home/bin"
   mkdir -p "$homedir_bin" "$test_home/state"
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '77\t2026-09-05T00:00:00Z\tfrom@x\tHello\tok\n'
@@ -1053,7 +1053,7 @@ test_poll_fails_closed_when_retry_unwritable() {
   mkdir -p "$homedir_bin"
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '77\t\t(no header)\tunfetchable header - see fm-mail read\tdegraded\n'
@@ -1084,7 +1084,7 @@ test_poll_journal_failure_never_cursor_records() {
   mkdir -p "$homedir_bin"
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '78\t2026-09-06T00:00:00Z\tfrom@x\tHello\tok\n'
@@ -2165,7 +2165,7 @@ if len(sys.argv) > 2 and sys.argv[2] == 'poll_list':
     sys.exit(mod.cmd_poll_list())
 sys.exit(1)
 PYEOF
-  fm_fakebin_write "$fakebin/python3" <<EOF
+  cat > "$fakebin/python3" <<EOF
 #!/bin/bash
 exec "$real_py" "$harness" "\$@"
 EOF
@@ -2230,7 +2230,7 @@ test_poll_keeps_journal_when_heal_cannot_record() {
   [ -e "$homedir_bin/fm-wake-lib.sh" ] || ln -s "$ROOT/bin/fm-wake-lib.sh" "$homedir_bin/fm-wake-lib.sh"
 
   # No unseen mail; the poll only heals the seeded journal entry.
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 SH
@@ -2260,7 +2260,7 @@ test_poll_heal_failure_does_not_rewake_unseen_mail() {
   # Journal names uid 55; the cursor cannot be appended to; IMAP still lists
   # 55 as UNSEEN. The poll must fail closed before the wake loop so the uid
   # is not surfaced a second time.
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '55\t2026-09-05T00:00:00Z\talice@example.com\tHello\n'
@@ -2442,7 +2442,7 @@ test_poll_caps_wakes_per_run() {
 
   # Three unseen messages with a per-poll cap of two: exactly two wakes this
   # poll, and the third stays unseen so the next poll surfaces it.
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 printf 'uidvalidity\t90009\n'
 printf '71\t2026-09-05T00:00:00Z\talice@example.com\tA\n'
@@ -2520,7 +2520,7 @@ if len(sys.argv) > 2 and sys.argv[2] == 'poll_list':
     sys.exit(mod.cmd_poll_list())
 sys.exit(1)
 PYEOF
-  fm_fakebin_write "$fakebin/python3" <<EOF
+  cat > "$fakebin/python3" <<EOF
 #!/bin/bash
 exec "$real_py" "$harness" "\$@"
 EOF
@@ -2555,7 +2555,7 @@ test_poll_bounded_fetch_progresses_large_backlog() {
   # only uids not already recorded in the cursor, capped at the poll cap. Five
   # unseen messages with a cap of two must progress two per poll and finish
   # cleanly, never stalling on the already-surfaced head of a large backlog.
-  fm_fakebin_write "$fakebin/python3" <<'SH'
+  cat > "$fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 cursor="$FM_MAIL_CURSOR"
 cap="${FM_MAIL_POLL_MAX_WAKES:-20}"

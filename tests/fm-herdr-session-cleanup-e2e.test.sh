@@ -4,11 +4,6 @@
 # lab teardown verifies that the default fleet session is byte-identical.
 set -u
 
-# This suite does not source tests/lib.sh, so it reaches the fixture
-# tool-directory write carrier directly; that file's header owns the contract.
-# shellcheck source=tests/fakebin-write.sh
-. "$(dirname "${BASH_SOURCE[0]}")/fakebin-write.sh"
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HERDR_LAB_HELPER=${HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
 
@@ -43,7 +38,7 @@ trap cleanup EXIT
 # Keep the lab helper as the only CLI transport. Production adapter calls have
 # already appended the exact session; this shim strips that pair, refuses every
 # other caller-supplied session, and delegates the command to helper run.
-fm_fakebin_write "$FAKEBIN/herdr" <<'SH'
+cat > "$FAKEBIN/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
 args=("$@")

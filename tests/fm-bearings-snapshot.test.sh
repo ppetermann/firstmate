@@ -410,11 +410,11 @@ test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution() {
   write_domain_alpha_fixture "$home" "$mate"
   fakebin=$(make_fakebin "$home")
   stat_log="$home/stat.log"
-  fm_fakebin_write "$fakebin/uname" <<'SH'
+  cat > "$fakebin/uname" <<'SH'
 #!/usr/bin/env bash
 printf 'Linux\n'
 SH
-  fm_fakebin_write "$fakebin/stat" <<'SH'
+  cat > "$fakebin/stat" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$STAT_LOG"
 case "$1 $2" in
@@ -1442,7 +1442,7 @@ test_include_prs_maps_custom_branch_prefix_to_task() {
     "branch=fix/ship-task" \
     "pr=https://github.com/kunchenguid/firstmate/pull/9"
   fakebin=$(make_fakebin "$home"); : > "$home/net.log"
-  fm_fakebin_write "$fakebin/gh" <<'SH'
+  cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 echo "gh $*" >> "$NET_LOG"
 if [ "${FAKE_GH_FAIL:-0}" = 1 ]; then exit 1; fi
@@ -1583,7 +1583,7 @@ test_per_repository_pr_cap_is_disclosed() {
 install_failing_jq() {  # <fakebin> <model|toon>
   local fakebin=$1 phase=$2 real
   real=$(command -v jq)
-  fm_fakebin_write "$fakebin/jq" <<SH
+  cat > "$fakebin/jq" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *'def trunc'*) [ "$phase" = model ] && exit 9 ;;
@@ -2937,7 +2937,7 @@ EOF
   fm_write_meta "$home/state/z-gone.meta" \
     "window=fixture:z-gone" "project=firstmate" "harness=claude" "kind=ship" "mode=no-mistakes"
   printf 'working: stable fixture\n' > "$home/state/a-hold.status"
-  fm_fakebin_write "$fakebin/cp" <<'SH'
+  cat > "$fakebin/cp" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in
@@ -2996,7 +2996,7 @@ EOF
     "harness=claude" "kind=ship" "mode=no-mistakes" "spawn_gen=stable-generation"
   printf 'working: captured state\n' > "$home/state/captured-status.status"
   record_claude_state "$home/state" captured-status idle
-  fm_fakebin_write "$fakebin/cp" <<'SH'
+  cat > "$fakebin/cp" <<'SH'
 #!/usr/bin/env bash
 "$REAL_CP" "$@" || exit
 for arg in "$@"; do
@@ -3044,7 +3044,7 @@ EOF
     "window=fixture:fm-generation-race" "worktree=$worktree" "project=firstmate" \
     "harness=claude" "kind=ship" "mode=no-mistakes" "spawn_gen=old-generation"
   printf 'working: old generation\n' > "$home/state/generation-race.status"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = list-windows ]; then
   if mkdir "$RACE_ONCE" 2>/dev/null; then
@@ -3103,7 +3103,7 @@ test_large_local_snapshot_overlaps_local_reads_without_projection_drift() {
   fm_git_init_commit "$worktree"
   git -C "$worktree" checkout -qb fm/synthetic-large-local
   fakebin=$(make_fakebin "$home")
-  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
+  cat > "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ "$*" = "axi status" ] && [ "${FAKE_NM_DELAY:-0}" = 1 ]; then
   [ -z "${FAKE_NM_SIGNAL:-}" ] || : > "$FAKE_NM_SIGNAL"

@@ -1626,7 +1626,7 @@ EOF
 launch_env_report() {
   local fakebin=$1 launchlog=$2 panelog=$3 launch preamble
   shift 3
-  fm_fakebin_write "$fakebin/codex"  <<'SH'
+  cat > "$fakebin/codex" <<'SH'
 #!/bin/sh
 for v in TERM_PROGRAM TERN_PANE TERN_PANE_SOCKET TERN_WINDOW_KEY TERN_WINDOW_SOCKET TERN_IDENTITY SECRET_TOKEN; do
   eval "printf '%s=%s\n' $v \"\${$v-unset}\""

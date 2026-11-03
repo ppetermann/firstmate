@@ -276,7 +276,7 @@ journal_field() {  # <case-dir> <id> <key>
 }
 
 make_git_failure_stub() {  # <case-dir>
-  fm_fakebin_write "$1/fakebin/git" <<'SH'
+  cat > "$1/fakebin/git" <<'SH'
 #!/usr/bin/env bash
 case "${FM_FAKE_GIT_FAILURE:-}:$*" in
   head:*' rev-parse --verify HEAD'|head:*' symbolic-ref -q HEAD') exit 128 ;;
@@ -288,7 +288,7 @@ SH
 }
 
 make_mv_failure_stub() {  # <case-dir>
-  fm_fakebin_write "$1/fakebin/mv" <<'SH'
+  cat > "$1/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FM_FAKE_COMPLETE_JOURNAL_MV_FAIL:-}" ]; then
   for path in "$@"; do
@@ -320,7 +320,7 @@ SH
 }
 
 make_rm_failure_stub() {  # <case-dir>
-  fm_fakebin_write "$1/fakebin/rm" <<'SH'
+  cat > "$1/fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   if [ -n "${FM_FAKE_RM_FAIL_PATH:-}" ] && [ "$arg" = "$FM_FAKE_RM_FAIL_PATH" ]; then
@@ -353,7 +353,7 @@ backlog_state() {  # <case-dir> <id>
 break_tasks_axi_start() {  # <case-dir>
   local dir=$1 real
   real=$(command -v tasks-axi)
-  fm_fakebin_write "$dir/fakebin/tasks-axi" <<SH
+  cat > "$dir/fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = start ]; then
   echo 'error: "start refused"' >&2
@@ -736,7 +736,7 @@ test_refused_relaunch_onto_polytoken_keeps_the_project_hook_layer() {
   printf 'polytoken' > "$dir/fake/becomes"
   # Profile validation precedes the hook-layer refusal, so the fixture must
   # advertise its explicit pin without requiring a real Polytoken installation.
-  fm_fakebin_write "$dir/fakebin/polytoken" <<'SH'
+  cat > "$dir/fakebin/polytoken" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   'print models') printf '%s\n' 'zai/glm-5.3-flash' 'zai/glm-5.3-flash(low)' ;;
@@ -765,7 +765,7 @@ test_refused_polytoken_profile_leaves_the_running_agent() {
   dir=$(new_case polytokenprofile rl47)
   add_ship_task "$dir" rl47 claude
   printf 'polytoken' > "$dir/fake/becomes"
-  fm_fakebin_write "$dir/fakebin/polytoken" <<'SH'
+  cat > "$dir/fakebin/polytoken" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   'print models') printf '%s\n' 'zai/glm-5.3-flash' 'zai/glm-5.3-flash(low)' ;;
@@ -926,7 +926,7 @@ test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop() {
   add_ship_task "$dir" "$id" pi
   printf pi > "$dir/fake/command"
   printf pi > "$dir/fake/becomes"
-  fm_fakebin_write "$dir/fakebin/pi" < <(printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n')
+  printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n' > "$dir/fakebin/pi"
   chmod +x "$dir/fakebin/pi"
   sed 's|^model=default$|model=codex-native/gpt-6-astra|; s/^effort=default$/effort=ultra/' \
     "$dir/home/state/$id.meta" > "$dir/home/state/$id.meta.tmp"
@@ -948,7 +948,7 @@ test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop() {
 # A fake claude that answers `claude auth status` the way the real runner
 # does: signed in only when the selected config root holds a stored login.
 make_claude_auth_stub() {  # <case-dir>
-  fm_fakebin_write "$1/fakebin/claude" <<'SH'
+  cat > "$1/fakebin/claude" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = auth ] && [ "${2:-}" = status ] || exit 0
 [ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" ]
@@ -1003,7 +1003,7 @@ test_secondmate_account_pin_follows_relaunch_and_refuses_before_stop() {
     dir=$(new_case "sm-account-$harness" "$id")
     add_ship_task "$dir" "$id" "$harness"
     make_claude_auth_stub "$dir"
-    fm_fakebin_write "$dir/fakebin/pi" <<'SH'
+    cat > "$dir/fakebin/pi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   --help) printf 'Options: --tui-mode\n' ;;
@@ -1077,7 +1077,7 @@ test_pi_exclude_tools_follow_the_relaunch() {
   add_ship_task "$dir" "$id" pi
   printf pi > "$dir/fake/command"
   printf pi > "$dir/fake/becomes"
-  printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n' | fm_fakebin_write "$dir/fakebin/pi"
+  printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n' > "$dir/fakebin/pi"
   chmod +x "$dir/fakebin/pi"
   mkdir -p "$dir/home/config"
   printf '%s\n' '# hide writes' 'mcp__srv__writeTool' 'mcp__srv__adminTool' > "$dir/home/config/crew-exclude-tools"
@@ -1101,7 +1101,7 @@ test_exclude_tools_refusals_happen_before_the_agent_stops() {
   add_ship_task "$dir" "$id" pi
   printf pi > "$dir/fake/command"
   printf pi > "$dir/fake/becomes"
-  printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n' | fm_fakebin_write "$dir/fakebin/pi"
+  printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n' > "$dir/fakebin/pi"
   chmod +x "$dir/fakebin/pi"
   mkdir -p "$dir/home/config"
   printf '%s\n' 'two words' > "$dir/home/config/crew-exclude-tools"
@@ -2130,7 +2130,7 @@ test_secondmate_checkpoint_ignores_a_vanished_scratch_find_walk() {
   printf '%s\n' "fm-sm6" > "$dir/fake/windows"
   printf '%s' "$dir/smhome" > "$dir/fake/cwd"
   real_find=$(command -v find)
-  fm_fakebin_write "$dir/fakebin/find" <<SH
+  cat > "$dir/fakebin/find" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   if [ "\$arg" = "$dir/smhome/state" ]; then
@@ -2261,7 +2261,7 @@ test_spawn_relaunch_refuses_a_symlinked_task_record_before_inspection() {
   mv "$meta" "$target"
   ln -s "$target" "$meta"
   mv "$dir/fakebin/tmux" "$dir/fakebin/tmux-real"
-  fm_fakebin_write "$dir/fakebin/tmux" <<SH
+  cat > "$dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 : > "$dir/relaunch-endpoint-inspected"
 exec "$dir/fakebin/tmux-real" "\$@"
@@ -2286,7 +2286,7 @@ test_spawn_relaunch_keeps_its_early_meta_lock_continuous() {
   printf 'zsh' > "$dir/fake/command"
   lock="$dir/home/state/.meta-rl38.lock"
   mv "$dir/fakebin/tmux" "$dir/fakebin/tmux-real"
-  fm_fakebin_write "$dir/fakebin/tmux" <<SH
+  cat > "$dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 if [ -d "$lock" ]; then
   if [ ! -e "$dir/lock-observation-started" ]; then
@@ -2990,7 +2990,7 @@ test_exit_removes_the_dialog_file_before_releasing_the_lock() {
   lock="$dir/home/state/.control-rl72.lock"
   sink="$dir/home/state/rl72.composer-dialog"
   trace="$dir/fake/rm-trace"
-  fm_fakebin_write "$dir/fakebin/rm" <<SH
+  cat > "$dir/fakebin/rm" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   case "\$arg" in

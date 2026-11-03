@@ -23,7 +23,7 @@ unset LAVISH_AXI_HOST ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN PI_CODING_AGENT_
 # a cleared environment, so their log paths are written into them here.
 make_account_fakes() {
   local fakebin=$1 dir=$2
-  fm_fakebin_write "$fakebin/claude" <<SH
+  cat > "$fakebin/claude" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = auth ] && [ "\${2:-}" = status ]; then
   printf '%s\n' "\${CLAUDE_CONFIG_DIR-unset}" >> '$dir/claude-checks'
@@ -38,7 +38,7 @@ fi
   printf 'CLAUDE_CODE_USE_BEDROCK=%s\n' "\${CLAUDE_CODE_USE_BEDROCK-unset}"
 } > '$dir/claude-worker'
 SH
-  fm_fakebin_write "$fakebin/pi" <<SH
+  cat > "$fakebin/pi" <<SH
 #!/usr/bin/env bash
 root=\${PI_CODING_AGENT_DIR:-\$HOME/.pi/agent}
 case "\${1:-}" in

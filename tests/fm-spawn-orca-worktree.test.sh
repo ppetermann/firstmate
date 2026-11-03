@@ -324,7 +324,7 @@ EOF
     staged_content=$(cat "$staged.copy")
     printf '%s\n' "$staged" > "$case_dir/stage-path"
     failbin=$(fm_fakebin "$case_dir/delete-refusal")
-    fm_fakebin_write "$failbin/rm" < <(printf '#!/bin/sh\nexit 1\n')
+    printf '#!/bin/sh\nexit 1\n' > "$failbin/rm"
     chmod +x "$failbin/rm"
     case "$setting" in
       enabled) expected="$value"$'\nscoped-gh\nunset\nunset\nunset\n1\nunset' ;;

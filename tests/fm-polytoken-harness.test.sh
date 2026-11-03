@@ -75,7 +75,7 @@ RULE=$(printf '%.0s─' $(seq 1 24))
 test_polytoken_ancestry_detects_the_native_command_name() {
   local fakebin out
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-native")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' '/usr/local/bin/polytoken'; exit 0 ;;
@@ -93,7 +93,7 @@ SH
 test_polytoken_ancestry_rejects_unrelated_mentions() {
   local fakebin out
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-negatives")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' "${FAKE_PS_COMM:?}"; exit 0 ;;
@@ -116,7 +116,7 @@ SH
 test_polytoken_claims_no_inherited_launcher_marker() {
   local fakebin out
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-claude")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' polytoken; exit 0 ;;
@@ -291,7 +291,7 @@ make_polytoken_submit_pane() {  # <dir> <pane-command>
   printf 'conversation line\n%s\n\n%s\n\n%s\n' "$RULE" "$RULE" "$footer" > "$dir/screen"
   printf 'conversation line\n%s\n%s\n%s\n\n%s\n' "$RULE" 'hello' "$RULE" "$footer" > "$dir/typed"
   printf ' Running for 1.02s\n%s\n\n%s\n\n%s\n' "$RULE" "$RULE" "$footer" > "$dir/running"
-  fm_fakebin_write "$dir/bin/tmux" <<SH
+  cat > "$dir/bin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$1" in
   display-message)
@@ -507,7 +507,7 @@ console.log("ok")' "$hooks" >/dev/null \
 make_polytoken_fakebin() {  # <dir> -> the fakebin path
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/polytoken" <<SH
+  cat > "$fakebin/polytoken" <<SH
 #!/usr/bin/env bash
 set -u
 log="\${PTFAKE_LOG:?}"
@@ -800,7 +800,7 @@ EOF
     > "$home/.config/polytoken/config.yaml"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   fakebin=$(make_polytoken_fakebin "$case_dir/fake")
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >>"${PTFAKE_TMUX_LOG:?}"

@@ -568,7 +568,7 @@ test_lock_reclaims_dead_steal_owner_without_nested_markers() {
   mkdir "$lockdir"
   printf '%s\n' "$(dead_pid)" > "$lockdir/pid"
   leave_dead_link_locks "$state" "$lockdir.steal"
-  fm_fakebin_write "$fakebin/ln" <<'SH'
+  cat > "$fakebin/ln" <<'SH'
 #!/usr/bin/env bash
 last=
 for arg do last=$arg; done
@@ -750,7 +750,7 @@ test_lock_steal_reap_cannot_remove_successor() {
   # The killed fixture owner may have its PID reused during a loaded serial
   # shard. Pin a verified-dead PID so the race exercises reaping, not liveness.
   printf '%s\n' "$(dead_pid)" > "$steal/pid"
-  fm_fakebin_write "$fakebin/rm" <<'SH'
+  cat > "$fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 last=
 for arg do last=$arg; done
@@ -1513,7 +1513,7 @@ test_arm_term_during_steal_waits_for_watcher_cleanup_trap() {
   dead=$(dead_pid)
   printf '%s\n' "$dead" > "$state/.watch.lock/pid"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/ln" <<'SH'
+  cat > "$fakebin/ln" <<'SH'
 #!/usr/bin/env bash
 last=
 for arg do last=$arg; done
@@ -1554,7 +1554,7 @@ test_arm_term_waits_out_a_stalled_claim() {
   armout="$dir/arm.out"
   pidfile="$dir/arm.pid"
   release="$dir/release"
-  fm_fakebin_write "$fakebin/ln" <<'SH'
+  cat > "$fakebin/ln" <<'SH'
 #!/usr/bin/env bash
 last=
 for arg do last=$arg; done
@@ -1992,7 +1992,7 @@ test_startup_cleanup_waits_for_inflight_lock_mutations() {
       fakebin="$dir/fakebin"
       mkdir "$state/.wake-queue.lock.owner.foreign"
       printf '%s\n' "$$" > "$state/.wake-queue.lock.owner.foreign/pid"
-      fm_fakebin_write "$fakebin/$tool"  <<'SH'
+      cat > "$fakebin/$tool" <<'SH'
 #!/usr/bin/env bash
 # Model an external mutation that outlives the watcher's fatal signal, even
 # on shells that also forward HUP to their command-substitution children.
@@ -2097,7 +2097,7 @@ test_unpublishable_identity_exits_through_cleanup() {
   no_proc="$dir/no-proc"
   armout="$dir/arm.out"
   mkdir -p "$no_proc"
-  fm_fakebin_write "$fakebin/ps"  <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case " $* " in
   *" lstart= "*" command= "*) exit 1 ;;
@@ -2178,7 +2178,7 @@ test_pid_identity_is_locale_invariant() {
   # LC_ALL=C pin in fm_pid_identity therefore breaks the equality assertions below
   # on any host with a second locale installed, and the recorded LC_ALL below keeps
   # the pin asserted even where ko_KR.UTF-8 is missing and date falls back to C.
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${LC_ALL-<unset>}" >> "$FAKE_PS_LOCALE_LOG"
 stamp=$(date -d @1784094040 '+%a %b %e %H:%M:%S %Y' 2>/dev/null) \

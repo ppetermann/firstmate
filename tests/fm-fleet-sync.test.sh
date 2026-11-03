@@ -706,7 +706,7 @@ test_clone_root_named_by_another_spelling_still_syncs() {
   # the test also holds on a case-sensitive filesystem.
   alias="$home/root-alias"
   ln -s "$clone" "$alias"
-  fm_fakebin_write "$fakebin/git" <<'SH'
+  cat > "$fakebin/git" <<'SH'
 #!/usr/bin/env bash
 real=${REAL_GIT_FOR_TEST:?}
 case " $* " in

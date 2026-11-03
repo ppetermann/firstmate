@@ -66,7 +66,7 @@ pass "ordinary clone URLs are accepted and clone with the command the remote hos
 # configuration permits that protocol, and the parent cannot see that host's
 # configuration. Prove the hazard is real before pinning the refusal that closes
 # it, rather than trusting the cloning host's default to stay strict.
-fm_fakebin_write "$FAKEBIN/fm-origin-probe" <<SH
+cat > "$FAKEBIN/fm-origin-probe" <<SH
 #!/usr/bin/env bash
 touch '$TMP_ROOT/helper-ran'
 exit 1

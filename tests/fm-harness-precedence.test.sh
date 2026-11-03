@@ -54,7 +54,7 @@ under_process() {  # <named-executable> [VAR=VAL ...]
 blind_ancestry_bin() {  # <dir>
   local fakebin
   fakebin=$(fm_fakebin "$1")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *'ppid='*) printf '%s\n' 1 ;;
@@ -72,7 +72,7 @@ SH
 namespace_ancestry_bin() {  # <dir>
   local fakebin
   fakebin=$(fm_fakebin "$1")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 pid=
 prev=

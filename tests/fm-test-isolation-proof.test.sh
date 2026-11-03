@@ -35,7 +35,7 @@ test_family_pool_json_identifies_admission() {
   skipped_json="$tmp/skipped-proof.json"
   mkdir -p "$repo/bin" "$repo/tests"
   cp "$PROOF" "$proof"
-  fm_fakebin_write "$repo/bin/fm-test-run.sh" <<'SH'
+  cat >"$repo/bin/fm-test-run.sh" <<'SH'
 #!/usr/bin/env bash
 if { [ "$1" = --list ] || [ "$1" = --list-scheduled ]; } && [ "$2" = --family ]; then
   case "$3" in

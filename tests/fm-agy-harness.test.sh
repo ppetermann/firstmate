@@ -78,7 +78,7 @@ assert_agy_not_trusted() {  # <store> <path> <msg>
 test_agy_ancestry_detects_the_native_command_name() {
   local fakebin out
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-native")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' '/usr/local/bin/agy'; exit 0 ;;
@@ -96,7 +96,7 @@ SH
 test_agy_ancestry_rejects_unrelated_mentions() {
   local fakebin out
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-negatives")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' "${FAKE_PS_COMM:?}"; exit 0 ;;
@@ -130,7 +130,7 @@ test_agy_claims_no_inherited_launcher_marker() {
   # than being renamed away from it. Pin both halves so neither can rot
   # silently.
   fakebin=$(fm_fakebin "$TMP_ROOT/anc-claude")
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' agy; exit 0 ;;
@@ -449,7 +449,7 @@ test_agy_trust_refuses_out_of_scope_paths() {
 make_agy_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
@@ -542,7 +542,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  fm_fakebin_write "$fakebin/agy" <<'SH'
+  cat > "$fakebin/agy" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = models ]; then

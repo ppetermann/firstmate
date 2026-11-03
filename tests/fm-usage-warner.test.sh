@@ -24,7 +24,7 @@ BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 # BSD stat helpers the real macOS host provides, so they run only on Darwin.
 DARWIN_BIN="$TMP_ROOT/darwin-bin"
 mkdir -p "$DARWIN_BIN"
-printf '#!/bin/sh\necho Darwin\n' | fm_fakebin_write "$DARWIN_BIN/uname"
+printf '#!/bin/sh\necho Darwin\n' > "$DARWIN_BIN/uname"
 chmod +x "$DARWIN_BIN/uname"
 
 make_home() {
@@ -116,7 +116,7 @@ test_unconfigured_home_stays_silent() {
   home=$(make_home unconfigured)
   fakebin="$TMP_ROOT/unconfigured/fakebin"
   fake_quota_axi "$fakebin" '{"id":"five_hour","percentUsed":99}'
-  : | fm_fakebin_write "$fakebin/.argv-log"
+  : > "$fakebin/.argv-log"
   out=$(run_check "$home" "$fakebin" 2>&1) || rc=$?
   expect_code 0 "$rc" "unconfigured check must still exit 0"
   [ -z "$out" ] || fail "an unconfigured home must stay completely silent: $out"
@@ -307,7 +307,7 @@ test_check_never_requests_a_refresh() {
   fakebin="$TMP_ROOT/no-refresh/fakebin"
   printf 'five_hour:80\n' > "$home/config/usage-warner"
   fake_quota_axi "$fakebin" '{"id":"five_hour","percentUsed":10}'
-  : | fm_fakebin_write "$fakebin/.argv-log"
+  : > "$fakebin/.argv-log"
   run_check "$home" "$fakebin" >/dev/null
   argv=$(cat "$fakebin/.argv-log")
   assert_contains "$argv" "--no-credential-refresh" "every read passes --no-credential-refresh"
@@ -324,7 +324,7 @@ test_schema6_snapshot_reads_the_default_account_lane() {
   # it is listed first, so reading either the wrong row or simply the first one
   # would stay silent here.
   fake_quota_axi_schema6 "$fakebin" 90 10
-  : | fm_fakebin_write "$fakebin/.argv-log"
+  : > "$fakebin/.argv-log"
   out=$(run_check "$home" "$fakebin")
   assert_contains "$out" "five_hour at 90%" \
     "a schema-6 snapshot must be read through the default account row"
@@ -360,7 +360,7 @@ test_malformed_quota_axi_output_is_reported() {
   home=$(make_home malformed)
   fakebin="$TMP_ROOT/malformed/fakebin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/quota-axi"  <<'EOF'
+  cat > "$fakebin/quota-axi" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' 'not json at all'
 EOF
@@ -376,7 +376,7 @@ test_slow_quota_axi_is_reported_as_a_timeout() {
   home=$(make_home slow)
   fakebin="$TMP_ROOT/slow/fakebin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/quota-axi"  <<'EOF'
+  cat > "$fakebin/quota-axi" <<'EOF'
 #!/usr/bin/env bash
 sleep 60
 EOF
@@ -392,7 +392,7 @@ test_read_bound_fits_a_lowered_check_timeout() {
   home=$(make_home low-check-timeout)
   fakebin="$TMP_ROOT/low-check-timeout/fakebin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/quota-axi"  <<'EOF'
+  cat > "$fakebin/quota-axi" <<'EOF'
 #!/usr/bin/env bash
 sleep 60
 EOF
@@ -411,7 +411,7 @@ test_no_room_for_a_read_is_recorded_as_not_measured() {
   home=$(make_home no-room)
   fakebin="$TMP_ROOT/no-room/fakebin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/quota-axi"  <<'EOF'
+  cat > "$fakebin/quota-axi" <<'EOF'
 #!/usr/bin/env bash
 sleep 60
 EOF
@@ -541,7 +541,7 @@ test_overlapping_checks_warn_once() {
   fake_osascript_recorder "$fakebin" "$notify_log"
   fake_quota_axi "$fakebin" '{"id":"five_hour","percentUsed":90}'
   mv "$fakebin/quota-axi" "$fakebin/quota-axi.real"
-  fm_fakebin_write "$fakebin/quota-axi"  <<EOF
+  cat > "$fakebin/quota-axi" <<EOF
 #!/usr/bin/env bash
 : > "$fakebin/.started"
 sleep 2

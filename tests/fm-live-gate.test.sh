@@ -24,7 +24,7 @@ mkdir -p "$BIN"
 
 # A stand-in for a harness this host has: present on the fakebin PATH, and
 # nothing the gate can confuse with a real one.
-fm_fakebin_write "$BIN/fmfakeharness" <<'SH'
+cat > "$BIN/fmfakeharness" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -226,7 +226,7 @@ test_disable_autoupdater_reaches_the_claude_pane_on_the_fm_spawn_launch_path() {
   # stands in for the value the live gate put in the ambient environment.
   panebin="$case_dir/panebin"; mkdir -p "$panebin"
   panelog="$case_dir/pane-autoupdater.log"
-  fm_fakebin_write "$panebin/claude" <<SH
+  cat > "$panebin/claude" <<SH
 #!/usr/bin/env bash
 printf 'autoupdater=%s\n' "\${DISABLE_AUTOUPDATER:-unset}" > "$panelog"
 exit 0
@@ -267,7 +267,7 @@ test_disable_autoupdater_survives_a_daemon_pane_that_never_inherited_it() {
 
   panebin="$case_dir/panebin"; mkdir -p "$panebin"
   panelog="$case_dir/pane-autoupdater.log"
-  fm_fakebin_write "$panebin/claude" <<SH
+  cat > "$panebin/claude" <<SH
 #!/usr/bin/env bash
 printf 'autoupdater=%s\n' "\${DISABLE_AUTOUPDATER:-unset}" > "$panelog"
 exit 0

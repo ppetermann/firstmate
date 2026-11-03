@@ -186,7 +186,7 @@ pass "a worker stops its whole tree once its code root is pruned"
 
 CASE2="$TMP_ROOT/case2"
 mkdir -p "$CASE2/remote-root/bin"
-fm_fakebin_write "$CASE2/remote-root/bin/fm-remote-job-worker.sh" <<'SH'
+cat > "$CASE2/remote-root/bin/fm-remote-job-worker.sh" <<'SH'
 #!/bin/bash
 # Stand-in for a worker predating self-termination: a supervisor that always
 # respawns its serving child and never inspects its own code root.

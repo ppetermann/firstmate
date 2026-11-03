@@ -476,7 +476,7 @@ mkdir -p "$REPO_REAL/bin"
 REPO_LINK="$TMP_ROOT/rebind-symlink-link"
 ln -s "$REPO_REAL" "$REPO_LINK"
 SYMLINK_ACT="$REPO_LINK/bin/act.sh"
-fm_fakebin_write "$REPO_REAL/bin/act.sh" <<'SH'
+cat > "$REPO_REAL/bin/act.sh" <<'SH'
 #!/usr/bin/env bash
 log=$1
 echo v1 >> "$log"
@@ -487,7 +487,7 @@ when_symlink_ro() { FM_HOME="$1" FM_ROOT_OVERRIDE="$REPO_LINK" "$ROOT/bin/fm-pro
 when_symlink_ro "$H" arm rebind-symlink --interval 0.1 --stable 1 \
   --condition true --action "$SYMLINK_ACT" "$TMP_ROOT/rebind-symlink.log" >/dev/null
 
-fm_fakebin_write "$REPO_REAL/bin/act.sh" <<'SH'
+cat > "$REPO_REAL/bin/act.sh" <<'SH'
 #!/usr/bin/env bash
 log=$1
 echo v2 >> "$log"

@@ -306,7 +306,7 @@ test_perl_is_preferred_over_timeout() {
   for tool in perl bash; do
     ln -s "$(command -v "$tool")" "$dir/bin/$tool"
   done
-  printf '#!/bin/sh\necho timeout-used > "%s"\nexit 99\n' "$dir/timeout-used" | fm_fakebin_write "$dir/bin/timeout"
+  printf '#!/bin/sh\necho timeout-used > "%s"\nexit 99\n' "$dir/timeout-used" > "$dir/bin/timeout"
   chmod +x "$dir/bin/timeout"
   out=$(exec_timed "$dir/bin" 5 1 bash -c 'echo ran') || fail "the bounded call failed: $out"
   [ "$out" = ran ] || fail "the bounded call printed '$out'"

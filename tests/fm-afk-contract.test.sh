@@ -266,7 +266,7 @@ test_failed_final_replacement_rolls_back_the_superseded_archive() {
   contract "$home" enter --words 'original posture' >/dev/null 2>&1 || fail "first entry failed"
   before=$(cat "$home/state/.afk-contract")
   mkdir -p "$home/fakebin"
-  fm_fakebin_write "$home/fakebin/mv" <<'SH'
+  cat > "$home/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}:${2:-}" in
   *.afk-contract.entering.*:*/.afk-contract) exit 1 ;;

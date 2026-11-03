@@ -24,7 +24,7 @@ file_mode() {
 install_fake_process_event_sweep() {
   local home=$1 log=$2
   mkdir -p "$home/bin"
-  fm_fakebin_write "$home/bin/fm-procevent.sh" <<'SH'
+  cat > "$home/bin/fm-procevent.sh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 case "${1:-}" in
@@ -78,7 +78,7 @@ test_fm_home_parameterization() {
   fm_git_init_commit "$home_one/wt"
   git -C "$home_one/wt" update-ref refs/remotes/origin/main "$(git -C "$home_one/wt" rev-parse HEAD)"
   mkdir -p "$home_one/fakebin"
-  printf '#!/usr/bin/env bash\nexit 1\n' | fm_fakebin_write "$home_one/fakebin/gh"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$home_one/fakebin/gh"
   chmod +x "$home_one/fakebin/gh"
   printf 'project=x\nworktree=%s\n' "$home_one/wt" > "$home_one/state/task-a.meta"
   PATH="$home_one/fakebin:$PATH" FM_HOME="$home_one" FM_GUARD_GRACE=999999 \
@@ -1459,13 +1459,13 @@ test_secondmate_spawn_requires_seeded_matching_home() {
   root_ancestor="$TMP_ROOT/spawn-root-ancestor"
   root_inside="$root_ancestor/repo"
   mkdir -p "$home/data" "$home/state" "$subhome/data" "$wronghome/data" "$marker_only/data" "$active_descendant/data" "$root_descendant/data" "$fakeroot/bin"
-  fm_fakebin_write "$fakeroot/bin/fm-guard.sh" <<'SH'
+  cat > "$fakeroot/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$fakeroot/bin/fm-guard.sh"
   mkdir -p "$ancestor_active_home/data" "$ancestor_active_home/state" "$active_ancestor/data" "$root_ancestor/data" "$root_inside/bin"
-  fm_fakebin_write "$root_inside/bin/fm-guard.sh" <<'SH'
+  cat > "$root_inside/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -1800,7 +1800,7 @@ test_secondmate_teardown_preserves_process_events_on_later_refusal() {
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/procevent-later-refusal-fake")
   log="$TMP_ROOT/procevent-later-refusal-fake/tmux.log"
-  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
+  cat > "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -2148,7 +2148,7 @@ yolo=off
 EOF
   fakebin=$(make_fake_tmux "$TMP_ROOT/force-lock-child-fake")
   log="$TMP_ROOT/force-lock-child-fake/tmux.log"
-  fm_fakebin_write "$fakebin/treehouse" <<'SH'
+  cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf 'treehouse %s\n' "$*" >> "${FM_FAKE_TMUX_LOG:-/dev/null}"
@@ -2174,7 +2174,7 @@ case "${1:-}" in
 esac
 exit 0
 SH
-  fm_fakebin_write "$fakebin/lsof" <<'SH'
+  cat > "$fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -2301,7 +2301,7 @@ test_secondmate_teardown_path_boundary_matrix() {
       repo-descendant)
         home="$base/home"; fmroot="$base/root"; subhome="$fmroot/tmp/domain-home"; tid='repo-domain'
         mkdir -p "$home/state" "$home/data" "$subhome/state" "$fmroot/bin"
-        fm_fakebin_write "$fmroot/bin/fm-guard.sh" <<'SH'
+        cat > "$fmroot/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -2638,7 +2638,7 @@ EOF
   release="$TMP_ROOT/taskset-state-absent.release"
   mkdir -p "$claim_root" "$subhome/bin"
   printf '%s\n' "$subhome" > "$claim_root/held.claim"
-  fm_fakebin_write "$subhome/bin/fm-procevent.sh" <<'SH'
+  cat > "$subhome/bin/fm-procevent.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = sweep-home ] && [ "${2:-}" = --preflight ]; then
@@ -2851,7 +2851,7 @@ test_secondmate_force_teardown_refuses_child_repo_descendant() {
   childwt="$fakeroot/data"
   err="$TMP_ROOT/child-repo-descendant.err"
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$childproj" "$childwt" "$fakeroot/bin"
-  fm_fakebin_write "$fakeroot/bin/fm-guard.sh" <<'SH'
+  cat > "$fakeroot/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH

@@ -2808,7 +2808,7 @@ test_no_run_herdr_cli_failure_reads_unreachable_not_gone() {
   # every pane/agent invocation exits non-zero, the busiest-box form of a
   # stalled CLI (capture and pane get alike fail). `status` still answers so
   # the reader probes the endpoint instead of waiting out a server start.
-  fm_fakebin_write "$d/fakebin/herdr" <<'SH'
+  cat > "$d/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
 [ "${1:-}" = status ] && { printf '{"server":{"running":true}}\n'; exit 0; }
@@ -3350,7 +3350,7 @@ test_no_timeout_uses_perl_bound() {
   make_fakebin "$d" >/dev/null
   calls_file="$d/no-mistakes.calls"
   : > "$calls_file"
-  fm_fakebin_write "$d/fakebin/no-mistakes" <<'SH'
+  cat > "$d/fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FM_FAKE_NM_CALLS:-/dev/null}"
 while :; do :; done
@@ -3436,7 +3436,7 @@ setup_remote_case() {  # <name> -> echoes case dir with remote meta + registry
   cat > "$d/data/secondmates.md" <<EOF
 - rsm - remote test domain (host: remote-mac; root: /remote/root; home: /remote/home; scope: remote testing; projects: alpha; added 2026-08-02)
 EOF
-  fm_fakebin_write "$d/fakebin/fake-ssh" <<'SH'
+  cat > "$d/fakebin/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 cat > /dev/null
 [ -z "${FM_FAKE_REMOTE_STATE_OUT:-}" ] || printf '%s\n' "$FM_FAKE_REMOTE_STATE_OUT"
@@ -4302,7 +4302,7 @@ PY
 test_capped_inventory_reader_is_time_bounded() {
   make_capped_runs_case capped-slow-reader running pending hidden
   local d=$TMP_ROOT/capped-slow-reader out started elapsed
-  fm_fakebin_write "$d/fakebin/python3" <<'SH'
+  cat > "$d/fakebin/python3" <<'SH'
 #!/usr/bin/env bash
 sleep 30
 SH

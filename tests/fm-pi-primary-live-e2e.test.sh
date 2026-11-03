@@ -185,17 +185,16 @@ run_native_ahoy_regressions() {
   cp "$ROOT/.agents/skills/ahoy/SKILL.md" "$AHOY_PROJECT/.agents/skills/ahoy/SKILL.md"
   chmod +x "$AHOY_PROJECT/bin/fm-sessionstart-nudge.sh"
   # shellcheck disable=SC2016 # Variables expand in the generated script, not this test shell.
-  fm_fakebin_write "$AHOY_PROJECT/bin/fm-session-start.sh" < <(
-    printf '%s\n' \
-      '#!/usr/bin/env bash' \
-      'set -u' \
-      'file="${FM_HOME:?}/state/session-start-count"' \
-      'count=0' \
-      '[ ! -f "$file" ] || count=$(sed -n "1p" "$file")' \
-      'count=$((count + 1))' \
-      'printf "%s\n" "$count" > "$file"' \
-      'printf "SESSION_START_DONE count=%s\n" "$count"'
-  )
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -u' \
+    'file="${FM_HOME:?}/state/session-start-count"' \
+    'count=0' \
+    '[ ! -f "$file" ] || count=$(sed -n "1p" "$file")' \
+    'count=$((count + 1))' \
+    'printf "%s\n" "$count" > "$file"' \
+    'printf "SESSION_START_DONE count=%s\n" "$count"' \
+    > "$AHOY_PROJECT/bin/fm-session-start.sh"
   chmod +x "$AHOY_PROJECT/bin/fm-session-start.sh"
   # shellcheck disable=SC2016 # Backticks are literal prompt markup.
   printf '%s\n' \
@@ -365,7 +364,7 @@ lab_pid_is_safe "$watcher_pid" || fail "refusing to stop watcher outside the iso
 lab_pid_is_safe "$arm_pid" || fail "refusing to stop arm outside the isolated live-Pi lab"
 printf '%s\n' '#!/usr/bin/env bash' \
   'echo "watcher: FAILED - intentional isolated live-E2E stop"' \
-  'exit 1' | fm_fakebin_write "$PROJECT/bin/fm-watch-arm.sh"
+  'exit 1' > "$PROJECT/bin/fm-watch-arm.sh"
 chmod +x "$PROJECT/bin/fm-watch-arm.sh"
 kill -TERM "$arm_pid" 2>/dev/null || fail "could not intentionally stop the isolated arm chain"
 wait_pid_dead "$watcher_pid" || fail "intentionally stopped watcher stayed alive"

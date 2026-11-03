@@ -15,7 +15,7 @@ unset CLAUDE_CONFIG_DIR TMUX
 # mate window/lock and opt-out material, without contacting a model.
 cp -R "$ROOT/bin/." "$TMP_ROOT/source/bin/"
 cp "$ROOT/AGENTS.md" "$TMP_ROOT/source/AGENTS.md"
-fm_fakebin_write "$TMP_ROOT/source/bin/fm-home-seed.sh" <<'SH'
+cat > "$TMP_ROOT/source/bin/fm-home-seed.sh" <<'SH'
 #!/usr/bin/env bash
 mkdir -p "$2/state" "$2/config" "$2/bin"
 cp "$FM_HOME/bin/fm-supervision-engine-lib.sh" "$2/bin/"
@@ -23,14 +23,14 @@ if [ -f "$FM_HOME/config/supervision-host-off" ]; then
   : > "$2/config/supervision-host-off"
 fi
 SH
-fm_fakebin_write "$TMP_ROOT/source/bin/fm-spawn.sh" <<'SH'
+cat > "$TMP_ROOT/source/bin/fm-spawn.sh" <<'SH'
 #!/usr/bin/env bash
 tmux new-window -d -t firstmate: -n "fm-$1" -c "$FM_HOME/../mate" 'exec sleep 45' || exit 1
 pid=$(tmux display-message -p -t "firstmate:=fm-$1" '#{pane_pid}')
 printf '%s\n' "$pid" > "$FM_HOME/../mate/state/.lock"
 printf 'window=firstmate:fm-%s\n' "$1" > "$FM_HOME/state/$1.meta"
 SH
-fm_fakebin_write "$TMP_ROOT/fakebin/claude" <<'SH'
+cat > "$TMP_ROOT/fakebin/claude" <<'SH'
 #!/usr/bin/env bash
 : > "$FM_HOME/state/.session-start-complete"
 exec sleep 45

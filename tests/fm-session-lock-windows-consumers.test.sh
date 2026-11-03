@@ -19,11 +19,11 @@ TMP_ROOT=$(fm_test_tmproot fm-session-lock-windows-consumers)
 # identity comes from /proc, which Git Bash provides; FM_PROC_ROOT_OVERRIDE
 # points it at a per-case tree.
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/cygwin-bin")
-fm_fakebin_write "$FAKEBIN/uname"  <<'SH'
+cat > "$FAKEBIN/uname" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' 'MINGW64_NT-10.0-26200'
 SH
-fm_fakebin_write "$FAKEBIN/ps"  <<'SH'
+cat > "$FAKEBIN/ps" <<'SH'
 #!/usr/bin/env bash
 set -u
 for a in "$@"; do
@@ -50,7 +50,7 @@ REAL_STAT=$(command -v stat)
 if "$REAL_STAT" -c %Y "$FAKEBIN" >/dev/null 2>&1; then
   ln -s "$REAL_STAT" "$FAKEBIN/stat"
 else
-  fm_fakebin_write "$FAKEBIN/stat"  <<SH
+  cat > "$FAKEBIN/stat" <<SH
 #!/usr/bin/env bash
 if [ "\$1" = -c ] && [ "\$2" = %Y ]; then
   shift 2

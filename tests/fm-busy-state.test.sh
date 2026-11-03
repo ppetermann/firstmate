@@ -127,7 +127,7 @@ test_stale_lock_broken_under_gnu_stat() {
   real_uname=$(command -v uname)
 
   # GNU coreutils semantics, self-contained so no real stat is consulted.
-  fm_fakebin_write "$fakebin/stat" <<'SH'
+  cat > "$fakebin/stat" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -c ] && [ "${2:-}" = %Y ]; then
   printf '%s\n' 1000000000   # long-abandoned lock
@@ -142,7 +142,7 @@ fi
 exit 1
 SH
   chmod +x "$fakebin/stat"
-  fm_fakebin_write "$fakebin/uname" <<SH
+  cat > "$fakebin/uname" <<SH
 #!/usr/bin/env bash
 if [ \$# -eq 0 ]; then printf 'Linux\n'; exit 0; fi
 exec "$real_uname" "\$@"
@@ -694,7 +694,7 @@ test_model_stream_close_failure_invalidates_observation() {
   "$EV" stream "$state" t1 open --gen "$gen" --request 1
   fakebin=$(fm_fakebin "$TMP_ROOT/model-stream-close-failure")
   real_mv=$(command -v mv)
-  fm_fakebin_write "$fakebin/mv"  <<SH
+  cat > "$fakebin/mv" <<SH
 #!/usr/bin/env bash
 case "\${!#}" in *.model-stream-order) exit 1 ;; esac
 exec "$real_mv" "\$@"

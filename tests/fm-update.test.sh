@@ -50,7 +50,7 @@ new_world() {
   w="$TMP_ROOT/$name"
   mkdir -p "$w/home/state" "$w/home/data" "$w/fakebin" "$w/fake"
   : > "$w/fake/windows"
-  fm_fakebin_write "$w/fakebin/tmux" <<'SH'
+  cat > "$w/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -81,8 +81,8 @@ SH
   printf 'v1\n' > "$w/seed/AGENTS.md"
   printf 'r1\n' > "$w/seed/README.md"
   mkdir -p "$w/seed/bin" "$w/seed/.agents/skills"
-  fm_fakebin_write "$w/seed/bin/tool.sh" < <(printf 'echo a\n')
-  fm_fakebin_write "$w/seed/bin/fm-remote-secondmate-control.sh" < <(printf '#!/usr/bin/env bash\nexit 0\n')
+  printf 'echo a\n' > "$w/seed/bin/tool.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$w/seed/bin/fm-remote-secondmate-control.sh"
   chmod +x "$w/seed/bin/fm-remote-secondmate-control.sh"
   printf 's1\n' > "$w/seed/.agents/skills/note.md"
   git -C "$w/seed" add -A
@@ -127,11 +127,11 @@ bump_origin() {
   printf 'r-%s\n' "$mode" >> "$w/seed/README.md"
   if [ "$mode" = instr ]; then
     printf 'v2\n' > "$w/seed/AGENTS.md"
-    fm_fakebin_write "$w/seed/bin/tool.sh" < <(printf 'echo b\n')
+    printf 'echo b\n' > "$w/seed/bin/tool.sh"
     printf 's2\n' > "$w/seed/.agents/skills/note.md"
   fi
   if [ "$mode" = bin ]; then
-    fm_fakebin_write "$w/seed/bin/tool.sh" < <(printf 'echo b-%s\n' "$RANDOM")
+    printf 'echo b-%s\n' "$RANDOM" > "$w/seed/bin/tool.sh"
   fi
   git -C "$w/seed" add -A
   git -C "$w/seed" commit -qm "bump-$mode"
@@ -357,7 +357,7 @@ test_squash_merged_divergence_reconciles() {
   printf 'v2\n' > "$w/sm1/AGENTS.md"
   git -C "$w/sm1" add AGENTS.md
   git -C "$w/sm1" commit -qm local-instructions
-  fm_fakebin_write "$w/sm1/bin/tool.sh" < <(printf 'echo squash-landed\n')
+  printf 'echo squash-landed\n' > "$w/sm1/bin/tool.sh"
   git -C "$w/sm1" add bin/tool.sh
   git -C "$w/sm1" commit -qm local-tooling
   local_tip=$(git -C "$w/sm1" rev-parse HEAD)
@@ -533,7 +533,7 @@ test_primary_update_rebinds_local_watch() {
   local w before_hash after_hash out spec
   w=$(new_world t12)
   mkdir -p "$w/seed/bin"
-  fm_fakebin_write "$w/seed/bin/watched-action.sh" < <(printf "#!/usr/bin/env bash\necho v1 >> \"\$1\"\n")
+  printf "#!/usr/bin/env bash\necho v1 >> \"\$1\"\n" > "$w/seed/bin/watched-action.sh"
   chmod +x "$w/seed/bin/watched-action.sh"
   git -C "$w/seed" add -A
   git -C "$w/seed" commit -qm add-watched-action
@@ -546,7 +546,7 @@ test_primary_update_rebinds_local_watch() {
   spec="$w/home/state/when/when-rebind-primary.spec"
   before_hash=$(grep '^action_sha256=' "$spec")
 
-  fm_fakebin_write "$w/seed/bin/watched-action.sh" < <(printf "#!/usr/bin/env bash\necho v2 >> \"\$1\"\n")
+  printf "#!/usr/bin/env bash\necho v2 >> \"\$1\"\n" > "$w/seed/bin/watched-action.sh"
   git -C "$w/seed" add -A
   git -C "$w/seed" commit -qm bump-watched-action
   git -C "$w/seed" push -q origin main
@@ -591,7 +591,7 @@ add_fork_carry() {
   git -C "$w/seed" pull -q origin main >/dev/null 2>&1 || true
   git -C "$w/seed" checkout -q -b carry-work
   printf 'carried\n' >> "$w/seed/AGENTS.md"
-  printf 'echo carried\n' | fm_fakebin_write "$w/seed/bin/tool.sh"
+  printf 'echo carried\n' > "$w/seed/bin/tool.sh"
   git -C "$w/seed" add -A
   git -C "$w/seed" commit -qm carried-fix
   git -C "$w/seed" push -q "$w/fork.git" carry-work:carry

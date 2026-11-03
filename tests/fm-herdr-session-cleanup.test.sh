@@ -286,7 +286,7 @@ INTEGRATION_ROOT="$TMP_ROOT/bootstrap-integration"
 mkdir -p "$INTEGRATION_ROOT/home/state" "$INTEGRATION_ROOT/home/data" "$INTEGRATION_ROOT/home/config"
 cp -R "$ROOT/bin" "$INTEGRATION_ROOT/bin"
 TRACE="$INTEGRATION_ROOT/cleanup.trace"
-fm_fakebin_write "$INTEGRATION_ROOT/bin/fm-herdr-session-cleanup.sh" <<'SH'
+cat > "$INTEGRATION_ROOT/bin/fm-herdr-session-cleanup.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${FM_HOME:?}" >> "${FM_HERDR_CLEANUP_TRACE:?}"
 SH
@@ -300,7 +300,7 @@ FM_HOME="$INTEGRATION_ROOT/home" FM_HERDR_CLEANUP_TRACE="$TRACE" \
 [ ! -e "$TRACE" ] || fail "standalone bootstrap ran lock-owned stale projection cleanup"
 pass "standalone bootstrap cannot run lock-owned stale projection cleanup"
 
-fm_fakebin_write "$INTEGRATION_ROOT/bin/fm-lock.sh" <<'SH'
+cat > "$INTEGRATION_ROOT/bin/fm-lock.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' 'lock acquired'
 SH
@@ -313,7 +313,7 @@ FM_HOME="$INTEGRATION_ROOT/home" FM_ROOT_OVERRIDE="$INTEGRATION_ROOT" \
   || fail "lock-owning session start did not run cleanup for its exact home"
 
 : > "$TRACE"
-fm_fakebin_write "$INTEGRATION_ROOT/bin/fm-lock.sh" <<'SH'
+cat > "$INTEGRATION_ROOT/bin/fm-lock.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' 'error: another live firstmate session holds the lock' >&2
 exit 1

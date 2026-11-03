@@ -76,7 +76,7 @@ test_handoff_retry_respects_the_receiving_pane() {
   local home doorbell record real_ps
   home=$(make_primary_home handoff-doorbell)
   real_ps=$(command -v ps)
-  fm_fakebin_write "$home/fakebin/ps"  <<SH
+  cat > "$home/fakebin/ps" <<SH
 #!/usr/bin/env bash
 if [ "\$1:\$2" = '-o:pgid=,tpgid=' ]; then
   if [ -f "\$FM_HOME/background-session" ]; then printf '77 88\\n'; else printf '77 77\\n'; fi
@@ -87,7 +87,7 @@ SH
   chmod +x "$home/fakebin/ps"
   : > "$home/config/supervision-handoff-ack"
   printf '❯ human draft\n' > "$home/screen"
-  fm_fakebin_write "$home/fakebin/tmux"  <<'SH'
+  cat > "$home/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "$*" in *'%77'*) ;; *) exit 1 ;; esac
 case "$1:$*" in
@@ -371,7 +371,7 @@ test_claude_stop_hook_notifies_when_at_turn_downtime_write_fails() {
   home=$(make_primary_home hook-turns-main-only-write-fails)
   turn_main_only_at_second_offer "$home"
   real_mktemp=$(command -v mktemp)
-  fm_fakebin_write "$home/fakebin/mktemp"  <<SH
+  cat > "$home/fakebin/mktemp" <<SH
 #!/usr/bin/env bash
 case "\$*" in
   *'/state/.watcher-down.tmp.'*)

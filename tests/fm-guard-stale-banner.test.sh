@@ -654,8 +654,8 @@ test_extension_handoff_with_live_session_is_healthy() {
 windows_table_fakebin() {  # <dir> <uname>
   local fakebin
   fakebin=$(fm_fakebin "$1")
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" %s\n' "$2" | fm_fakebin_write "$fakebin/uname"
-  fm_fakebin_write "$fakebin/ps"  <<'SH'
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" %s\n' "$2" > "$fakebin/uname"
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 [ "$*" = -W ] || exec /bin/ps "$@"
 printf '%s\n' '      PID    PPID    PGID     WINPID   TTY         UID    STIME COMMAND'

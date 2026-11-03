@@ -126,13 +126,13 @@ init_changed_fixture_repo() {
   done
   : >"$repo/tests/lib.sh"
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
-  fm_fakebin_write "$repo/bin/fm-supervisor-target-lib.sh" < /dev/null
-  fm_fakebin_write "$repo/bin/fm-control-lib.sh" < /dev/null
-  fm_fakebin_write "$repo/bin/fm-timeout-lib.sh" < /dev/null
-  fm_fakebin_write "$repo/bin/fm-procevent-quota.sh" < /dev/null
-  fm_fakebin_write "$repo/bin/fm-quota-axi-lib.sh" < /dev/null
-  fm_fakebin_write "$repo/bin/fm-quota-choose.sh" < /dev/null
-  fm_fakebin_write "$repo/bin/unmapped-source.sh" < /dev/null
+  : >"$repo/bin/fm-supervisor-target-lib.sh"
+  : >"$repo/bin/fm-control-lib.sh"
+  : >"$repo/bin/fm-timeout-lib.sh"
+  : >"$repo/bin/fm-procevent-quota.sh"
+  : >"$repo/bin/fm-quota-axi-lib.sh"
+  : >"$repo/bin/fm-quota-choose.sh"
+  : >"$repo/bin/unmapped-source.sh"
   # A shared top-level test fixture read by two suites in different families,
   # beside a tests/ file nothing reads at all.
   : >"$repo/tests/shared-probe-fixture.sh"
@@ -148,11 +148,11 @@ init_changed_fixture_repo() {
   # script of the expensive real-Herdr family and consumed by one curated
   # watcher script. This is the shape that made a one-line helper change select
   # every real-Herdr E2E.
-  fm_fakebin_write "$repo/bin/shared-probe-lib.sh" < /dev/null
+  : >"$repo/bin/shared-probe-lib.sh"
   printf '# shared-probe-lib.sh\n' >>"$repo/tests/fm-backend-herdr-smoke.test.sh"
   # shellcheck disable=SC2016  # literal fixture text: the reference must reach
   # the file verbatim so the changed-file scan can find it, not expand here.
-  fm_fakebin_write "$repo/bin/fm-watch-probe.sh" < <(printf '. "$ROOT/bin/shared-probe-lib.sh"\n')
+  printf '. "$ROOT/bin/shared-probe-lib.sh"\n' >"$repo/bin/fm-watch-probe.sh"
   printf '# .claude/settings.json\n# .pi/extensions/fm-primary-turnend-guard.ts\n' \
     >>"$repo/tests/fm-cd-pretool-check.test.sh"
   printf '# .pi/extensions/fm-primary-pi-watch.ts\n' >>"$repo/tests/fm-pi-watch-extension.test.sh"
@@ -252,7 +252,7 @@ test_changed_runner_surfaces_select_their_family() {
   # suite it drives still runs. Narrowing this to the contract owners would
   # also make any wall-clock claim about the changed suite trivially true by
   # not running the work.
-  fm_fakebin_write --append "$repo/bin/fm-test-run.sh" < <(printf '\n')
+  printf '\n' >>"$repo/bin/fm-test-run.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD | LC_ALL=C sort)
   case "$listed" in
     *tests/fm-test-run.test.sh*) ;;
@@ -334,7 +334,7 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add tests/fm-backend-herdr-eventwait.test.py
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm eventwait-change
 
-  fm_fakebin_write --append "$repo/bin/fm-supervisor-target-lib.sh" < <(printf '\n')
+  printf '\n' >>"$repo/bin/fm-supervisor-target-lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-daemon.test.sh" "supervisor target selects daemon coverage"
   assert_contains "$listed" "tests/fm-afk-return.test.sh" "supervisor target selects afk coverage"
@@ -375,8 +375,8 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add .agents/skills/harness-adapters/SKILL.md
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm harness-adapter-router-change
 
-  fm_fakebin_write --append "$repo/bin/fm-procevent-quota.sh" < <(printf '\n')
-  fm_fakebin_write --append "$repo/bin/fm-quota-choose.sh" < <(printf '\n')
+  printf '\n' >>"$repo/bin/fm-procevent-quota.sh"
+  printf '\n' >>"$repo/bin/fm-quota-choose.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-procevent-quota.test.sh" \
     "quota process-event source selects its focused test"
@@ -385,7 +385,7 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add bin/fm-procevent-quota.sh bin/fm-quota-choose.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm quota-source-change
 
-  fm_fakebin_write --append "$repo/bin/fm-quota-axi-lib.sh" < <(printf '\n')
+  printf '\n' >>"$repo/bin/fm-quota-axi-lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-procevent-quota.test.sh" \
     "shared quota validator selects process-event coverage"
@@ -394,7 +394,7 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add bin/fm-quota-axi-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm quota-validator-change
 
-  fm_fakebin_write --append "$repo/bin/fm-control-lib.sh" < <(printf '\n')
+  printf '\n' >>"$repo/bin/fm-control-lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-backend.test.sh" \
     "control library keeps backend coverage"
@@ -405,7 +405,7 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add bin/fm-control-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm control-lib-change
 
-  fm_fakebin_write --append "$repo/bin/fm-timeout-lib.sh" < <(printf '\n')
+  printf '\n' >>"$repo/bin/fm-timeout-lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-procevent-quota.test.sh" \
     "timeout library selects quota polling coverage"
@@ -439,7 +439,7 @@ test_changed_bin_reference_selects_per_script_not_per_family() {
   repo="$tmp/repo"
   init_changed_fixture_repo "$repo"
 
-  fm_fakebin_write --append "$repo/bin/shared-probe-lib.sh" < <(printf '\n')
+  printf '\n' >>"$repo/bin/shared-probe-lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
 
   assert_contains "$listed" "tests/fm-backend-herdr-smoke.test.sh" \
@@ -477,7 +477,7 @@ SH
   done
   git -C "$repo" add .
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm fixtures
-  fm_fakebin_write --append "$repo/bin/shared-probe-lib.sh" < <(printf '\n')
+  printf '\n' >>"$repo/bin/shared-probe-lib.sh"
 
   (cd "$repo" && bin/fm-test-run.sh --changed --base HEAD --json "$tmp/parallel.json") \
     >"$tmp/parallel.out" 2>"$tmp/parallel.err" \
@@ -513,7 +513,7 @@ PY
   mkdir -p "$timeout_repo/bin" "$timeout_repo/tests"
   cp "$RUNNER" "$timeout_repo/bin/fm-test-run.sh"
   cp "$ROOT/tests/git-config-helpers.sh" "$timeout_repo/tests/"
-  fm_fakebin_write "$timeout_repo/bin/fm-timeout-lib.sh" <<'SH'
+  cat >"$timeout_repo/bin/fm-timeout-lib.sh" <<'SH'
 fm_run_timed() {
   [ "$1" -eq 1500 ] || return 99
   return 124
@@ -551,11 +551,11 @@ test_windows_posix_mode_emulation_does_not_fail_parallel_runs() {
   real_stat=$(command -v stat)
   init_changed_fixture_repo "$repo"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/uname" <<'SH'
+  cat >"$fakebin/uname" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${FAKE_UNAME:-MINGW64_NT-10.0}"
 SH
-  fm_fakebin_write "$fakebin/stat" <<'SH'
+  cat >"$fakebin/stat" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -c ] && [ "${2:-}" = %a ]; then
   printf '%s\n' 755
@@ -735,7 +735,7 @@ assert doc["families"] == []
   fake_bin="$tmp/fake-bin"
   real_git=$(command -v git)
   mkdir -p "$fake_bin"
-  fm_fakebin_write "$fake_bin/git" <<'SH'
+  cat >"$fake_bin/git" <<'SH'
 #!/usr/bin/env bash
 if [ ! -e "$SLOW_GIT_MARKER" ]; then
   : >"$SLOW_GIT_MARKER"
@@ -1473,7 +1473,7 @@ test_changed_t3_sources_select_their_readers() {
   : >"$repo/tests/t3-fake-lib.sh"
   printf '#!/usr/bin/env bash\n# tests/lib.sh\n. tests/t3-fake-lib.sh\n' >"$repo/tests/fm-secondmate-restart.test.sh"
   chmod +x "$repo/tests/fm-secondmate-restart.test.sh"
-  printf '# bin/backends/t3code.sh\n' | fm_fakebin_write --append "$repo/bin/fm-supervisor-target-lib.sh"
+  printf '# bin/backends/t3code.sh\n' >>"$repo/bin/fm-supervisor-target-lib.sh"
   git -C "$repo" add .
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm t3
 
@@ -1596,7 +1596,7 @@ test_changed_bound_gives_slow_watcher_suites_headroom() {
   mkdir -p "$repo/bin" "$repo/tests"
   cp "$RUNNER" "$repo/bin/fm-test-run.sh"
   cp "$ROOT/tests/git-config-helpers.sh" "$repo/tests/"
-  fm_fakebin_write "$repo/bin/fm-timeout-lib.sh" <<'SH'
+  cat >"$repo/bin/fm-timeout-lib.sh" <<'SH'
 fm_run_timed() {
   printf '%s\n' "$1" >bound-secs
   shift
@@ -1699,7 +1699,7 @@ test_jobs_parallel_scheduler_and_failure_propagation() {
   mkdir -p "$repo/bin" "$repo/tests" "$evidence" "$fake_bin"
   cp "$RUNNER" "$runner"
   cp "$ROOT/tests/git-config-helpers.sh" "$repo/tests/"
-  fm_fakebin_write "$fake_bin/stat" <<'SH'
+  cat >"$fake_bin/stat" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = "-c" ] && [ "$2" = "%a" ]; then
   printf '700\n'
