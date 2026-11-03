@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# tests/fm-pr-check-security-fleet.test.sh - this fleet's own PR-check cases:
-# a task worker's own fm-pr-check.sh invocation is refused, a rejected check's
-# durable notice survives a later-sorting check waking the same sweep, and a
-# direct-PR task's local-gate pass warnings are advisory. They live beside
+# tests/fm-pr-check-security-fleet.test.sh - this fleet's own PR-check cases,
+# driven through the always-draft wrapper bin/fm-pr-draft-check.sh: a task
+# worker's own invocation is refused, a draft is recorded, armed and ledgered,
+# title/body lint and a direct-PR task's local-gate pass warnings are advisory,
+# and a rejected check's durable notice survives a later-sorting check waking
+# the same sweep. They live beside
 # upstream's tests/fm-pr-check-security.test.sh so a take-in never re-resolves
 # them inside it.
 set -u
@@ -14,7 +16,7 @@ set -u
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-check-lib.sh"
 
-PR_CHECK="$ROOT/bin/fm-pr-check.sh"
+PR_CHECK="$ROOT/bin/fm-pr-draft-check.sh"
 POLL="$ROOT/bin/fm-pr-poll.sh"
 WATCH="$ROOT/bin/fm-watch.sh"
 REGISTER="$ROOT/bin/fm-check-register.sh"
@@ -54,6 +56,14 @@ case "${1:-} ${2:-}" in
     case " $* " in
       *statusCheckRollup*)
         printf '%s\n' "{\"state\":\"OPEN\",\"isDraft\":false,\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"headRefOid\":\"${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}\",\"baseRefName\":\"main\",\"statusCheckRollup\":[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}"
+        exit 0
+        ;;
+      *" --json title "*)
+        printf '%s\n' "${FM_TEST_GH_TITLE:-}"
+        exit 0
+        ;;
+      *" --json body "*)
+        printf '%s\n' "${FM_TEST_GH_BODY:-}"
         exit 0
         ;;
       *" --json isDraft "*)
@@ -230,7 +240,7 @@ test_task_worker_arming_is_refused() {
     > "$dir/stdout" 2> "$dir/stderr"
   rc=$?
   set -e
-  [ "$rc" -ne 0 ] || fail "a task worker's own fm-pr-check.sh invocation was accepted"
+  [ "$rc" -ne 0 ] || fail "a task worker's own fm-pr-draft-check.sh invocation was accepted"
   grep -q '^pr=' "$dir/home/state/task-a.meta" && fail "a refused worker invocation still recorded pr metadata"
   [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused worker invocation still armed a check"
   grep -q FM_TASK_ID "$dir/stderr" || fail "the refusal did not name the task-worker marker"
@@ -239,7 +249,7 @@ test_task_worker_arming_is_refused() {
     > "$dir/stdout" 2> "$dir/stderr" || fail "firstmate's own arming was refused"
   fm_pr_poll_artifacts_valid "$dir/home/state" task-a "$POLL" \
     || fail "firstmate's own arming did not pass the watcher's trust gate on the first try"
-  pass "fm-pr-check.sh refuses a task worker's own invocation and firstmate's own arming still authenticates first try"
+  pass "fm-pr-draft-check.sh refuses a task worker's own invocation and firstmate's own arming still authenticates first try"
 }
 
 test_rejected_check_notice_survives_a_later_waking_check() {
@@ -269,6 +279,53 @@ test_rejected_check_notice_survives_a_later_waking_check() {
   assert_grep 'unauthenticated-state-checks' "$dir/home/state/.wake-queue" \
     "the rejected check's durable row was lost to the later-sorting noisy check"
   pass "a rejected check's durable notice survives a later-sorting check waking the same sweep"
+}
+
+# The always-draft flow's worker reports `done: PR <url>` on a DRAFT, so the
+# wrapper records and arms a draft, a ready, and an unreadable-draft pull
+# request alike, and restores the fleet-ledger record the seam skips.
+test_draft_pull_request_is_armed_through_the_wrapper() {
+  local dir state
+  for state in true false null; do
+    dir=$(make_case "wrapper-draft-$state")
+    write_task_meta "$dir"
+    : > "$dir/home/config/fleet-ledger"
+    FM_TEST_GH_DRAFT=$state run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
+      > "$dir/stdout" 2> "$dir/stderr" || fail "draft=$state: the wrapper refused the pull request: $(cat "$dir/stderr")"
+    grep -qxF 'pr=https://github.com/o/r/pull/9' "$dir/home/state/task-a.meta" \
+      || fail "draft=$state: the pull request was not recorded"
+    fm_pr_poll_artifacts_valid "$dir/home/state" task-a "$POLL" \
+      || fail "draft=$state: the merge poll was not armed"
+    jq -e 'select(.event == "task.pr_ready" and .task == "task-a")' "$dir/home/state/fleet-ledger.jsonl" >/dev/null 2>&1 \
+      || fail "draft=$state: the fleet ledger did not record the ready PR: $(cat "$dir/home/state/fleet-ledger.jsonl" 2>&1)"
+  done
+  # Without the wrapper, the unchanged PR check script still refuses a draft.
+  if FM_TEST_GH_DRAFT=true FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" FM_TEST_GUARD_LOG="$dir/guard.log" \
+    FM_TEST_GH_LOG="$dir/gh.log" PATH="$dir/fakebin:$BASE_PATH" \
+    "$ROOT/bin/fm-pr-check.sh" task-a https://github.com/o/r/pull/10 > /dev/null 2> "$dir/direct.err"; then
+    fail "the unchanged PR check script armed a draft on its own"
+  fi
+  pass "the wrapper records, arms and ledgers a draft, a ready, and an unreadable-draft pull request"
+}
+
+test_wrapper_prints_lint_lines() {
+  local dir
+  dir=$(make_case wrapper-lint-empty)
+  write_task_meta "$dir"
+  FM_TEST_GH_TITLE=fm/task-a run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
+    > "$dir/stdout" 2> "$dir/stderr" || fail "lint findings blocked arming: $(cat "$dir/stderr")"
+  assert_grep 'PR_BODY_LINT: body is empty' "$dir/stdout" "an empty body was not linted"
+  assert_grep 'PR_BODY_LINT: title is a task or branch id' "$dir/stdout" "a task-id title was not linted"
+  [ -f "$dir/home/state/task-a.check.sh" ] || fail "a linted pull request was not armed"
+
+  dir=$(make_case wrapper-lint-clean)
+  write_task_meta "$dir"
+  FM_TEST_GH_TITLE='Keep the watcher on upstream timeout surfacing' \
+    FM_TEST_GH_BODY='Replaces the per-episode wake with the ordinary check notification.' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
+    > "$dir/stdout" 2> "$dir/stderr" || fail "a clean pull request was refused: $(cat "$dir/stderr")"
+  assert_no_grep 'PR_BODY_LINT' "$dir/stdout" "a clean title and body were linted"
+  pass "the wrapper prints advisory title and body lint lines and arms regardless"
 }
 
 test_direct_pr_gate_pass_warning() {
@@ -342,5 +399,7 @@ test_direct_pr_gate_pass_warning() {
 }
 
 test_task_worker_arming_is_refused
+test_draft_pull_request_is_armed_through_the_wrapper
+test_wrapper_prints_lint_lines
 test_rejected_check_notice_survives_a_later_waking_check
 test_direct_pr_gate_pass_warning

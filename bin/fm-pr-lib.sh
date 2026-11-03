@@ -364,7 +364,7 @@ fm_pr_url_parse() {
   FM_PR_NUMBER=${BASH_REMATCH[4]}
 }
 
-# Detect known-bad PR title/body shapes at arm time (bin/fm-pr-check.sh):
+# Detect known-bad PR title/body shapes at arm time (bin/fm-pr-draft-check.sh):
 # crewmate brief text, scaffold placeholders, contract headings, internal
 # status-file references, pipeline-intent bodies, empty bodies, and titles
 # that are task or branch ids rather than descriptions. Pure detector over

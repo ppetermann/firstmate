@@ -85,8 +85,8 @@
 # Fork patch (always-draft delivery flow): the direct-PR pull-request block runs
 # the local gate (bin/fm-local-gate.sh) before the one push and opens the pull
 # request as a DRAFT, reported with `done: PR <url>`; firstmate owns the flip at
-# that PR's landing turn, so bin/fm-pr-check.sh arms merge monitoring on a
-# draft. The no-mistakes block keeps upstream's non-draft text.
+# that PR's landing turn, so bin/fm-pr-draft-check.sh records it and arms
+# merge monitoring on the draft. The no-mistakes block keeps upstream's non-draft text.
 # On external a review tool uploads its own snapshot of the worker's commits,
 # so the worker never pushes to publish: forge=external ships direct-PR only,
 # its first rule forbids any push to the shared origin and any push of a

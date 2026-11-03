@@ -233,6 +233,7 @@ Load `fleet-delivery-flow` at every ship intake and before every delivery, flip,
 Its load-bearing steps are stated here because a contract that lives only in a skill does not fire at the moment of deciding:
 
 - Every PR opens as a DRAFT and stays one until its landing turn. Drafts run no CI and draw no review round.
+- At a direct-PR ready signal run `bin/fm-pr-draft-check.sh <id> <PR url>`, never `bin/fm-pr-check.sh` directly, which refuses a draft; `config/pr-register-scan` stays absent in this fleet for the same reason.
 - Firstmate owns the flip, never the worker. The flip is the sole trigger for the one CI run and the one review round, so it happens on the final head.
 - The landing queue is PER REPOSITORY: at most one ready PR per repo, and a draft on a repo with no ready PR flips immediately rather than waiting behind another repo's work.
 - Rebase onto the current default branch before flipping, so the reviewed head is the head that merges.

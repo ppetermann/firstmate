@@ -5,7 +5,7 @@
 # The lint is a pure detector driven as a function: every known-bad shape
 # fires its exact advisory line, a clean human title+body prints nothing,
 # multiple hits print multiple lines, and the function always returns 0 so
-# bin/fm-pr-check.sh arms the merge poll regardless.
+# bin/fm-pr-draft-check.sh arms the merge poll regardless.
 set -u
 
 # shellcheck source=tests/lib.sh

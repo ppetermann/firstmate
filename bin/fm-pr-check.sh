@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # Record a PR-ready task: store one validated canonical pr=<url> and the forge's
 # exact pr_head=<sha> when available, then atomically arm a static merge poll.
-# Before arming, a direct-PR task's local-gate pass marker is checked and a
-# missing marker or a head mismatch prints an advisory warning that firstmate
-# judges; bin/fm-local-gate.sh's header owns the gate and marker contract.
 # Refuses when bin/fm-dod-lib.sh will not accept the named head as reachable
 # outside the worker's disposable copy; in no-mistakes mode a forge-reported
 # head is that named head and is already stored on the forge.
@@ -13,12 +10,14 @@
 # are all accepted, including a merge request or change on a self-hosted
 # instance and a GitHub Enterprise pull request on a host this home names in
 # config/github-hosts.
-# Firstmate is the only caller (AGENTS.md section 7): the arm-time template is
-# SCRIPT_DIR's own copy of fm-pr-poll.sh, which must stay byte-identical to
-# whatever the watcher cmp's it against later, and only firstmate's own
-# checkout is guaranteed to still be that copy when the watcher runs. Refuses
-# when FM_TASK_ID marks a task worker's own isolated (and possibly stale)
-# checkout instead of silently arming a check doomed to fail authentication.
+# A GitHub pull request the forge reports as a draft is refused, naming the draft
+# state and recording and arming nothing: a draft cannot be merged, so a poll armed on it
+# would wait for an event that cannot occur while nobody is asked to act.
+# Mark the pull request ready for review, then arm again; a lane that keeps a
+# draft on purpose declares a wait instead of reporting done. An unreadable
+# draft state does not refuse, matching how the head read below is optional.
+# bin/fm-pr-merge.sh records through this script with FM_PR_CHECK_MERGE=1 and
+# skips this refusal, because its own merge-time draft refusal is authoritative.
 # The recorded pr= also frees the task's place in a declared project capacity
 # (bin/fm-project-capacity-lib.sh).
 # Usage: fm-pr-check.sh <task-id> <pr-url>
@@ -28,11 +27,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-
-if [ -n "${FM_TASK_ID:-}" ]; then
-  echo "error: fm-pr-check.sh must be run by firstmate, not from a task worker (FM_TASK_ID=$FM_TASK_ID); report the PR URL to firstmate so it can register the merge watch" >&2
-  exit 1
-fi
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -134,10 +128,16 @@ if [ "$PROVIDER" = forgejo ]; then
   }
 fi
 
-# Fork patch: no draft refusal here. This fleet's always-draft flow has the
-# worker report `done: PR <url>` on a DRAFT, and firstmate arms this check on
-# that draft before it owns the flip at the PR's landing turn; merge-time draft
-# refusal stays with bin/fm-pr-merge.sh.
+# The draft state is read before anything is recorded or armed. Only a positive
+# draft reading refuses, because an unreadable one must not block arming.
+if [ "$PROVIDER" = github ] && [ "${FM_PR_CHECK_MERGE:-}" != 1 ] && command -v gh >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  DRAFT_JSON=$(gh pr view "$URL" --json isDraft 2>/dev/null || true)
+  if [ "$(fm_pr_json_draft_state "$DRAFT_JSON")" = true ]; then
+    echo "error: $URL is a draft pull request; a draft cannot be merged, so merge monitoring would wait for an event that cannot occur - mark it ready for review and arm again, or declare a wait instead of done if the draft is deliberate" >&2
+    exit 1
+  fi
+fi
+
 "$FM_ROOT/bin/fm-guard.sh" || true
 
 # pr_head is recorded only when the forge's CLI can supply it. gh exposes the
@@ -162,31 +162,6 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
   if REMOTE_HEAD=$(cd "$WT" && gh pr view "$URL" --json headRefOid -q .headRefOid 2>/dev/null) \
     && fm_pr_head_valid "$REMOTE_HEAD"; then
     PR_HEAD=$REMOTE_HEAD
-  fi
-fi
-
-# Title/body lint rides the same GitHub-only arm that captured pr_head above:
-# advisory PR_BODY_LINT: lines print to stdout before the meta rewrite, arming
-# proceeds regardless, and firstmate steers a rewrite only when a line appears.
-if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1; then
-  LINT_TITLE=$(cd "$WT" && gh pr view "$URL" --json title -q .title 2>/dev/null || true)
-  LINT_BODY=$(cd "$WT" && gh pr view "$URL" --json body -q .body 2>/dev/null || true)
-  fm_pr_body_lint "$LINT_TITLE" "$LINT_BODY"
-fi
-
-# Advisory local-gate check for direct-PR tasks: warn, never block, because
-# firstmate judges the warning and scout tasks legitimately lack markers.
-if [ "$(sed -n 's/^mode=//p' "$META" | tail -1)" = direct-PR ]; then
-  GATE_PASS="$STATE/$ID.gate-pass"
-  if [ -f "$GATE_PASS" ] && [ ! -L "$GATE_PASS" ]; then
-    GATE_HEAD=$(sed -n 's/^head=//p' "$GATE_PASS" | tail -1 | cut -d' ' -f1)
-    if [ -z "$GATE_HEAD" ] || ! fm_pr_head_valid "$GATE_HEAD"; then
-      echo "warning: direct-PR task $ID gate pass marker records no valid head" >&2
-    elif [ -n "$PR_HEAD" ] && [ "$GATE_HEAD" != "$PR_HEAD" ]; then
-      echo "warning: direct-PR task $ID gate pass head $GATE_HEAD does not match PR head $PR_HEAD (branch moved after gating)" >&2
-    fi
-  else
-    echo "warning: direct-PR task $ID has no local-gate pass marker (state/$ID.gate-pass); confirm the gate ran before the push" >&2
   fi
 fi
 
