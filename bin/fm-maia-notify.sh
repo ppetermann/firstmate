@@ -11,7 +11,9 @@
 # Hooks:
 #   bin/fm-captain-hold.sh   send decision --check-hold <task> (a newly set
 #                            hold, not a repeat or an --until deferral)
-#   bin/fm-watch.sh          follow, detached, once per poll cycle
+#   bin/fm-procevent-maia-notify.sh
+#                            follow, every 15 s, supervised by the
+#                            process-event runner (source maia-notify)
 #   fleet-delivery-flow      send merge-ready (checklist D, a backstop to the
 #                            automatic scan below), send deployed (checklist F),
 #                            run by the firstmate agent

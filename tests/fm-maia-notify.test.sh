@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # tests/fm-maia-notify.test.sh - opt-in maia notifications: bin/fm-maia-notify.sh
 # send, flush and follow, plus its hooks in bin/fm-captain-hold.sh and the
-# watcher. data/fleet-docs/maia-notify.md owns the operator contract. Every delivery goes
+# maia-notify process-event source (bin/fm-procevent-maia-notify.sh).
+# data/fleet-docs/maia-notify.md owns the operator contract. Every delivery goes
 # through the FM_MAIA_NOTIFY_EXEC seam or a closed local port, never a real maia.
 set -u
 
@@ -532,27 +533,55 @@ test_non_decision_keys_are_immediate() {
   pass "grace: keys without --check-hold, such as merged, are delivered immediately"
 }
 
-# --- hook: the watcher ---
+# --- hook: the process-event runner ---
 
-test_watcher_drives_follow() {
-  local i
-  make_case watcher on
-  printf 'claude\n' > "$HOME_DIR/config/crew-harness"
-  printf '%s\n' "$$" > "$HOME_DIR/state/.lock"
+# Run the maia-notify source's runner for <seconds>, then retire it, which
+# also stops the runner's sleeping child.
+run_source() {  # <seconds>
+  local pid
+  in_home env FM_PROCEVENT_CLAIM_ROOT="$HOME_DIR/claims" "$ROOT/bin/fm-procevent.sh" start maia-notify \
+    > "$HOME_DIR/start.out" 2>&1 &
+  pid=$!
+  sleep "$1"
+  in_home env FM_PROCEVENT_CLAIM_ROOT="$HOME_DIR/claims" "$ROOT/bin/fm-procevent-maia-notify.sh" retire >/dev/null 2>&1 || true
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+test_runner_drives_follow() {
+  make_case runner on
+  chmod 700 "$HOME_DIR/state"
   touch "$HOME_DIR/state/.last-watcher-beat"
-  fm_fake_exit0 "$FAKEBIN" tmux treehouse no-mistakes
   printf '503' > "$REC/status"
   FLUSH_MODE=none in_home "$NOTIFY" send deployed --id w1 project=p || fail "send failed"
   rm -f "$REC/status"
-  in_home env -u FM_TRACE_CONTEXT HOME="$HOME_DIR" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
-    TMUX="fake,1,0" "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 >/dev/null 2>&1 || true
-  for i in $(seq 1 50); do
-    [ "$(spool_count)" = 0 ] && break
-    sleep 0.1
-  done
-  assert_equals 0 "$(spool_count)" "spool after a watcher poll"
+  in_home env FM_PROCEVENT_CLAIM_ROOT="$HOME_DIR/claims" "$ROOT/bin/fm-procevent-maia-notify.sh" arm --interval 1 >/dev/null \
+    || fail "arm refused an opted-in home"
+  run_source 3
+  assert_equals 0 "$(spool_count)" "spool after the runner's follow"
   assert_grep "delivered key=deployed id=w1" "$HOME_DIR/state/maia-notify/log" "log or capture check: delivered key=deployed id=w1"
-  pass "watcher: a poll runs follow in the background, which delivers what the spool holds"
+  [ ! -s "$HOME_DIR/state/.wake-queue" ] || fail "the follow source woke someone: $(cat "$HOME_DIR/state/.wake-queue")"
+  pass "runner: the maia-notify source runs follow, which delivers what the spool holds, and wakes nobody"
+}
+
+test_opt_out_retires_the_source() {
+  make_case runner-optout on
+  chmod 700 "$HOME_DIR/state"
+  touch "$HOME_DIR/state/.last-watcher-beat"
+  in_home env FM_PROCEVENT_CLAIM_ROOT="$HOME_DIR/claims" "$ROOT/bin/fm-procevent-maia-notify.sh" arm --interval 1 >/dev/null \
+    || fail "arm failed"
+  rm -f "$HOME_DIR/config/maia-notify"
+  run_source 4
+  grep -q '^retired: maia-notify (adapter classified' "$HOME_DIR/start.out" \
+    || fail "an opt-out did not retire the source: $(cat "$HOME_DIR/start.out")"
+  if in_home env FM_PROCEVENT_CLAIM_ROOT="$HOME_DIR/claims" "$ROOT/bin/fm-procevent-maia-notify.sh" arm >/dev/null 2>&1; then
+    fail "arm accepted a home without config/maia-notify"
+  fi
+  pass "runner: removing config/maia-notify retires the source on its next cycle and arm refuses"
 }
 
 test_off_without_config
@@ -576,4 +605,5 @@ test_decision_grace_sends_a_still_held_task
 test_decision_grace_drops_an_answered_task
 test_decision_grace_sends_when_state_is_unreadable
 test_non_decision_keys_are_immediate
-test_watcher_drives_follow
+test_runner_drives_follow
+test_opt_out_retires_the_source
