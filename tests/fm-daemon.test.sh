@@ -346,7 +346,7 @@ test_escalation_buffer_failure_retains_wake_and_position() {
   buffer="$state/.subsuper-escalations"
   printf 'blocked: release approval required\nworking: preparing notes\n' > "$state/write-r1.status"
   mkdir -p "$fakebin" "$buffer"
-  fm_fakebin_write "$fakebin/fm-wake-drain.sh" <<EOF
+  cat > "$fakebin/fm-wake-drain.sh" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = --ack-through ]; then printf '%s\n' ack >> "$dir/acked"; exit 0; fi
 printf '1\t1\tsignal\twrite-r1.status\tsignal: $state/write-r1.status\n'
@@ -485,7 +485,7 @@ test_durable_wake_failure_retains_entire_batch() {
   local dir state fakebin attempts
   dir=$(make_supercase durable-failure); state="$dir/state"; fakebin="$dir/daemon-bin"; attempts="$dir/attempts"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/fm-wake-drain.sh" <<EOF
+  cat > "$fakebin/fm-wake-drain.sh" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = --ack-through ]; then printf ack > "$dir/acked"; exit 0; fi
 printf '1\t1\tsignal\ttask.status\tsignal: first\n1\t2\theartbeat\theartbeat\theartbeat\n'
@@ -507,7 +507,7 @@ test_missing_status_stale_is_acknowledged_without_diagnostic() {
   local dir state fakebin
   dir=$(make_supercase durable-no-status); state="$dir/state"; fakebin="$dir/daemon-bin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/fm-wake-drain.sh" <<EOF
+  cat > "$fakebin/fm-wake-drain.sh" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = --ack-through ]; then printf '%s\n' ack >> "$dir/acked"; exit 0; fi
 printf '1\t1\tstale\tmissing-r8\tstale: sess:fm-missing-r8\n'
@@ -530,7 +530,7 @@ test_transient_unreadable_signal_recovers_without_advancing() {
   dir=$(make_supercase durable-unreadable); state="$dir/state"; fakebin="$dir/daemon-bin"
   printf 'blocked: status cannot be classified\n' > "$state/unreadable-r7.status"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/fm-wake-drain.sh" <<EOF
+  cat > "$fakebin/fm-wake-drain.sh" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = --ack-through ]; then printf '%s\n' ack >> "$dir/acked"; exit 0; fi
 printf '1\t1\tsignal\tunreadable-r7.status\tsignal: $state/unreadable-r7.status\n'
@@ -607,7 +607,7 @@ test_permanent_classification_failure_is_reported_and_acknowledged() {
   printf 'blocked: first target\n' > "$dir/target-one"
   ln -s "$dir/target-one" "$state/symlink-r9.status"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/fm-wake-drain.sh" <<EOF
+  cat > "$fakebin/fm-wake-drain.sh" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = --ack-through ]; then printf '%s\n' ack >> "$dir/acked"; exit 0; fi
 printf '1\t1\tsignal\tsymlink-r9.status\tsignal: $state/symlink-r9.status\n'
@@ -1838,7 +1838,7 @@ test_needs_decision_queued_row_escalates_once_as_the_decision() {
   status_file="$state/decision-task.status"
   printf 'working: setup\nneeds-decision [key=release]: pick A or B\n' > "$status_file"
   payload="needs-decision: $status_file"
-  fm_fakebin_write "$fakebin/fm-wake-drain.sh" <<EOF
+  cat > "$fakebin/fm-wake-drain.sh" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = --ack-through ]; then printf '%s\n' ack >> "$dir/acked"; exit 0; fi
 printf '1\t1\tsignal\tdecision-task.status\t%s\n' "$payload"
@@ -1917,7 +1917,7 @@ test_captain_held_decision_owned_row_is_self_handled() {
   mkdir -p "$fakebin"
   status_file="$state/held-task.status"
   printf 'captain-held [key=route]: tracked by task-decision-route\n' > "$status_file"
-  fm_fakebin_write "$fakebin/fm-wake-drain.sh" <<EOF
+  cat > "$fakebin/fm-wake-drain.sh" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = --ack-through ]; then exit 0; fi
 printf '1\t1\tsignal\theld-task.status\t%s\n' "needs-decision: $status_file"
@@ -2716,17 +2716,17 @@ make_wedge_case() {  # <name> -> echoes dir; creates state/, fakebin/{uname,osas
   dir="$TMP_ROOT/$name"; fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
   # Fake uname so `auto` platform resolution is deterministic on any CI host.
-  fm_fakebin_write "$fakebin/uname" <<'SH'
+  cat > "$fakebin/uname" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${FM_FAKE_UNAME:-Darwin}"
 SH
   # Fakes keep command discovery deterministic on any CI host.
-  fm_fakebin_write "$fakebin/osascript" <<'SH'
+  cat > "$fakebin/osascript" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' osascript >> "${FM_WEDGE_ALARM_REAL_LOG:-/dev/null}"
 exit 0
 SH
-  fm_fakebin_write "$fakebin/herdr" <<'SH'
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' herdr >> "${FM_WEDGE_ALARM_REAL_LOG:-/dev/null}"
 exit 0

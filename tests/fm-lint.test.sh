@@ -32,7 +32,7 @@ SHELLCHECK_SHA_DARWIN_AARCH64=56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30a
 # fm_install_stub_uname <fakebin>: uname -s / uname -m from FM_TEST_UNAME_S/M.
 fm_install_stub_uname() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/uname" <<'SH'
+  cat > "$fakebin/uname" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   -s) printf '%s\n' "${FM_TEST_UNAME_S:-Linux}" ;;
@@ -48,7 +48,7 @@ SH
 # updates when invoked.
 fm_install_stub_curl() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/curl" <<'SH'
+  cat > "$fakebin/curl" <<'SH'
 #!/usr/bin/env bash
 count=0
 [ ! -f "${CURL_COUNT:-}" ] || count=$(cat "$CURL_COUNT")
@@ -84,7 +84,7 @@ SH
 # SHA256_STUB_HASH and records the invocation on HASHER_LOG. shasum requires -a 256.
 fm_install_stub_hasher() {
   local fakebin=$1 name=$2
-  fm_fakebin_write "$fakebin/$name" <<'SH'
+  cat > "$fakebin/$name" <<'SH'
 #!/usr/bin/env bash
 self=${0##*/}
 if [ -n "${HASHER_LOG:-}" ]; then
@@ -115,7 +115,7 @@ SH
 
 fm_install_stub_tar_shellcheck() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/tar" <<'SH'
+  cat > "$fakebin/tar" <<'SH'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-C" ]; then
@@ -136,7 +136,7 @@ SH
 
 fm_install_stub_sleep() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/sleep" <<'SH'
+  cat > "$fakebin/sleep" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -240,7 +240,7 @@ test_canonical_partitions_preserve_full_lint() {
 #   FM_TEST_GIT_DIFF_FILE        path to a file of NUL-separated changed paths
 fm_lint_stub_git() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/git" <<'SH'
+  cat > "$fakebin/git" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   "rev-parse --is-inside-work-tree")
@@ -298,7 +298,7 @@ fm_lint_write_diff_file() {
 fm_lint_stub_shellcheck() {
   local fakebin=$1 log=$2
   : > "$log"
-  fm_fakebin_write "$fakebin/shellcheck" <<SH
+  cat > "$fakebin/shellcheck" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = --version ]; then
   printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'
@@ -357,7 +357,7 @@ fm_lint_bounds_supported() {
 # Anything else records its path on FM_TEST_STUB_LOG and exits cleanly.
 fm_lint_stub_reactive_shellcheck() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/shellcheck" <<'SH'
+  cat > "$fakebin/shellcheck" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then
   printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'
@@ -1098,7 +1098,7 @@ test_rejects_wrong_shellcheck_version() {
   local tmp fakebin out rc
   tmp=$(fm_test_tmproot fm-lint-ver)
   fakebin=$(fm_fakebin "$tmp")
-  fm_fakebin_write "$fakebin/shellcheck" <<'SH'
+  cat > "$fakebin/shellcheck" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = "--version" ]; then
   printf 'ShellCheck - shell script analysis tool\nversion: 0.9.9\nlicense: x\nwebsite: y\n'
@@ -1165,7 +1165,7 @@ fm_lint_fixture_repo() {  # <tmp>: a minimal repo the real lint can run in
   local tmp=$1
   mkdir -p "$tmp/repo/bin/backends" "$tmp/repo/tests"
   cp "$LINT" "$tmp/repo/bin/fm-lint.sh"
-  fm_fakebin_write "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
+  cat > "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -1294,7 +1294,7 @@ test_rejects_direct_beads_cli_invocations() {
   mkdir -p "$tmp/repo/bin/backends" "$tmp/repo/tests"
   lint_copy="$tmp/repo/bin/fm-lint.sh"
   cp "$LINT" "$lint_copy"
-  fm_fakebin_write "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
+  cat > "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -1327,7 +1327,7 @@ SH
     "\$'\\142\\144' close fm-example" \
     "b\$'\\x64' close fm-example"
   do
-    fm_fakebin_write "$tmp/repo/bin/direct-beads.sh" < <(printf '#!/usr/bin/env bash\n%s\n' "$invocation")
+    printf '#!/usr/bin/env bash\n%s\n' "$invocation" > "$tmp/repo/bin/direct-beads.sh"
     rc=0
     out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" "$lint_copy" 2>&1) || rc=$?
     [ "$rc" -ne 0 ] || fail "lint accepted a direct Beads CLI invocation: $invocation"
@@ -1495,7 +1495,7 @@ test_worker_trees_stop_on_signal() {
 #!/usr/bin/env bash
 printf '%s\n' "${1:-ok}"
 SH
-  fm_fakebin_write "$fakebin/shellcheck" <<'SH'
+  cat > "$fakebin/shellcheck" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then
   printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'
@@ -1683,7 +1683,7 @@ test_memory_failure_retries_without_external_sources() {
   fixture="$tmp/teardown.sh"
   log="$tmp/flags.log"
   printf '#!/usr/bin/env bash\n# shellcheck source=lib.sh\nexit 0\n' > "$fixture"
-  fm_fakebin_write "$fakebin/shellcheck" <<'SH'
+  cat > "$fakebin/shellcheck" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'
@@ -1743,7 +1743,7 @@ SH
   fi
   local real_shellcheck
   real_shellcheck=$(command -v shellcheck)
-  fm_fakebin_write "$fakebin/shellcheck" <<'SH'
+  cat > "$fakebin/shellcheck" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   exec "$FM_REAL_SHELLCHECK" "$@"
@@ -1783,7 +1783,7 @@ test_memory_fallback_spends_only_the_remaining_root_deadline() {
   fixture="$tmp/teardown.sh"
   log="$tmp/attempts.log"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture"
-  fm_fakebin_write "$fakebin/shellcheck" <<'SH'
+  cat > "$fakebin/shellcheck" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'
@@ -2029,7 +2029,7 @@ test_sidecar_result_exit_reflects_final_status() {
   mkdir -p "$tmp/repo/bin/backends" "$tmp/repo/tests" "$tmp/repo/.github/workflows"
   cp "$LINT" "$tmp/repo/bin/fm-lint.sh"
   cp "$ROOT/bin/fm-timeout-lib.sh" "$tmp/repo/bin/fm-timeout-lib.sh"
-  fm_fakebin_write "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
+  cat > "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -2041,7 +2041,7 @@ SH
 #!/usr/bin/env bash
 exit 0
 SH
-  printf '#!/usr/bin/env bash\nbd close fm-example\n' | fm_fakebin_write "$tmp/repo/bin/direct-beads.sh"
+  printf '#!/usr/bin/env bash\nbd close fm-example\n' > "$tmp/repo/bin/direct-beads.sh"
   chmod +x "$tmp/repo/bin/fm-lint.sh" "$tmp/repo/bin/fm-lint-workflows.sh"
   fm_lint_stub_shellcheck "$fakebin" "$log"
 

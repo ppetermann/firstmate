@@ -573,7 +573,7 @@ test_brief_self_repo_pre_gate() {
 # exits 1 so an authorized spawn stops at launch rather than a worktree.
 SPAWN_FAKEBIN="$TMP_ROOT/spawn-fakebin"
 mkdir -p "$SPAWN_FAKEBIN"
-fm_fakebin_write "$SPAWN_FAKEBIN/tmux" < <(printf '#!/bin/sh\nexit 1\n')
+printf '#!/bin/sh\nexit 1\n' > "$SPAWN_FAKEBIN/tmux"
 chmod +x "$SPAWN_FAKEBIN/tmux"
 
 write_ship_brief() {  # <home> <id> [<contract-extras>]

@@ -548,7 +548,7 @@ test_slow_rearm_recovery_is_still_surfaced() {
   rm -f "$state/.last-watcher-beat"
   for tool in mktemp readlink; do
     real=$(command -v "$tool") || fail "no $tool to delay"
-    fm_fakebin_write "$fakebin/$tool" <<SH
+    cat > "$fakebin/$tool" <<SH
 #!/bin/sh
 [ -e "$state/.last-watcher-beat" ] && sleep 0.6
 exec "$real" "\$@"
@@ -997,7 +997,7 @@ test_append_wakes_handling_successor() {
     datebin="$dir/datebin"
     mkdir -p "$datebin"
     real_date=$(command -v date)
-    fm_fakebin_write "$datebin/date"  <<SH
+    cat > "$datebin/date" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = +%s ]; then
   printf '%s\n' "${inherited_row%%$'\t'*}"
@@ -1287,7 +1287,7 @@ test_take_over_owns_a_fresh_cycle_and_keeps_queued_work_surfacing() {
 # whole timeout budget. Nothing here reaches a real herdr server.
 make_event_wait_herdr() {  # <case-dir>
   local dir=$1
-  fm_fakebin_write "$dir/fakebin/herdr"  <<'SH'
+  cat > "$dir/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FM_FAKE_HERDR_LOG:-/dev/null}"
 args=()
@@ -1412,7 +1412,7 @@ test_take_over_preserves_downtime_from_watcher_self_exit() {
   armout="$dir/arm.out"
   real_touch=$(command -v touch)
   printf '#!/usr/bin/env bash\nif [ "$*" = "%s/.secondmate-liveness-tick" ] && [ -e "%s/fail-tick" ]; then exit 1; fi\nexec "%s" "$@"\n' \
-    "$state" "$dir" "$real_touch" | fm_fakebin_write "$fakebin/touch"
+    "$state" "$dir" "$real_touch" > "$fakebin/touch"
   chmod +x "$fakebin/touch"
   FM_SECONDMATE_LIVENESS_SECS=1 start_rearm_arm "$home" "$state" "$fakebin" "$dir/owner.out" "$$"
   owner=$ARM_PID
@@ -1969,7 +1969,7 @@ make_arm_decision_fixture() {  # <name>
   git init -q -b main "$repo"
   : > "$repo/AGENTS.md"
   cp "$ROOT/bin/fm-supervision-lib.sh" "$repo/bin/fm-supervision-lib.sh"
-  fm_fakebin_write "$repo/bin/fm-watch-arm.sh" <<'SH'
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm\n' >> "${FM_ARM_LOG:?}"
 printf 'watcher: healthy pid=1 (beacon 0s)\n'

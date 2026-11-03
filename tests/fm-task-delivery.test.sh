@@ -36,7 +36,7 @@ make_home() {  # <name> [<registry-line>...]
   mkdir -p "$home/data" "$home/state" "$home/config" "$projects/proj" "$fakebin"
   git -C "$projects/proj" init -q || fail "could not initialize project fixture"
   git -c user.name=test -c user.email=test@example.com -C "$projects/proj" commit -q --allow-empty -m init || fail "could not commit project fixture"
-  fm_fakebin_write "$fakebin/tmux" < <(printf '#!/bin/sh\nexit 1\n')
+  printf '#!/bin/sh\nexit 1\n' > "$fakebin/tmux"
   chmod +x "$fakebin/tmux"
   if [ "$#" -gt 0 ]; then
     printf '%s\n' "$@" > "$home/data/projects.md"
@@ -363,7 +363,7 @@ test_promotion_delivers_the_real_definition_of_done() {
   home="$TMP_ROOT/promote-dod/home"
   sendroot="$TMP_ROOT/promote-dod/sendroot"
   mkdir -p "$home/state" "$sendroot/bin"
-  fm_fakebin_write "$sendroot/bin/fm-send.sh" <<'STUB'
+  cat > "$sendroot/bin/fm-send.sh" <<'STUB'
 #!/usr/bin/env bash
 # Capture the message a promoted worker would receive, instead of steering one.
 printf '%s' "$2" > "$FM_TEST_CAPTURE"
@@ -757,7 +757,7 @@ test_promotion_carries_the_pr_text_binding() {
   sendroot="$TMP_ROOT/pr-manual-promote/sendroot"
   mkdir -p "$home/state" "$home/data" "$home/projects/proj" "$sendroot/bin"
   printf '%s\n' '- proj [no-mistakes pr=manual] - fixture (added 2026-01-01)' > "$home/data/projects.md"
-  fm_fakebin_write "$sendroot/bin/fm-send.sh"  <<'STUB'
+  cat > "$sendroot/bin/fm-send.sh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s' "$2" > "$FM_TEST_CAPTURE"
 STUB
@@ -1777,7 +1777,7 @@ test_promotion_carries_the_forge_binding() {
   sendroot="$TMP_ROOT/forge-promote/sendroot"
   mkdir -p "$home/state" "$home/data" "$home/projects/proj" "$sendroot/bin"
   printf '%s\n' '- proj [no-mistakes forge=gerrit] - fixture (added 2026-01-01)' > "$home/data/projects.md"
-  fm_fakebin_write "$sendroot/bin/fm-send.sh" <<'STUB'
+  cat > "$sendroot/bin/fm-send.sh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s' "$2" > "$FM_TEST_CAPTURE"
 STUB
@@ -1849,7 +1849,7 @@ EOF
 
   sendroot="$TMP_ROOT/forge-forgejo/sendroot"
   mkdir -p "$sendroot/bin"
-  fm_fakebin_write "$sendroot/bin/fm-send.sh" <<'STUB'
+  cat > "$sendroot/bin/fm-send.sh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s' "$2" > "$FM_TEST_CAPTURE"
 STUB

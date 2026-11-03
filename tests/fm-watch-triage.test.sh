@@ -618,12 +618,12 @@ test_worktree_write_probe_is_wall_clock_bounded() {
   # Both stand-ins report the same hit; only one of them takes longer than the bound
   # to do it, so the prompt one shows what a positive outcome looks like and the
   # bounded assertion below cannot pass merely because the fake failed.
-  fm_fakebin_write "$fastbin/find" <<'SH'
+  cat > "$fastbin/find" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\n' "$1/hit"
 SH
-  fm_fakebin_write "$slowbin/find" <<'SH'
+  cat > "$slowbin/find" <<'SH'
 #!/usr/bin/env bash
 set -u
 sleep 30
@@ -3614,7 +3614,7 @@ test_afk_busy_declared_pause_ticking_pane_hands_off_once() {
   dir=$(make_case afk-busy-declared-pause-ticking); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; drain_out="$dir/drain.out"; window="test:fm-afk-ticking-scout"
   statusf="$state/afk-ticking-scout.status"; ticks="$dir/ticks"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -4065,7 +4065,7 @@ test_triage_log_size_cap_accepts_spaced_wc_counts() {
     printf 'old line %04d\n' "$i" >> "$state/.watch-triage.log"
     i=$((i + 1))
   done
-  fm_fakebin_write "$fakebin/wc" <<'SH'
+  cat > "$fakebin/wc" <<'SH'
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = "-c" ]; then
@@ -4352,7 +4352,7 @@ install_marker_mv_fault() {  # <dir>
   local dir=$1
   REAL_MV=$(command -v mv)
   export REAL_MV
-  fm_fakebin_write "$dir/fakebin/mv" <<'SH'
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 dest=${!#}
 case "$dest" in
@@ -4746,7 +4746,7 @@ test_pi_stream_silence_uses_inspection_timer() {
         # The recovery-grade endpoint read runs inside the escalation path.
         # Close the request there to exercise the final evidence revalidation.
         mv "$fakebin/tmux" "$fakebin/tmux-base"
-        fm_fakebin_write "$fakebin/tmux"  <<SH
+        cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = display-message ]; then
   date +%s > "$state/.wedge-permanent-$key"
@@ -4885,14 +4885,14 @@ test_pi_stream_publication_lock_revalidation() {
       [ "$lock_kind" != recovery ] || lock="$state/.watcher-down.lock"
       real_mkdir=$(command -v mkdir)
       real_cat=$(command -v cat)
-      fm_fakebin_write "$fakebin/cat"  <<SH
+      cat > "$fakebin/cat" <<SH
 #!/usr/bin/env bash
 if [ "\${!#}" = "$lock/pid" ] && [ -d "$lock" ]; then printf '1\n' > "$dir/append-blocked"; fi
 exec "$real_cat" "\$@"
 SH
       chmod +x "$fakebin/cat"
       mv "$fakebin/tmux" "$fakebin/tmux-base"
-      fm_fakebin_write "$fakebin/tmux"  <<SH
+      cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = display-message ]; then
   if [ ! -e "$dir/lock-created" ]; then
@@ -5006,7 +5006,7 @@ test_pi_stream_counter_write_failures() {
     ack_stopped_cycle "$state" || fail "$mode admission acknowledgement failed"
     if [ "$mode" = truncation ]; then
       real_rm=$(command -v rm)
-      fm_fakebin_write "$fakebin/rm"  <<SH
+      cat > "$fakebin/rm" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   if [ "\$arg" = "$state/.stale-since-$key" ] && [ -e "$state/.wedge-permanent-$key" ]; then

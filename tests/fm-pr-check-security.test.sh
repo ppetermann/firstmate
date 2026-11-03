@@ -131,12 +131,12 @@ make_case() {
   git -C "$dir/wt" init -q
   git -C "$dir/wt" commit -q --allow-empty -m init
   git -C "$dir/wt" update-ref refs/remotes/origin/main "$(git -C "$dir/wt" rev-parse HEAD)"
-  fm_fakebin_write "$fake_root/bin/fm-guard.sh" <<'SH'
+  cat > "$fake_root/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'guard\n' >> "$FM_TEST_GUARD_LOG"
 SH
   chmod +x "$fake_root/bin/fm-guard.sh"
-  fm_fakebin_write "$fakebin/gh" <<'SH'
+  cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 printf 'host=%s\n' "${GH_HOST:-}" >> "$FM_TEST_GH_LOG"
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
@@ -203,7 +203,7 @@ case " $* " in
     ;;
 esac
 SH
-  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
+  cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
 case "${1:-} ${2:-}" in
@@ -216,7 +216,7 @@ exit "${FM_TEST_GH_AXI_RC:-0}"
 SH
   # Plain glab, reproducing the real CLI's contract: its field output on stdout
   # and exit 0 on success, and a non-zero exit with no stdout on any failure.
-  fm_fakebin_write "$fakebin/glab" <<'SH'
+  cat > "$fakebin/glab" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GLAB_LOG"
 [ "${FM_TEST_GLAB_FAIL:-0}" = 0 ] || exit 1
@@ -228,7 +228,7 @@ SH
   # Its defaults are the real server's readings for an OPEN change, and the
   # submit fields are settable independently of the status so a case can build
   # the reading a merged change and a merely submittable change share.
-  fm_fakebin_write "$fakebin/gerrit-axi" <<'SH'
+  cat > "$fakebin/gerrit-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GERRIT_AXI_LOG"
 [ "${FM_TEST_GERRIT_FAIL:-0}" = 0 ] || exit 1
@@ -252,7 +252,7 @@ SH
   # result is the copy's own passed HEAD and custody is returned; a case
   # overrides the outcome, the pipeline head, the next action, or makes the read
   # fail.
-  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
+  cat > "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FM_TEST_NM_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_TEST_NM_LOG"
 [ "${1:-} ${2:-}" = "axi status" ] || exit 2
@@ -817,7 +817,7 @@ test_valid_recording_and_merge_derivation() {
   fm_pr_poll_artifacts_valid "$dir/home/state" Task_A.1 "$POLL" \
     || fail "safe lifecycle-compatible task ID did not publish an authenticated poll"
   rm -rf "$dir/wt"
-  fm_fakebin_write "$dir/fakebin/tmux" <<'SH'
+  cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -839,7 +839,7 @@ SH
       "project=$dir/project" \
       'kind=ship' \
       'mode=direct-PR'
-    fm_fakebin_write "$dir/fakebin/tmux" <<'SH'
+    cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -1170,7 +1170,7 @@ test_atomic_interruption_leaves_no_partial_artifact() {
   local dir rc
   dir=$(make_case interrupted-write)
   write_task_meta "$dir"
-  fm_fakebin_write "$dir/fakebin/cp" <<SH
+  cat > "$dir/fakebin/cp" <<SH
 #!/usr/bin/env bash
 '$REAL_CP' "\$@" || exit 1
 kill -TERM "\$PPID"
@@ -1203,7 +1203,7 @@ test_concurrent_watcher_sees_only_complete_publication() {
   while [ "$n" -le 3 ]; do
     dir=$(make_case "concurrent-$n")
     write_task_meta "$dir" "$id"
-    fm_fakebin_write "$dir/fakebin/cp" <<SH
+    cat > "$dir/fakebin/cp" <<SH
 #!/usr/bin/env bash
 '$REAL_CP' "\$@" || exit 1
 sleep 0.3
@@ -1362,7 +1362,7 @@ test_live_artifact_single_link_and_privacy_validation() {
 
 install_final_publication_fault() {
   local dir=$1
-  fm_fakebin_write "$dir/fakebin/mv" <<'SH'
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 "${FM_TEST_REAL_MV:?}" "$@" || exit $?
@@ -1378,7 +1378,7 @@ case "${FM_TEST_FINAL_ACTION:?}" in
   *) exit 2 ;;
 esac
 SH
-  fm_fakebin_write "$dir/fakebin/stat" <<'SH'
+  cat > "$dir/fakebin/stat" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "${FM_TEST_FINAL_PATH:-}" ] && [ -e "${FM_TEST_FAULT_GATE:-/nonexistent}" ]; then
@@ -1485,7 +1485,7 @@ test_custom_snapshot_cleanup_on_signal() {
     'printf "%s\n" "$$" > "$FM_TEST_CUSTOM_CHILD_PID"' 'while :; do sleep 1; done' \
     > "$state/custom.check.sh"
   chmod 0700 "$state/custom.check.sh"
-  fm_fakebin_write "$dir/fakebin/timeout" <<'SH'
+  cat > "$dir/fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
 shift
 "$@" &
@@ -1570,7 +1570,7 @@ SH
         || fail "could not register $backend returned-descendant $check check"
     done
     if [ "$backend" = installed-timeout ]; then
-      fm_fakebin_write "$fakebin/timeout" <<'SH'
+      cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
 shift
 exec "$@"
@@ -1622,7 +1622,7 @@ test_teardown_removes_poll_artifacts() {
   printf 'data\n' > "$dir/home/state/task-a.pr-poll"
   printf 'registration\n' > "$dir/home/state/task-a.pr-poll-registration"
   printf 'trust\n' > "$dir/home/state/task-a.check-trust"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -1653,7 +1653,7 @@ SH
   fm_pr_poll_retirement_publish "$dir/home/state" task-a "$POLL" merged \
     || fail "could not publish teardown receipt fixture"
   rm -f "$dir/home/state/task-a.check.sh"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -1683,7 +1683,7 @@ SH
     mkdir "$dir/home/state/task-a.$artifact"
     printf 'directory sentinel\n' > "$dir/home/state/task-a.$artifact/sentinel"
     printf 'counterpart sentinel\n' > "$dir/home/state/task-a.$counterpart"
-    fm_fakebin_write "$fakebin/tmux" <<'SH'
+    cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FM_FAKE_TMUX_LOG:?}"
 exit 0
@@ -2145,7 +2145,7 @@ test_forgejo_merge_watch() {
   dir=$(make_case forgejo-merge-watch)
   state="$dir/home/state"
   url=https://forgejo.example/o/r/pulls/7
-  fm_fakebin_write "$dir/fakebin/tea" <<'SH'
+  cat > "$dir/fakebin/tea" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_TEA_LOG"
 if [ "${1:-} ${2:-}" = "login list" ]; then
@@ -2231,7 +2231,7 @@ JSON
     || fail "the per-object fixture does not put a whole login on one line"
   printf '[{"name":"a","url":"https://git.example.com"},{"name":"b","url":"https://git.example.com:3000/x"}]\n' \
     > "$dir/tea-ambiguous.json"
-  fm_fakebin_write "$dir/fakebin/tea" <<'SH'
+  cat > "$dir/fakebin/tea" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-} ${2:-}" = "login list" ]; then
   cat "$FM_TEST_TEA_LOGINS"
@@ -2614,7 +2614,7 @@ test_self_merge_and_poll_publish_one_outcome() {
   write_task_meta "$dir" task-a
   run_check_entry "$dir" task-a "$url" >/dev/null 2>"$dir/seed.err" \
     || fail "merge-outcome-uncommitted: could not arm merge poll"
-  fm_fakebin_write "$dir/fakebin/mv" <<'SH'
+  cat >"$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 # Reject only the marker commit, not pid.tmp publication inside its lock.
 case "${!#}" in
@@ -3292,7 +3292,7 @@ test_authority_persists_before_control_unlock() {
   write_task_meta "$dir" task-a
   run_check_entry "$dir" task-a "$url" >/dev/null 2> "$dir/seed.err" \
     || fail "control lock: could not arm the merge poll"
-  fm_fakebin_write "$dir/fakebin/mv" <<'SH'
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 case " $* " in
   *"task-a.merge-authority "*)
@@ -3383,7 +3383,7 @@ SH
   chmod +x "$dir/replace-authority.sh"
   # The watcher is held inside this mv while the replacement re-arms, so that
   # work pauses the watcher's hang guard.
-  fm_fakebin_write "$dir/fakebin/mv" <<'SH'
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 "$FM_TEST_REAL_MV" "$@" || exit $?
 case " $* " in
@@ -3492,7 +3492,7 @@ test_device_renumbered_poll_stays_armed() {
   cp "$state/task-a.pr-poll-registration" "$original"
   shift_registration_device "$state" task-a
   add_stop_custom_check "$dir"
-  fm_fakebin_write "$dir/fakebin/mv" <<'SH'
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 case " $* " in
   *"task-a.pr-poll-registration "*)
@@ -3575,7 +3575,7 @@ test_device_rerecord_refuses_tampered_artifacts() {
       hardlinked-check) ln "$state/task-a.check.sh" "$dir/check.alias" ;;
       split-device) ;;
       foreign-device)
-        fm_fakebin_write "$dir/fakebin/stat" <<'SH'
+        cat > "$dir/fakebin/stat" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "$FM_TEST_FOREIGN_PATH" ]; then
@@ -3708,7 +3708,7 @@ test_device_rerecord_serializes_rerecord() {
   shift_registration_device "$state" task-a
   original=$(fm_pr_sha256 "$state/task-a.pr-poll-registration")
   add_stop_custom_check "$dir"
-  fm_fakebin_write "$dir/fakebin/mv" <<'SH'
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 case " $* " in
   *"task-a.pr-poll-registration "*)

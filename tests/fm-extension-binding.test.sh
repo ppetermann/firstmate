@@ -662,7 +662,7 @@ if section_enabled early-bind; then
 SHELL_ROOT="$TMP_ROOT/lifecycle shell root"
 mkdir -p "$SHELL_ROOT/bin"
 cp "$HOST" "$SHELL_ROOT/bin/fm-extension.mjs"
-fm_fakebin_write "$SHELL_ROOT/bin/fm-procevent.sh" <<'SH'
+cat > "$SHELL_ROOT/bin/fm-procevent.sh" <<'SH'
 [[ -n "$BASH_VERSION" ]] || exit 98
 if [[ "${*: -1}" = reject ]]; then
   printf 'fixture refused\n' >&2
@@ -1133,7 +1133,7 @@ host_error_case() {
       cp -R "$ROOT/bin" "$case_root/code/bin"
       mv "$case_root/code/bin/fm-extension-launch-barrier.mjs" "$case_root/code/bin/fm-extension-launch-barrier.original.mjs"
       printf '%s\n' 'await new Promise(resolve => setTimeout(resolve, 15000));' \
-        'await import("./fm-extension-launch-barrier.original.mjs");' | fm_fakebin_write "$case_root/code/bin/fm-extension-launch-barrier.mjs"
+        'await import("./fm-extension-launch-barrier.original.mjs");' > "$case_root/code/bin/fm-extension-launch-barrier.mjs"
       PROCEVENT="$case_root/code/bin/fm-procevent.sh"
       expected_code=timeout
       ;;
@@ -1251,7 +1251,7 @@ assert_contains "$(wake_payloads "$H_FLOW")" "procevent ext-flow flow-source 1" 
 assert_absent "${result%.result}.handled" "external evidence was silently treated as handled"
 COLLISION_ROOT="$TMP_ROOT/collision-root"
 mkdir -p "$COLLISION_ROOT/bin"
-fm_fakebin_write "$COLLISION_ROOT/bin/fm-procevent-ext-flow.sh" <<'SH'
+cat > "$COLLISION_ROOT/bin/fm-procevent-ext-flow.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'wrong-built-in-owner\n'
 exit 0
@@ -2270,7 +2270,7 @@ git -C "$REMOTE_ROOT" commit -qm 'remote extension fixture'
 cat > "$H_REMOTE_CONTROL/data/secondmates.md" <<EOF
 - ios - remote extension home (host: remote-mac; root: $REMOTE_ROOT; home: $H_REMOTE; scope: extension test; projects: none; added 2026-08-27)
 EOF
-fm_fakebin_write "$REMOTE_FAKEBIN/fake-ssh" <<'SH'
+cat > "$REMOTE_FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 count=$(cat "$FM_FAKE_SSH_COUNT" 2>/dev/null || echo 0)
 printf '%s\n' "$((count + 1))" > "$FM_FAKE_SSH_COUNT"

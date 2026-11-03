@@ -167,7 +167,7 @@ assert_logged_gh_merge() {
 add_gh_mocks() {
   local case_dir=$1 head=$2
   write_github_live_json "$case_dir" "$head"
-  fm_fakebin_write "$case_dir/fakebin/gh-axi" <<'SH'
+  cat > "$case_dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
 case "${1:-} ${2:-}" in
@@ -178,7 +178,7 @@ case "${1:-} ${2:-}" in
 esac
 exit 0
 SH
-  fm_fakebin_write "$case_dir/fakebin/gh" <<'SH'
+  cat > "$case_dir/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
@@ -318,7 +318,7 @@ add_gh_mock_outcome_read_fails() {
 # what happens when neither reader can establish the outcome. Args: case_dir
 add_gh_axi_mock_view_fails() {
   local case_dir=$1
-  fm_fakebin_write "$case_dir/fakebin/gh-axi" <<'SH'
+  cat > "$case_dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
 case "${1:-} ${2:-}" in
@@ -332,7 +332,7 @@ SH
 
 add_failing_poll_publish_mv() {
   local case_dir=$1
-  fm_fakebin_write "$case_dir/fakebin/mv" <<'SH'
+  cat > "$case_dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in
@@ -350,7 +350,7 @@ SH
 # modes, so no test has to leak environment into a shared runner.
 add_glab_mock() {
   local case_dir=$1
-  fm_fakebin_write "$case_dir/fakebin/glab" <<'SH'
+  cat > "$case_dir/fakebin/glab" <<'SH'
 #!/usr/bin/env bash
 printf 'GITLAB_HOST=%s %s\n' "${GITLAB_HOST-<unset>}" "$*" >> "$FM_TEST_GLAB_LOG"
 case_dir=$(dirname "$FM_TEST_GLAB_JSON")
@@ -432,7 +432,7 @@ write_mr_json() {
 # mock's own exit status.
 add_tea_mock() {
   local case_dir=$1
-  fm_fakebin_write "$case_dir/fakebin/tea" <<'SH'
+  cat > "$case_dir/fakebin/tea" <<'SH'
 #!/usr/bin/env bash
 set -u
 log_dir=$(dirname "$FM_TEST_TEA_LOG")
@@ -1344,7 +1344,7 @@ test_github_unmerged_fallback_cannot_replace_queue_aware_read() {
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" 8686868686868686868686868686868686868686
   add_gh_mock_outcome_read_fails "$case_dir"
-  fm_fakebin_write "$case_dir/fakebin/gh-axi" <<'SH'
+  cat > "$case_dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
 case "${1:-} ${2:-}" in
@@ -2878,7 +2878,7 @@ test_uncommitted_marker_retry_is_never_silent() {
   case_dir=$(make_home_case uncommitted-wake-retry)
   add_gh_mocks "$case_dir" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   : >"$case_dir/gh-axi.log"
-  fm_fakebin_write "$case_dir/fakebin/mv" <<'SH'
+  cat >"$case_dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 case "${!#}" in
   *.pr-poll-merge-notified)

@@ -107,10 +107,8 @@ make_lab() {  # <name> [host-ref]
   git -C "$ROOT" ls-files -z -co --exclude-standard \
     | (cd "$ROOT" && tar --null -T - -cf -) | (cd "$fm" && tar -xf -)
   if [ -n "$ref" ]; then
-    local host_src
-    host_src=$(git -C "$ROOT" show "$ref:bin/fm-supervision-host.sh") \
+    git -C "$ROOT" show "$ref:bin/fm-supervision-host.sh" > "$fm/bin/fm-supervision-host.sh" \
       || fail "control: could not read bin/fm-supervision-host.sh at $ref"
-    printf '%s\n' "$host_src" | fm_fakebin_write "$fm/bin/fm-supervision-host.sh"
   fi
   git -C "$fm" init -q -b main
   git -C "$fm" add -A >/dev/null
@@ -126,10 +124,10 @@ make_lab() {  # <name> [host-ref]
   : > "$remote/state/parent-replies.status"
   # An unreachable tmux: the watcher reads no endpoint, so the only wakes are
   # the events this guard appends.
-  printf '#!/usr/bin/env bash\nexit 1\n' | fm_fakebin_write "$lab/bin/tmux"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$lab/bin/tmux"
   # The stand-in remote: only the reply listener's delta read reaches the local
   # remote home; every other remote operation reads as an unreachable host.
-  fm_fakebin_write "$lab/bin/ssh" <<SH
+  cat > "$lab/bin/ssh" <<SH
 #!/usr/bin/env bash
 while [ "\$#" -gt 0 ]; do
   case "\$1" in -o) shift 2 ;; --) shift; break ;; *) exit 255 ;; esac

@@ -12,8 +12,8 @@ new_home() {
   local home="$TMP_ROOT/$1"
   mkdir -p "$home/data" "$home/state" "$home/config" "$home/projects" "$home/fakebin"
   printf '# Backlog\n\n## Queued\n' > "$home/data/backlog.md"
-  fm_fakebin_write "$home/fakebin/tmux" < <(printf '#!/bin/sh\nexit 1\n')
-  fm_fakebin_write "$home/fakebin/no-mistakes" < <(printf '#!/bin/sh\nexit 0\n')
+  printf '#!/bin/sh\nexit 1\n' > "$home/fakebin/tmux"
+  printf '#!/bin/sh\nexit 0\n' > "$home/fakebin/no-mistakes"
   chmod +x "$home/fakebin/"*
   printf '%s\n' "$home"
 }
@@ -120,7 +120,7 @@ mask_budget() { sed -E 's/ with -?[0-9]+s of budget left: / with Ns of budget le
 forge_home() {
   local home=$1
   mkdir -p "$home/forge" "$home/root/bin" "$home/wt"
-  fm_fakebin_write "$home/root/bin/fm-guard.sh" < <(printf '#!/bin/sh\nexit 0\n')
+  printf '#!/bin/sh\nexit 0\n' > "$home/root/bin/fm-guard.sh"
   chmod +x "$home/root/bin/fm-guard.sh"
   printf 'worktree=%s/wt\nkind=ship\n' "$home" > "$home/state/delivery.meta"
   chmod 600 "$home/state/delivery.meta"
@@ -132,7 +132,7 @@ forge_home() {
   printf '[]\n' > "$home/forge/threads.json"
   printf '[]\n' > "$home/forge/labels.json"
   printf '[]\n' > "$home/forge/events.json"
-  fm_fakebin_write "$home/fakebin/gh" <<'SH'
+  cat > "$home/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 case "$*" in
@@ -837,7 +837,7 @@ test_read_only_views_create_no_state() {
 wrap_forge() { # home: log gh calls and apply per-call faults from $FORGE/fault
   local home=$1
   mv "$home/fakebin/gh" "$home/fakebin/gh-fixture"
-  fm_fakebin_write "$home/fakebin/gh" <<'SH'
+  cat > "$home/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 printf '%s\n' "$*" >> "$FORGE/calls"
@@ -890,7 +890,7 @@ esac
 exec "$(dirname "$0")/gh-fixture" "$@"
 SH
   # A controllable clock lets the budget expire between two forge calls.
-  fm_fakebin_write "$home/fakebin/date" <<'SH'
+  cat > "$home/fakebin/date" <<'SH'
 #!/bin/sh
 if [ "$*" = +%s ] && [ -f "$FORGE/clock" ]; then cat "$FORGE/clock"; else exec /bin/date "$@"; fi
 SH

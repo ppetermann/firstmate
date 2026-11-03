@@ -434,7 +434,7 @@ printf 'lavish\n' > "$HPRIVATE/state/procevent-inbox/private-src.1.adapter"
 chmod 0600 "$HPRIVATE/state/procevent-inbox/private-src.1.result" "$HPRIVATE/state/procevent-inbox/private-src.1.adapter"
 FAIL_CHMOD_BIN="$TMP_ROOT/fail-chmod-bin"
 mkdir -p "$FAIL_CHMOD_BIN"
-fm_fakebin_write "$FAIL_CHMOD_BIN/chmod" <<'SH'
+cat > "$FAIL_CHMOD_BIN/chmod" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -460,7 +460,7 @@ pass "handled acknowledgement creation is private and fails safely"
 # follow the adapter rather than any condition built into the runner.
 ADAPTER_ROOT="$TMP_ROOT/adapter-root"
 mkdir -p "$ADAPTER_ROOT/bin"
-fm_fakebin_write "$ADAPTER_ROOT/bin/fm-procevent-endnow.sh" <<'SH'
+cat > "$ADAPTER_ROOT/bin/fm-procevent-endnow.sh" <<'SH'
 #!/usr/bin/env bash
 # Fixture adapter: every captured result ends this source.
 case "${1-}" in
@@ -468,12 +468,12 @@ case "${1-}" in
 esac
 exit 2
 SH
-fm_fakebin_write "$ADAPTER_ROOT/bin/fm-procevent-openended.sh" <<'SH'
+cat > "$ADAPTER_ROOT/bin/fm-procevent-openended.sh" <<'SH'
 #!/usr/bin/env bash
 # Fixture adapter with no terminal knowledge at all: nothing ever ends it.
 exit 2
 SH
-fm_fakebin_write "$ADAPTER_ROOT/bin/fm-procevent-applying.sh" <<'SH'
+cat > "$ADAPTER_ROOT/bin/fm-procevent-applying.sh" <<'SH'
 #!/usr/bin/env bash
 case "${1-}" in
   autohandle)
@@ -483,7 +483,7 @@ case "${1-}" in
   *) exit 2 ;;
 esac
 SH
-fm_fakebin_write "$ADAPTER_ROOT/bin/fm-procevent-selfann.sh" <<'SH'
+cat > "$ADAPTER_ROOT/bin/fm-procevent-selfann.sh" <<'SH'
 #!/usr/bin/env bash
 # Fixture adapter that declares a durable downstream announcement of its own.
 # FM_HOME/state/selfann-fail makes its application fail so the fallback
@@ -635,7 +635,7 @@ fm_test_track_procevent_home "$HRETFAIL"
 FAIL_RM_BIN=$(fm_fakebin "$TMP_ROOT/retire-fail-bin")
 REAL_RM=$(command -v rm)
 export REAL_RM
-fm_fakebin_write "$FAIL_RM_BIN/rm" <<'SH'
+cat > "$FAIL_RM_BIN/rm" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in */retire-fail-src.source) exit 1 ;; esac
@@ -674,7 +674,7 @@ HLT="$TMP_ROOT/hlt"; new_home "$HLT"
 LAVISH_BIN=$(fm_fakebin "$TMP_ROOT/lavish-stub")
 LAVISH_POLL_COUNT="$TMP_ROOT/lavish-poll-count"
 export LAVISH_POLL_COUNT
-fm_fakebin_write "$LAVISH_BIN/lavish-axi" <<'SH'
+cat > "$LAVISH_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 # Stand-in for `lavish-axi poll <file>` around a human `Send & End`: the final
 # feedback is delivered exactly once carrying session_ended, and every later
@@ -723,7 +723,7 @@ pass "one Send & End yields exactly one captured result, automatic retirement, a
 # capture, the silence verdict, and retirement all run for real.
 HEMPTY="$TMP_ROOT/hempty"; new_home "$HEMPTY"
 EMPTY_BIN=$(fm_fakebin "$TMP_ROOT/lavish-empty-stub")
-fm_fakebin_write "$EMPTY_BIN/lavish-axi" <<'SH'
+cat > "$EMPTY_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 # Stand-in for `lavish-axi poll <file>` when the captain closes a board he said
 # nothing on: an ended session carrying no queued content at all.
@@ -774,7 +774,7 @@ MULTI_BIN=$(fm_fakebin "$TMP_ROOT/lavish-multi-stub")
 MULTI_ROOT="$TMP_ROOT/lavish-multi-root"
 mkdir -p "$MULTI_ROOT"
 export MULTI_ROOT
-fm_fakebin_write "$MULTI_BIN/lavish-axi" <<'SH'
+cat > "$MULTI_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 set -eu
 [ "${1-}" != --version ] || { printf '0.1.79\n'; exit 0; }
@@ -974,7 +974,7 @@ HORPHAN="$TMP_ROOT/horphan"; new_home "$HORPHAN"
 ORPHAN_BIN=$(fm_fakebin "$TMP_ROOT/lavish-orphan-stub")
 ORPHAN_TRIGGER="$TMP_ROOT/lavish-orphan-hold"
 export ORPHAN_TRIGGER
-fm_fakebin_write "$ORPHAN_BIN/lavish-axi" <<'SH'
+cat > "$ORPHAN_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 while [ ! -e "$ORPHAN_TRIGGER" ]; do sleep 0.02; done
 printf 'session:\n  status: feedback\nprompts[1]{uid,prompt,selector,tag,text}:\n  "","after the crash","","message",""\n'
@@ -1011,7 +1011,7 @@ pass "a capture interrupted before its result commit does not wedge its source"
 # a round that never reached it.
 HADOPT="$TMP_ROOT/hadopt"; new_home "$HADOPT"
 ADOPT_BIN=$(fm_fakebin "$TMP_ROOT/lavish-adopt-stub")
-fm_fakebin_write "$ADOPT_BIN/lavish-axi" <<'SH'
+cat > "$ADOPT_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 printf 'session:\n  status: feedback\nprompts[1]{uid,prompt,selector,tag,text}:\n  "","for firstmate","","message",""\n'
 SH
@@ -1079,7 +1079,7 @@ pass "a worker-owned board is only armed for an owner its feedback can reach"
 # a still-open round is left to the inbox's own re-ring ladder.
 HREDELIVER="$TMP_ROOT/hredeliver"; new_home "$HREDELIVER"
 RING_BIN=$(fm_fakebin "$TMP_ROOT/ring-tmux-stub")
-fm_fakebin_write "$RING_BIN/tmux" <<'SH'
+cat > "$RING_BIN/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -1159,7 +1159,7 @@ pass "an acknowledged note is never resurrected and stops ringing across repeate
 # reach past it and retire whatever board the artifact carries by then.
 HCONC="$TMP_ROOT/hconclude"; new_home "$HCONC"
 CONC_BIN=$(fm_fakebin "$TMP_ROOT/lavish-conclude-stub")
-fm_fakebin_write "$CONC_BIN/lavish-axi" <<'SH'
+cat > "$CONC_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 printf 'session:\n  status: ended\n  session_ended: true\n'
 SH
@@ -1212,7 +1212,7 @@ pass "acknowledging a terminal round concludes that round only"
 HINTR="$TMP_ROOT/hinterrupted"; new_home "$HINTR"
 INTR_ROOT="$TMP_ROOT/lavish-interrupted-root"; mkdir -p "$INTR_ROOT"; export INTR_ROOT
 INTR_BIN=$(fm_fakebin "$TMP_ROOT/lavish-interrupted-stub")
-fm_fakebin_write "$INTR_BIN/lavish-axi" <<'SH'
+cat > "$INTR_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 n=$(cat "$INTR_ROOT/count" 2>/dev/null || echo 0)
 printf '%s\n' "$((n + 1))" > "$INTR_ROOT/count"
@@ -1256,7 +1256,7 @@ pass "an interrupted conclude leaves the ended board unpollable and finishes on 
 HROLL="$TMP_ROOT/hrollback"; new_home "$HROLL"
 ROLL_ROOT="$TMP_ROOT/lavish-rollback-root"; mkdir -p "$ROLL_ROOT"; export ROLL_ROOT
 ROLL_BIN=$(fm_fakebin "$TMP_ROOT/lavish-rollback-stub")
-fm_fakebin_write "$ROLL_BIN/lavish-axi" <<'SH'
+cat > "$ROLL_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 set -eu
 [ "${1-}" != --version ] || { printf '0.1.79\n'; exit 0; }
@@ -1314,7 +1314,7 @@ pass "a re-arm that cannot acknowledge its round leaves the running generation a
 HREARM="$TMP_ROOT/hrearm"; new_home "$HREARM"
 REARM_ROOT="$TMP_ROOT/lavish-rearm-root"; mkdir -p "$REARM_ROOT"; export REARM_ROOT
 REARM_BIN=$(fm_fakebin "$TMP_ROOT/lavish-rearm-stub")
-fm_fakebin_write "$REARM_BIN/lavish-axi" <<'SH'
+cat > "$REARM_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 set -eu
 [ "${1-}" != --version ] || { printf '0.1.79\n'; exit 0; }
@@ -1375,7 +1375,7 @@ pass "a worker-owned board is armed once and re-armed only to acknowledge an ope
 # adapter, one different response shape.
 HANSWER="$TMP_ROOT/hanswer"; new_home "$HANSWER"
 ANSWER_BIN=$(fm_fakebin "$TMP_ROOT/lavish-answer-stub")
-fm_fakebin_write "$ANSWER_BIN/lavish-axi" <<'SH'
+cat > "$ANSWER_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 # Stand-in for `lavish-axi poll <file>` on a real `Send & End`: the captain's
 # own choice, delivered with session_ended.
@@ -1408,7 +1408,7 @@ pass "a board close carrying the captain's real answer is still announced"
 # adapter's own arm command and the real runner, so registration, capture, and
 # publication are exercised for real.
 LAVISH_SCRIPTED_BIN=$(fm_fakebin "$TMP_ROOT/lavish-scripted-stub")
-fm_fakebin_write "$LAVISH_SCRIPTED_BIN/lavish-axi" <<'SH'
+cat > "$LAVISH_SCRIPTED_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 # Stand-in for `lavish-axi poll <file>`, scripted per scenario: LAVISH_SCRIPT
 # names the response for each successive poll, one word per poll, and its last
@@ -2629,7 +2629,7 @@ pe "$HL" reconcile >/dev/null
 wait_for "$FM_PROCEVENT_CLAIM_ROOT/identity-src.claim" || fail "identity fixture runner did not claim its source"
 identity_pid=$(sed -n '2p' "$FM_PROCEVENT_CLAIM_ROOT/identity-src.claim")
 IDENTITY_FAKEBIN=$(fm_fakebin "$TMP_ROOT/identity-tools")
-fm_fakebin_write "$IDENTITY_FAKEBIN/ps" <<'SH'
+cat > "$IDENTITY_FAKEBIN/ps" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -2842,7 +2842,7 @@ SH
   FM_PROC_ROOT_OVERRIDE="$TMP_ROOT/no-post-term-proc" pe "$HPOST_TERM" list >/dev/null \
     || fail "the post-TERM fixture never finished its source launch"
   kill -STOP "$POST_TERM_RUNNER" || fail "the post-TERM fixture could not keep its leader alive"
-  fm_fakebin_write "$POST_TERM_BIN/ps" <<SH
+  cat > "$POST_TERM_BIN/ps" <<SH
 #!/usr/bin/env bash
 if [ "\${1-}" = -p ] && [ "\${2-}" = "$POST_TERM_RUNNER" ] \
   && [ "\${3-}" = -o ] && [ "\${4-}" = lstart= ]; then
@@ -2973,7 +2973,7 @@ HOST_ART="$TMP_ROOT/board, '评审'.html"
 printf '<h1>session routing</h1>\n' > "$HOST_ART"
 HOST_SEEN="$TMP_ROOT/session-route-seen"
 HOST_BIN=$(fm_fakebin "$TMP_ROOT/session-route-bin")
-fm_fakebin_write "$HOST_BIN/lavish-axi" <<'SH'
+cat > "$HOST_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 [ "${1-}" = poll ] || exit 2
 printf '%s:%s\n' "${LAVISH_AXI_HOST-unset}" "${LAVISH_AXI_PORT-unset}" >> "$HOST_SEEN"
@@ -3779,7 +3779,7 @@ CLOCK_TRIGGER="$TMP_ROOT/lease-clock.trigger"
 CLOCK_STATE="$TMP_ROOT/lease-clock-state"
 CLOCK_BIN=$(fm_fakebin "$TMP_ROOT/lease-clock-bin")
 REAL_DATE=$(command -v date) || fail "the lease clock fixture requires date"
-fm_fakebin_write "$CLOCK_BIN/date" <<SH
+cat > "$CLOCK_BIN/date" <<SH
 #!/usr/bin/env bash
 if [ "\${1-}" = +%s ]; then
   while ! mkdir "$CLOCK_STATE.lock" 2>/dev/null; do sleep 0.01; done
@@ -3839,7 +3839,7 @@ REUSED_GROUP_MARKER="$TMP_ROOT/reused-runner-group.marker"
 REUSED_GROUP_TRIGGER="$TMP_ROOT/reused-runner-group.trigger"
 REUSED_GROUP_BIN=$(fm_fakebin "$TMP_ROOT/reused-runner-group-bin")
 REAL_PS=$(command -v ps) || fail "the reused-group fixture requires ps"
-fm_fakebin_write "$REUSED_GROUP_BIN/ps" <<SH
+cat > "$REUSED_GROUP_BIN/ps" <<SH
 #!/usr/bin/env bash
 if [ -e "$REUSED_GROUP_MARKER" ] && [ "\${1-}" = -p ] \
   && [ "\${3-}" = -o ] && [ "\${4-}" = lstart= ]; then
@@ -4074,7 +4074,7 @@ fm_test_track_procevent_home "$RETRY_HOME"
 RETRY_STATE="$TMP_ROOT/stop-retry-state"; mkdir -p "$RETRY_STATE"
 RETRY_BIN=$(fm_fakebin "$TMP_ROOT/stop-retry-bin")
 REAL_PS=$(command -v ps) || fail "this host has no ps to build the retry fixture on"
-fm_fakebin_write "$RETRY_BIN/ps" <<SH
+cat > "$RETRY_BIN/ps" <<SH
 #!/usr/bin/env bash
 if [ "\$1" = -o ] && [ "\$2" = "pgid=" ] && [ "\$3" = -p ] \\
   && [ -s "\$STOP_RETRY_STATE/target" ] \\
@@ -4347,7 +4347,7 @@ REAL_PERL=$(command -v perl) || fail "this host has no perl to observe the guard
 # the lease reference - that is the synchronization - and every later one is
 # recorded with the value it read and the interval it spanned, which is the
 # evidence the phase assertion below consumes.
-fm_fakebin_write "$BOUND_BIN/perl" <<SH
+cat > "$BOUND_BIN/perl" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do
   case \$arg in
@@ -4452,7 +4452,7 @@ pass "an orphaned runner is reaped within the lease plus ONE check interval"
 # argument is observed. Reading `10#` out of the script would prove nothing.
 INTERVAL_BIN=$(fm_fakebin "$TMP_ROOT/decimal-interval-bin")
 REAL_SLEEP=$(command -v sleep) || fail "this host has no sleep to observe guard intervals"
-fm_fakebin_write "$INTERVAL_BIN/sleep" <<SH
+cat > "$INTERVAL_BIN/sleep" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "\$INTERVAL_SLEEP_LOG"
 exec "$REAL_SLEEP" "\$@"
@@ -4501,7 +4501,7 @@ fm_test_track_procevent_home "$DEBOUNCE_HOME"
 DEBOUNCE_STATE="$TMP_ROOT/lease-debounce-state"; mkdir -p "$DEBOUNCE_STATE"
 DEBOUNCE_BIN=$(fm_fakebin "$TMP_ROOT/lease-debounce-bin")
 REAL_PERL=$(command -v perl) || fail "this host has no perl to build the debounce fixture on"
-fm_fakebin_write "$DEBOUNCE_BIN/perl" <<SH
+cat > "$DEBOUNCE_BIN/perl" <<SH
 #!/usr/bin/env bash
 if [ -s "\$LEASE_DEBOUNCE_STATE/armed" ] && [ ! -s "\$LEASE_DEBOUNCE_STATE/spent" ]; then
   for arg in "\$@"; do
@@ -4627,7 +4627,7 @@ kill -KILL -"$CRASH_PID" 2>/dev/null || true
 # that evidence does not appear within the confirm window.
 READY="$TMP_ROOT/ready-arm"
 mkdir -p "$READY/bin" "$READY/home/state"
-fm_fakebin_write "$READY/bin/lavish-axi" <<'SH'
+cat > "$READY/bin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 printf 'started\n' >> "${READY_MARK:?}"
 while [ ! -e "${READY_RELEASE:?}" ]; do sleep 0.02; done
@@ -4709,7 +4709,7 @@ pass "arm waits out a delayed listener start before reporting ready"
 arm_blocked_claim() {  # <dir> <confirm-seconds>
   local dir=$1 secs=$2 art id began rc elapsed
   mkdir -p "$dir/bin" "$dir/home/state"
-  fm_fakebin_write "$dir/bin/lavish-axi" <<'SH'
+  cat > "$dir/bin/lavish-axi" <<'SH'
 #!/bin/sh
 printf started >> "${READY_MARK:?}"
 SH
@@ -4799,7 +4799,7 @@ pass "re-arm over a live earlier listener reports it still serving the board"
 LEGACY="$TMP_ROOT/legacy-reply"
 mkdir -p "$LEGACY/bin" "$LEGACY/home/state"
 export LEGACY
-fm_fakebin_write "$LEGACY/bin/lavish-axi" <<'SH'
+cat > "$LEGACY/bin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 set -eu
 case "${1-}" in
@@ -4838,7 +4838,7 @@ pass "older compatible Lavish versions retain the poll-with-reply behavior"
 REPLY_FAIL="$TMP_ROOT/reply-fail"
 mkdir -p "$REPLY_FAIL/bin" "$REPLY_FAIL/home/state"
 export REPLY_FAIL
-fm_fakebin_write "$REPLY_FAIL/bin/lavish-axi" <<'SH'
+cat > "$REPLY_FAIL/bin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 set -eu
 case "${1-}" in
@@ -4868,7 +4868,7 @@ assert_contains "$reply_fail_out" 'Lavish did not accept the staged reply' \
 [ ! -e "$REPLY_FAIL/polled" ] || fail "arm started a listener after Lavish refused its reply"
 pass "a refused synchronous reply fails arm before source registration"
 
-fm_fakebin_write "$REPLY_FAIL/bin/lavish-axi" <<'SH'
+cat > "$REPLY_FAIL/bin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 set -eu
 case "${1-}" in
@@ -4925,7 +4925,7 @@ pass "an arm refused for ownership, round, or endpoint never posts its reply"
 POLL_REPLY="$TMP_ROOT/poll-reply"
 mkdir -p "$POLL_REPLY/bin"
 export POLL_REPLY
-fm_fakebin_write "$POLL_REPLY/bin/lavish-axi" <<'SH'
+cat > "$POLL_REPLY/bin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 set -eu
 case "${1-}" in
@@ -4962,7 +4962,7 @@ pass "direct poll confirms a new-version reply before polling"
 UNKNOWN="$TMP_ROOT/unknown-version"
 mkdir -p "$UNKNOWN/bin" "$UNKNOWN/home/state"
 export UNKNOWN
-fm_fakebin_write "$UNKNOWN/bin/lavish-axi" <<'SH'
+cat > "$UNKNOWN/bin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1-}" in
   --version) exit 1 ;;
@@ -5006,7 +5006,7 @@ pass "an unknown Lavish version fails arm and poll closed, keeping the staged re
 DRAIN="$TMP_ROOT/draining-rearm"
 mkdir -p "$DRAIN/bin" "$DRAIN/home/state"
 export DRAIN
-fm_fakebin_write "$DRAIN/bin/lavish-axi" <<'SH'
+cat > "$DRAIN/bin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 set -eu
 case "${1-}" in

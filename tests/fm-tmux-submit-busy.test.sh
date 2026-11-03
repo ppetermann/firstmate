@@ -20,7 +20,7 @@ fm_pane_is_busy() {
 make_submit_mock() {
   local dir=$1 fakebin="$1/fakebin"
   mkdir -p "$fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 COMPOSER="${FM_FAKE_COMPOSER:?}"

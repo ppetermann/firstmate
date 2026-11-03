@@ -38,7 +38,7 @@ write_remote_registry_line() { # <file> <id> <host> <root> <home>
 
 install_fake_ssh() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/fake-ssh" <<'SH'
+  cat > "$fakebin/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 log=${FM_FAKE_SSH_LOG:?}
@@ -137,7 +137,7 @@ SH
 
 install_slow_git() {
   local fakebin=$1 real_git=$2 log=$3
-  fm_fakebin_write "$fakebin/git" <<SH
+  cat > "$fakebin/git" <<SH
 #!/usr/bin/env bash
 set -eu
 slow=0
@@ -197,7 +197,7 @@ test_remote_probe_scheduling_keeps_per_mate_lines() { # <parallel|fallback>
   install_fake_ssh "$fakebin"
   install_slow_git "$fakebin" "$REAL_GIT" "$log"
   if [ "$mode" = fallback ]; then
-    fm_fakebin_write "$fakebin/mktemp" <<SH
+    cat > "$fakebin/mktemp" <<SH
 #!/usr/bin/env bash
 case "\$*" in *fm-bootstrap-par.XXXXXX*) exit 1 ;; esac
 exec '$REAL_MKTEMP' "\$@"
@@ -411,7 +411,7 @@ EOF
 # answers within the test's budget.
 install_item_ssh() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/fake-ssh" <<'SH'
+  cat > "$fakebin/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 set -u
 log=${FM_FAKE_SSH_LOG:?}
@@ -765,7 +765,7 @@ test_kill_during_remote_call_keeps_the_reread_owed() {
     marker="$CF_HOME/state/.secondmate-nudge-pending/sm.pending"
     if [ "$script" = fm-bootstrap.sh ]; then
       started='fm-remote-secondmate-control.sh sync'
-      fm_fakebin_write "$CF_FAKEBIN/mktemp" <<SH
+      cat > "$CF_FAKEBIN/mktemp" <<SH
 #!/usr/bin/env bash
 case "\$*" in *fm-bootstrap-par.XXXXXX*) exit 1 ;; esac
 exec '$REAL_MKTEMP' "\$@"

@@ -43,7 +43,7 @@ printf '# Mentioned but never offered\n' > "$REMOTE/data/reply/prose-only.md"
 SOURCE_BEFORE="$TMP_ROOT/source-before"
 cp "$REMOTE/state/parent-replies.status" "$SOURCE_BEFORE"
 
-fm_fakebin_write "$FAKEBIN/fake-ssh" <<'SH'
+cat > "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -151,7 +151,7 @@ delta_cadence_case() {
   log="$dir/home/state/replies.status"
   : > "$log"
   empty_hash=$(sha256_file "$log")
-  fm_fakebin_write "$dir/bin/sleep" <<'SH'
+  cat > "$dir/bin/sleep" <<'SH'
 #!/bin/bash
 printf '%s\n' "$1" >> "$FM_DELTA_SLEEP_LOG"
 printf 'cadence-delivered\n' >> "$FM_DELTA_APPEND_LOG"
@@ -182,7 +182,7 @@ mkdir -p "$LEAK_HOME/data" "$LEAK_HOME/state" "$LEAK_TMPDIR"
 printf -- '- ios - iOS delivery (host: remote-mac; root: %s; home: %s; scope: iOS work; projects: alpha; added 2026-08-02)\n' \
   "$ROOT" "$REMOTE" > "$LEAK_HOME/data/secondmates.md"
 # A document fetch that hangs until signalled, recording its own pid.
-fm_fakebin_write "$FAKEBIN/fake-ssh-hang"  <<'SH'
+cat > "$FAKEBIN/fake-ssh-hang" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$$" > "$FM_LEAK_FETCH_STARTED"
 exec sleep 30
@@ -742,7 +742,7 @@ mkdir -p "$EXTRACT_FAIL_BIN"
 REAL_AWK=$(command -v awk)
 # The stand-in awk refuses only the extraction pass, so every other awk the
 # relay depends on keeps working.
-fm_fakebin_write "$EXTRACT_FAIL_BIN/awk" < <(
+{
   cat <<'SH'
 #!/usr/bin/env bash
 for argument in "$@"; do
@@ -750,7 +750,7 @@ for argument in "$@"; do
 done
 SH
   printf 'exec %q "$@"\n' "$REAL_AWK"
-)
+} > "$EXTRACT_FAIL_BIN/awk"
 chmod +x "$EXTRACT_FAIL_BIN/awk"
 PATH="$EXTRACT_FAIL_BIN:$PATH" remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" \
   >/dev/null 2>&1 || true
@@ -830,7 +830,7 @@ replay_commit_cursor_before=$(cat "$PARENT/state/remote-replies/ios.cursor")
 RECEIPT_FAIL_BIN="$TMP_ROOT/receipt-fail-bin"
 mkdir -p "$RECEIPT_FAIL_BIN"
 REAL_MKTEMP=$(command -v mktemp)
-fm_fakebin_write "$RECEIPT_FAIL_BIN/mktemp" < <(
+{
   cat <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
@@ -838,7 +838,7 @@ case "${1:-}" in
 esac
 SH
   printf 'exec %q "$@"\n' "$REAL_MKTEMP"
-)
+} > "$RECEIPT_FAIL_BIN/mktemp"
 chmod +x "$RECEIPT_FAIL_BIN/mktemp"
 PATH="$RECEIPT_FAIL_BIN:$PATH" remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" \
   >/dev/null 2>&1 || true
@@ -1431,7 +1431,7 @@ case "${1:-}" in
 esac
 SH
   printf 'exec %q "$@"\n' "$REAL_MKTEMP"
-} | fm_fakebin_write "$RETIRE_COUNT_FAIL_BIN/mktemp"
+} > "$RETIRE_COUNT_FAIL_BIN/mktemp"
 chmod +x "$RETIRE_COUNT_FAIL_BIN/mktemp"
 set +e
 PATH="$RETIRE_COUNT_FAIL_BIN:$PATH" remote_env "$ADAPTER" retire ios \

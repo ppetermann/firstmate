@@ -276,7 +276,7 @@ test_fm_lock_recognizes_grok_holder() {
   fakebin=$(fm_fakebin "$TMP_ROOT/lock-fake")
   mkdir -p "$home/state"
   printf '%s\n' "$$" > "$home/state/.lock"
-  fm_fakebin_write "$fakebin/ps" <<'SH'
+  cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *"comm="*) printf '%s\n' '/usr/local/bin/grok'; exit 0 ;;

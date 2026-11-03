@@ -98,7 +98,7 @@ write_arm_fixture() {
   # state/successor-ran so attempt counts stay about the foreground; it confirms
   # a started watcher and exits, parks while state/successor-park exists, or
   # fails while state/successor-fail exists.
-  fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
+  cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FM_WATCH_PREDECESSOR_ARM_PID:-}" ]; then
   printf 'arm=%s predecessor=%s\n' "$$" "$FM_WATCH_PREDECESSOR_ARM_PID" >> "$FM_HOME/state/successor-ran"
@@ -114,7 +114,7 @@ echo "$$" >> "$FM_HOME/state/arm-ran"
 SH
   case "$kind" in
     actionable)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
 touch "$FM_HOME/state/.last-watcher-beat"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -123,25 +123,25 @@ exit 0
 SH
       ;;
     failed)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 printf 'watcher: FAILED - no live watcher with a fresh beacon\n'
 exit 1
 SH
       ;;
     clean)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 printf 'watcher: attached pid=%s (beacon 2s)\n' "$$"
 exit 0
 SH
       ;;
     benign-live)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 printf 'watcher: FAILED - cycle ended without an actionable reason\n'
 exit 1
 SH
       ;;
     actionable-many)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
 touch "$FM_HOME/state/.last-watcher-beat"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -150,7 +150,7 @@ exit 0
 SH
       ;;
     reset-boundary)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 : > "$FM_HOME/state/arm-waiting"
 while [ ! -e "$FM_HOME/state/arm-release" ]; do sleep 0.02; done
 printf 'watcher: FAILED - cycle ended without an actionable reason\n'
@@ -158,7 +158,7 @@ exit 1
 SH
       ;;
     slow-actionable)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 sleep 2
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
 touch "$FM_HOME/state/.last-watcher-beat"
@@ -168,7 +168,7 @@ exit 0
 SH
       ;;
     blocking-actionable)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 sleep 6
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
 touch "$FM_HOME/state/.last-watcher-beat"
@@ -178,7 +178,7 @@ exit 0
 SH
       ;;
     supersede-then-fail)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 printf 'epoch=999 owner_pid=1 outcome=arming updated_at=%s\nfixture-superseder-identity\n' "$(date +%s)" \
   > "$FM_HOME/state/.claude-autoarm-epoch"
 printf 'watcher: FAILED - no live watcher with a fresh beacon\n'
@@ -186,7 +186,7 @@ exit 1
 SH
       ;;
     meta-vanishes)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 rm -f "$FM_HOME/state/task.meta"
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
 touch "$FM_HOME/state/.last-watcher-beat"
@@ -196,7 +196,7 @@ exit 0
 SH
       ;;
     afk-appears)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 : > "$FM_HOME/state/.afk"
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
 touch "$FM_HOME/state/.last-watcher-beat"
@@ -209,7 +209,7 @@ SH
       # Models the real arm: it forks the watcher as its own tracked child,
       # publishes the watch lock and beacon, and returns the wake reason while
       # that watcher keeps running.
-      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 bash -c 'printf "%s\n" "$$" > "$FM_HOME/state/watcher-pid"; exec sleep 120' &
@@ -222,14 +222,14 @@ exit 0
 SH
       ;;
     records-grace)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 printf '%s\n' "${FM_GUARD_GRACE:-unset}" > "$FM_HOME/state/arm-received-grace"
 printf 'watcher: attached pid=%s (beacon 2s)\n' "$$"
 exit 0
 SH
       ;;
     attached-delivered)
-      fm_fakebin_write --append "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 printf 'watcher: attached pid=%s (beacon 2s)\n' "$$"
 printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
 printf 'signal: task.status done: fixture peer cycle ended\n'
@@ -239,7 +239,7 @@ SH
     gated-actionable)
       # Cycle whose watcher closes only when the test releases it, so a second
       # session can fire its Stop while the cycle is still under way.
-      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 while [ ! -e "$FM_HOME/state/arm-release" ]; do sleep 0.02; done
@@ -978,7 +978,7 @@ test_abandoned_claim_reclaim_reaps_dead_steal_without_nesting() {
   lnbin="$dir/lnbin"
   lnlog="$dir/ln.log"
   mkdir -p "$lnbin"
-  fm_fakebin_write "$lnbin/ln" <<'SH'
+  cat > "$lnbin/ln" <<'SH'
 #!/usr/bin/env bash
 last=
 for arg do last=$arg; done
@@ -1801,7 +1801,7 @@ SH
         ;;
     esac
     printf 'exit 0\n'
-  } | fm_fakebin_write "$dir/bin/fm-supervision-host.sh"
+  } > "$dir/bin/fm-supervision-host.sh"
   chmod +x "$dir/bin/fm-supervision-host.sh"
 }
 

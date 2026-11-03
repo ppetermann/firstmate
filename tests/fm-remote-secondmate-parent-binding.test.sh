@@ -73,7 +73,7 @@ PUBLISH_ENTERED="$TMP_ROOT/publication-marker-entered"
 PUBLISH_RELEASE="$TMP_ROOT/publication-marker-release"
 PUBLISH_MANIFEST="$TMP_ROOT/publication.manifest"
 REAL_MV=$(command -v mv)
-fm_fakebin_write "$PUBLISH_FAKEBIN/mv" <<'SH'
+cat > "$PUBLISH_FAKEBIN/mv" <<'SH'
 #!/usr/bin/env bash
 destination=${!#}
 case "$destination" in
@@ -149,7 +149,7 @@ printf 'tmux\n' > "$PARENT/config/backend"
 printf 'FMX_PAIRING_TOKEN=repro-token\n' > "$PARENT/.env"
 
 # --- deterministic SSH boundary, identical shape to the lifecycle e2e suite --
-fm_fakebin_write "$FAKEBIN/fake-ssh" <<'SH'
+cat > "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 count=$(cat "$FM_FAKE_SSH_COUNT" 2>/dev/null || echo 0)
 printf '%s\n' "$((count + 1))" > "$FM_FAKE_SSH_COUNT"

@@ -19,14 +19,14 @@ make_case() {  # <name>
   git init -q "$TMP_ROOT/$dir/project"
   : > "$TMP_ROOT/$dir/worktree/sentinel"
   : > "$TMP_ROOT/$dir/runtime.log"
-  fm_fakebin_write "$TMP_ROOT/$dir/fakebin/tmux" <<'SH'
+  cat > "$TMP_ROOT/$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 printf 'tmux' >> "${FM_RUNTIME_LOG:?}"
 printf ' <%s>' "$@" >> "${FM_RUNTIME_LOG:?}"
 printf '\n' >> "${FM_RUNTIME_LOG:?}"
 exit 0
 SH
-  fm_fakebin_write "$TMP_ROOT/$dir/fakebin/treehouse" <<'SH'
+  cat > "$TMP_ROOT/$dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 printf 'treehouse' >> "${FM_RUNTIME_LOG:?}"
 printf ' <%s>' "$@" >> "${FM_RUNTIME_LOG:?}"
@@ -513,7 +513,7 @@ test_isolated_tmux_invalid_and_valid_cleanup() {
   ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d -s "$session" -n "$control" )
   ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-window -d -t "$session:" -n "$target" )
   printf '%s\n' "$socket_id" > "$dir/socket.identity"
-  fm_fakebin_write "$dir/fakebin/tmux" <<SH
+  cat > "$dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -eu
 [ -z "\${TMUX:-}" ] && [ -z "\${TMUX_PANE:-}" ] || exit 91
@@ -755,7 +755,7 @@ test_recorded_endpoint_that_changed_directory_still_tears_down() {
   mkdir -p "$dir/other-directory"
   # The exact recorded worker may legitimately cd outside its worktree. Its
   # endpoint identity still owns the lifecycle; cwd alone must not brick it.
-  fm_fakebin_write "$dir/fakebin/tmux" <<SH
+  cat > "$dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = display-message ]; then
   printf '%s\n' '$dir/other-directory'
@@ -1443,7 +1443,7 @@ test_teardown_completes_when_its_reader_stops_reading() {
 # may be on macOS.
 write_close_failing_tmux_shim() {  # <dir> <socket-name> <real-tmux>
   local dir=$1 socket=$2 real=$3
-  fm_fakebin_write "$dir/fakebin/tmux" <<SH
+  cat > "$dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
 printf 'tmux' >> "\${FM_RUNTIME_LOG:?}"

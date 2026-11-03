@@ -233,7 +233,7 @@ test_output_failure_does_not_commit_the_backstop_receipt() {
   mkdir -p "$fakebin"
 
   printf 'done: retry after the output consumer fails\n' > "$state/output-task.status"
-  fm_fakebin_write "$fakebin/cat" <<SH
+  cat > "$fakebin/cat" <<SH
 #!/usr/bin/env bash
 case "\${1:-}" in
   "$state"/.status-presentation.prepared.*) exit 1 ;;
@@ -265,7 +265,7 @@ test_receipt_commit_failure_repeats_the_already_presented_backstop() {
   mkdir -p "$fakebin"
 
   printf 'done: presentation precedes its durable receipt\n' > "$state/atomic-task.status"
-  fm_fakebin_write "$fakebin/mv" <<SH
+  cat > "$fakebin/mv" <<SH
 #!/usr/bin/env bash
 for arg in "\$@"; do last=\$arg; done
 if [ "\${last:-}" = "$state/.status-presentation-cursor" ]; then exit 1; fi

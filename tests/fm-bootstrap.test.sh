@@ -57,7 +57,7 @@ make_fake_toolchain() {
   fakebin=$(fm_fakebin "$dir")
   fm_fake_exit0 "$fakebin" tmux node chrome-devtools-axi
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.80
-  fm_fakebin_write "$fakebin/gh-axi" <<'SH'
+  cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' "${FM_FAKE_GH_AXI_VERSION:-0.1.29}"
@@ -66,7 +66,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh-axi"
-  fm_fakebin_write "$fakebin/gh" <<'SH'
+  cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
   exit 0
@@ -74,7 +74,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh"
-  fm_fakebin_write "$fakebin/treehouse" <<'SH'
+  cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' "${FM_FAKE_TREEHOUSE_VERSION:-treehouse version v0.4.2 (fake)}"
@@ -91,7 +91,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/treehouse"
-  fm_fakebin_write "$fakebin/no-mistakes" <<'SH'
+  cat > "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' "${FM_FAKE_NO_MISTAKES_VERSION:-no-mistakes version v1.46.0 (fake) 2026-06-27T00:02:18Z}"
@@ -107,7 +107,7 @@ SH
 
 add_quota_axi() {
   local fakebin=$1
-  fm_fakebin_write "$fakebin/quota-axi" <<'SH'
+  cat > "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then
   printf '%s\n' "${FM_FAKE_QUOTA_AXI_VERSION:-0.1.51}"
@@ -124,7 +124,7 @@ add_tasks_axi() {
   [ "$archive_body" = yes ] && archive_line='  --archive-body'
   mv_usage='usage: tasks-axi mv <id> [<id>...] --to <path-or-dir>'
   [ "$multi_id" = yes ] || mv_usage='usage: tasks-axi mv <id> --to <path-or-dir>'
-  fm_fakebin_write "$fakebin/tasks-axi" <<SH
+  cat > "$fakebin/tasks-axi" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = --version ]; then
   printf '%s\n' '$version'
@@ -148,7 +148,7 @@ SH
 add_real_jq() {
   local fakebin=$1 real_jq
   real_jq=$(command -v jq 2>/dev/null) || fail "jq is required for dispatch profile validation tests"
-  fm_fakebin_write "$fakebin/jq" <<SH
+  cat > "$fakebin/jq" <<SH
 #!/usr/bin/env bash
 if [ -n "\${FM_TEST_CHILD_ENV_LOG:-}" ]; then
   if [ -n "\${TYPESAFE_API_KEY+x}" ] || [ -n "\${TYPESAFE_API_KEY_PRIVATE+x}" ]; then
@@ -166,7 +166,7 @@ make_fake_fleet_sync_root() {
   local dir=$1 fake_root
   fake_root="$dir/fake-root"
   mkdir -p "$fake_root/bin"
-  fm_fakebin_write "$fake_root/bin/fm-fleet-sync.sh" <<'SH'
+  cat > "$fake_root/bin/fm-fleet-sync.sh" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FM_FAKE_FLEET_SYNC_STARTED_MARKER:-}" ] || : > "$FM_FAKE_FLEET_SYNC_STARTED_MARKER"
 printf '%s\n' 'alpha: synced'
@@ -968,7 +968,7 @@ make_routine_bootstrap_fixture() {
   } > "$root/.gitignore"
   printf '%s\n' 'instructions' > "$root/AGENTS.md"
   mkdir -p "$root/bin" "$root/.agents/skills"
-  fm_fakebin_write "$root/bin/fm-spawn.sh" < <(printf '%s\n' 'echo ok')
+  printf '%s\n' 'echo ok' > "$root/bin/fm-spawn.sh"
   printf '%s\n' 'skill' > "$root/.agents/skills/example.md"
   git -C "$root" add -A
   git -C "$root" commit -qm initial
@@ -983,7 +983,7 @@ make_routine_bootstrap_fixture() {
   } > "$home/state/sm.meta"
   fakebin=$(make_fake_toolchain "$case_dir")
   add_real_jq "$fakebin"
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   display-message)
@@ -1082,7 +1082,7 @@ test_network_phase_partitions_the_run() {
   # Break the two diagnostics that stand for the two halves: a local tool floor
   # and the network GitHub-auth probe.
   rm -f "$fakebin/node"
-  fm_fakebin_write "$fakebin/gh" <<'SH'
+  cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
@@ -1125,7 +1125,7 @@ test_network_sweeps_recheck_lock_ownership() {
   fake_root="$case_dir/root"
   marker="$case_dir/fleet-sync.started"
   mkdir -p "$fake_root/bin"
-  fm_fakebin_write "$fake_root/bin/fm-fleet-sync.sh" <<'SH'
+  cat > "$fake_root/bin/fm-fleet-sync.sh" <<'SH'
 #!/usr/bin/env bash
 : > "${FM_FAKE_FLEET_SYNC_STARTED_MARKER:?}"
 SH
@@ -1224,7 +1224,7 @@ test_tasks_axi_verdict_handoff_is_consumed_once() {
   # Every invocation is logged, so each case can assert exactly how many probes a
   # run paid for. The default build is below the floor and advertises multi-ID mv,
   # so the capability cases switch only the archive-body probe off.
-  fm_fakebin_write "$fakebin/tasks-axi" <<'SH'
+  cat > "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FM_FAKE_TASKS_AXI_LOG:?}"
 if [ "${1:-}" = --version ]; then
@@ -1539,7 +1539,7 @@ ROWS
   [ -z "$out" ] || fail "typed resolution should add verified Gemini crewmate routing, got: $out"
 
   rm -f "$case_dir/home/.env"
-  fm_fakebin_write "$fakebin/security"  <<'SH'
+  cat > "$fakebin/security" <<'SH'
 #!/usr/bin/env bash
 test_no_mistakes_min_version
 printf '%s\n' "$*" >> "${FM_TEST_SECURITY_LOG:?}"

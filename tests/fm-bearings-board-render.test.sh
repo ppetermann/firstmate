@@ -31,7 +31,7 @@ make_home() {  # <name>
   # stub reports the opened shape the real lavish-axi emits, and records that
   # session in this home's own store. The listener resolves its server from that
   # store; the machine-wide default has no session for this board.
-  fm_fakebin_write "$fakebin/lavish-axi" <<'SH'
+  cat > "$fakebin/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1-}" in
   --version) printf '0.1.80\n' ;;

@@ -345,7 +345,7 @@ test_park_boundary_rechecked_just_before_the_engine_turn() {
   real_node=$(command -v node)
   mkfifo "$home/render-release"
   echo 0 > "$home/park-clock"
-  fm_fakebin_write "$home/fakebin/node"  <<SH
+  cat > "$home/fakebin/node" <<SH
 #!/usr/bin/env bash
 if [ "\${2:-}" = wake-prompt ]; then
   cp "\$FM_HOME/state/.supervision-host" "\$FM_HOME/host-record-at-render" 2>/dev/null
@@ -602,8 +602,8 @@ test_tagged_lock_holder_reaches_the_engine_whole() {
   # rather than consulting the host table: a fleet test runner lives inside a
   # real harness process, and its POSIX ancestry would then satisfy the walk
   # and the Windows bridge would never be consulted.
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" MINGW64_NT-10.0-26200\n' | fm_fakebin_write "$home/fakebin/uname"
-  fm_fakebin_write "$home/fakebin/ps"  <<'SH'
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" MINGW64_NT-10.0-26200\n' > "$home/fakebin/uname"
+  cat > "$home/fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 [ "$*" = -W ] || exit 1
 printf '%s\n' '      PID    PPID    PGID     WINPID   TTY         UID    STIME COMMAND'

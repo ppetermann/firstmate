@@ -14,7 +14,7 @@ TMP_ROOT=$(fm_test_tmproot fm-fleet-ledger)
 make_fakebin() {  # <dir>
   local fakebin
   fakebin=$(fm_fakebin "$1")
-  fm_fakebin_write "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 window_file="$(dirname "$0")/.spawn-window"
 case "$*" in
@@ -155,7 +155,7 @@ test_flag_on_records_a_pr_registration() {
   local pr_url=https://github.com/acme/sample/pull/9 rows out
   make_case on-pr-ready on
   # An unreadable forge answer: no draft refusal and no recorded head.
-  printf '#!/usr/bin/env bash\nexit 1\n' | fm_fakebin_write "$FAKEBIN/gh"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKEBIN/gh"
   chmod +x "$FAKEBIN/gh"
   out=$(in_home "$ROOT/bin/fm-spawn.sh" "$TASK" "$PROJ_DIR" --mode direct-PR --yolo off 2>&1) \
     || fail "spawn failed: $out"
