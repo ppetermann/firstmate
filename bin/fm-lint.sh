@@ -41,10 +41,11 @@
 # check. The backend-purity check rejects direct Beads CLI invocations in the
 # core bin/ and bin/backends/ scripts so every configured backlog backend
 # follows the same tasks-axi lifecycle path. The fixture-write purity check
-# rejects a plain write redirect into a fixture tool directory anywhere in
-# tests/, so every fixture stub write goes through tests/fakebin-write.sh
-# instead of following a symlink onto a real host tool or repository script;
-# that file's header owns the contract and the incident behind it.
+# rejects a plain write redirect into a fixture tool directory in tests/ apart
+# from the upstream-owned suites its exempt list names, so every fleet fixture
+# stub write goes through tests/fakebin-write.sh instead of following a symlink
+# onto a real host tool or repository script; that file's header owns the
+# contract and the incident behind it.
 #
 # Lint defaults to two concurrency-limited workers over two stable logical
 # shards, and each worker runs ONE canonical root per ShellCheck process, so a
@@ -479,11 +480,28 @@ fm_lint_usage() {
 # fixture entry symlinked to a real tool - or into a fixture bin/ symlinked to
 # the live repository's own bin/ - silently replaces that real file. The
 # carrier's header owns the incident, the two symlink shapes, and what this
-# check does not reach; this check is what keeps every write in tests/ routed
-# through it. It reads the redirect target as written, so an indirect target or
-# an eval is outside it - deliberately, because no shell check can intercept a
-# redirect, and the carrier being the tree's only spelling is what makes such a
-# write read as an anomaly.
+# check does not reach; this check is what keeps every write in this fleet's own
+# tests/ files routed through it. Upstream-owned suites keep upstream's spelling
+# so a take-in never has to convert them: each one named in
+# tests/assets/fixture-write-upstream-exempt.txt is skipped, and every file not
+# named there - every fleet suite and helper, and any new file - stays checked.
+# A missing list exempts nothing. It reads the redirect target as written, so an
+# indirect target or an eval is outside it - deliberately, because no shell
+# check can intercept a redirect, and the carrier being the fleet's only
+# spelling is what makes such a write read as an anomaly.
+FIXTURE_WRITE_EXEMPT_LIST="tests/assets/fixture-write-upstream-exempt.txt"
+
+# fm_lint_fixture_write_exempt <repo-relative-path>: succeed when the exempt
+# list names that path exactly (comments and blank lines ignored).
+fm_lint_fixture_write_exempt() {
+  [ -f "$ROOT/$FIXTURE_WRITE_EXEMPT_LIST" ] || return 1
+  LC_ALL=C awk -v want="$1" '
+    /^[[:space:]]*(#|$)/ { next }
+    $0 == want { found = 1; exit }
+    END { exit !found }
+  ' "$ROOT/$FIXTURE_WRITE_EXEMPT_LIST"
+}
+
 fm_lint_run_fixture_write_purity() {
   local findings path canonical
   local -a fixture_roots
@@ -491,6 +509,7 @@ fm_lint_run_fixture_write_purity() {
   if [ "$EXPLICIT_PATHS" -eq 0 ]; then
     for path in tests/*.sh; do
       [ "$path" != tests/fakebin-write.sh ] || continue
+      ! fm_lint_fixture_write_exempt "$path" || continue
       [ -f "$path" ] && fixture_roots+=("$path")
     done
   else
@@ -504,7 +523,10 @@ fm_lint_run_fixture_write_purity() {
       ' "$path" 2>/dev/null) || continue
       [ "$canonical" != "$ROOT/tests/fakebin-write.sh" ] || continue
       case "$canonical" in
-        "$ROOT"/tests/*.sh) fixture_roots+=("$canonical") ;;
+        "$ROOT"/tests/*.sh)
+          ! fm_lint_fixture_write_exempt "${canonical#"$ROOT"/}" || continue
+          fixture_roots+=("$canonical")
+          ;;
       esac
     done
   fi

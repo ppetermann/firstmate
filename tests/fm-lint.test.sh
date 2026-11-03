@@ -1248,6 +1248,44 @@ test_fixture_write_purity_exempts_the_carrier_itself() {
   pass "fm-lint.sh exempts tests/fakebin-write.sh from its own fixture-write rule"
 }
 
+# Upstream-owned suites keep upstream's spelling: a path the exempt list names
+# is skipped in both the default and explicit-path modes, while an unlisted file
+# carrying the same bypass still fails, so the list scopes the rule rather than
+# switching it off.
+test_fixture_write_purity_skips_only_listed_upstream_suites() {
+  local tmp fakebin log out rc body spelling
+  tmp=$(fm_test_tmproot fm-lint-fixture-write-exempt)
+  fakebin=$(fm_fakebin "$tmp")
+  log="$tmp/shellcheck.log"
+  fm_lint_fixture_repo "$tmp"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+  body=$(awk -F'\t' '$1 == "reject" { print $2; exit }' "$FIXTURE_WRITE_CORPUS")
+  [ -n "$body" ] || fail "the fixture-write corpus carries no bypass case"
+  fm_lint_plant_case "$tmp/repo" "$body"
+  mkdir -p "$tmp/repo/tests/assets"
+  printf '%s\n' '# upstream-owned' '' tests/case.test.sh \
+    > "$tmp/repo/tests/assets/fixture-write-upstream-exempt.txt"
+
+  rc=0
+  out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" ./bin/fm-lint.sh 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "lint rejected a listed upstream suite: $out"
+  for spelling in tests/case.test.sh tests/../tests/case.test.sh; do
+    rc=0
+    out=$(cd "$tmp/repo" && PATH="$fakebin:$PATH" ./bin/fm-lint.sh "$spelling" 2>&1) || rc=$?
+    [ "$rc" -eq 0 ] || fail "lint rejected a listed upstream suite by explicit path $spelling: $out"
+  done
+
+  cp "$tmp/repo/tests/case.test.sh" "$tmp/repo/tests/fleet.test.sh"
+  rc=0
+  out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" ./bin/fm-lint.sh 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "lint accepted a bypass in a suite the exempt list does not name"
+  assert_contains "$out" 'tests/fleet.test.sh' "lint did not name the unlisted bypass site"
+  case $out in
+    *tests/case.test.sh:*) fail "lint reported the listed upstream suite: $out" ;;
+  esac
+  pass "fm-lint.sh skips only the upstream suites its exempt list names"
+}
+
 test_rejects_direct_beads_cli_invocations() {
   local tmp fakebin log lint_copy invocation out rc
   tmp=$(fm_test_tmproot fm-lint-backend-purity)
@@ -2150,6 +2188,7 @@ test_rejects_direct_beads_cli_in_explicit_core_path
 test_fixture_write_purity_judges_every_corpus_case
 test_fixture_write_purity_covers_an_explicit_tests_path
 test_fixture_write_purity_exempts_the_carrier_itself
+test_fixture_write_purity_skips_only_listed_upstream_suites
 test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
 test_jobs_are_deterministic_and_complete

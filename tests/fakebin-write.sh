@@ -22,8 +22,12 @@
 # "$root/bin"`) and symlinks individual real repository scripts into a fixture
 # bin/ in about a hundred more, so a plain redirect at `$root/bin/<script>` can
 # overwrite firstmate's own source. Every write into a fixture tool directory -
-# a fakebin sandbox or a fixture `bin/` - therefore goes through this carrier,
-# and bin/fm-lint.sh's fixture-write purity check is what keeps that true.
+# a fakebin sandbox or a fixture `bin/` - in this fleet's own test files and
+# shared helpers therefore goes through this carrier, and bin/fm-lint.sh's
+# fixture-write purity check is what keeps that true. Upstream-owned suites keep
+# upstream's plain redirects so a take-in never converts them; the lint skips
+# exactly the ones tests/assets/fixture-write-upstream-exempt.txt names, and
+# that list's header owns when a file belongs there.
 #
 # THE TWO SYMLINK SHAPES
 #
@@ -49,12 +53,13 @@
 # WHAT THE ENFORCEMENT DOES AND DOES NOT REACH
 #
 # bin/fm-lint.sh's fixture-write purity check reads the redirect target as it is
-# written, so it covers every site in this tree and every ordinary new one. A
+# written, so it covers every site in the files it scans and every ordinary new
+# one; the upstream-owned suites its exempt list names are outside it. A
 # redirect through an indirect target - `out=$fakebin/jq; cat > "$out"` - is
 # invisible to it, and so is an `eval`. Nothing in shell can intercept a
 # redirect, so that gap is real rather than something a better check would
 # close; what closes it in practice is that the carrier is the only spelling
-# the tree uses, so an indirect write reads as the anomaly it is.
+# the fleet's own files use, so an indirect write reads as the anomaly it is.
 #
 # The other half of the hazard, the symlink itself, is deliberately left alone.
 # About thirty fixtures symlink a real tool into a fakebin precisely to keep the

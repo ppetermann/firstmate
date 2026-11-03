@@ -1,0 +1,15 @@
+# Upstream-owned suites bin/fm-lint.sh's fixture-write purity check skips.
+#
+# Each line is one repository-relative path, matched exactly; `#` lines and
+# blank lines are ignored. A file belongs here only when upstream owns it (it
+# exists in upstream's tree and this fleet carries it in upstream's text, or in
+# upstream's text plus fleet hunks that write no fixture stub). Listing it keeps
+# upstream's plain-redirect spelling legal there, so a take-in returns the file
+# as upstream wrote it instead of converting it to fm_fakebin_write.
+#
+# Never list a fleet-owned suite, a fleet `-fleet` sibling, or a shared helper
+# (tests/lib.sh, tests/fixtures.sh, and the other sourced *-helpers.sh files):
+# fleet code keeps the carrier, and every path not named here stays checked.
+# When a take-in brings a new upstream suite whose plain redirect fails the
+# check, add its path here rather than converting it.
+# tests/fakebin-write.sh owns the hazard this check guards against.
