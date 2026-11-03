@@ -26,7 +26,7 @@
 # shared helpers therefore goes through this carrier, and bin/fm-lint.sh's
 # fixture-write purity check is what keeps that true. Upstream-owned suites keep
 # upstream's plain redirects so a take-in never converts them; the lint skips
-# exactly the ones tests/assets/fixture-write-upstream-exempt.txt names, and
+# exactly the ones tests/assets/fixture-write-upstream-exempt.list names, and
 # that list's header owns when a file belongs there.
 #
 # THE TWO SYMLINK SHAPES

@@ -1264,7 +1264,7 @@ test_fixture_write_purity_skips_only_listed_upstream_suites() {
   fm_lint_plant_case "$tmp/repo" "$body"
   mkdir -p "$tmp/repo/tests/assets"
   printf '%s\n' '# upstream-owned' '' tests/case.test.sh \
-    > "$tmp/repo/tests/assets/fixture-write-upstream-exempt.txt"
+    > "$tmp/repo/tests/assets/fixture-write-upstream-exempt.list"
 
   rc=0
   out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" ./bin/fm-lint.sh 2>&1) || rc=$?

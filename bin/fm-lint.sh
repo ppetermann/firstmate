@@ -483,13 +483,13 @@ fm_lint_usage() {
 # check does not reach; this check is what keeps every write in this fleet's own
 # tests/ files routed through it. Upstream-owned suites keep upstream's spelling
 # so a take-in never has to convert them: each one named in
-# tests/assets/fixture-write-upstream-exempt.txt is skipped, and every file not
+# tests/assets/fixture-write-upstream-exempt.list is skipped, and every file not
 # named there - every fleet suite and helper, and any new file - stays checked.
 # A missing list exempts nothing. It reads the redirect target as written, so an
 # indirect target or an eval is outside it - deliberately, because no shell
 # check can intercept a redirect, and the carrier being the fleet's only
 # spelling is what makes such a write read as an anomaly.
-FIXTURE_WRITE_EXEMPT_LIST="tests/assets/fixture-write-upstream-exempt.txt"
+FIXTURE_WRITE_EXEMPT_LIST="tests/assets/fixture-write-upstream-exempt.list"
 
 # fm_lint_fixture_write_exempt <repo-relative-path>: succeed when the exempt
 # list names that path exactly (comments and blank lines ignored).
