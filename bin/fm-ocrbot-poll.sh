@@ -3,8 +3,7 @@
 #
 # Inert by default: a HARD no-op (exit 0, no output) unless
 # config/ocr-bot/repos exists and lists at least one valid owner/repo entry.
-# The watcher invokes this trusted repository script directly only after
-# state/ocrbot-watch.check.sh matches the expected byte-static identity shim.
+# The process-event source `ocrbot-poll` (bin/fm-procevent-ocrbot.sh) runs it.
 # Its contract is "output => wake firstmate, silence => keep sleeping".
 #
 # Per cycle, per registered repo:
@@ -28,7 +27,7 @@
 #   - One stdout line "ocr-pr <owner/repo>#<number> <head_sha>" per reviewable
 #     PR: a PR never seen before, a new head SHA on a known PR, or a
 #     draft-to-ready transition. Draft PRs never wake.
-#     The watcher queues each line as its own wake, keyed per PR
+#     The poll adapter queues each line as its own wake, keyed per PR
 #     (ocrbot_wake_key), so several reviewable PRs in one cycle all survive
 #     the drain's dedupe.
 #   - Seen-state advances only AFTER the wake lines print, so a crash between
@@ -37,9 +36,9 @@
 #     line>" (state/ocrbot/poll.error marker, x-poll.error pattern); a fully
 #     successful cycle clears the marker.
 #
-# Cadence: the watcher runs this poll on its own interval, FM_OCRBOT_CHECK_INTERVAL
-# (default 60s, never slower than FM_CHECK_INTERVAL), apart from the shared
-# check sweep. Budget is one request per registered repo per cycle: a 304 is
+# Cadence: the poll adapter runs this poll on its own interval
+# (`fm-procevent-ocrbot.sh arm --interval`, default FM_OCRBOT_CHECK_INTERVAL,
+# else 60s), apart from the watcher's check sweep. Budget is one request per registered repo per cycle: a 304 is
 # free, so the rate-limit cost is one unconditional GET a minute for each repo
 # that has a changed listing or still tracks a draft - at most 60 an hour per
 # registered repo against the 5000-an-hour authenticated budget.

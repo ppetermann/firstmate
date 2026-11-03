@@ -35,8 +35,7 @@ fm_sup_stat_mtime() {
 #                         sweep's call at execution time, and a home whose check
 #                         no longer validates needs the watcher precisely so the
 #                         sweep can report the rejection instead of going quiet.
-#   FM_SUP_NEEDED         true/false - in-flight work, an X-mode relay poll, an
-#                         OCR review bot poll (state/ocrbot-watch.check.sh), a
+#   FM_SUP_NEEDED         true/false - in-flight work, an X-mode relay poll, a
 #                         registered event source (a source is a wait on an
 #                         external process, not a task, so it has no metadata),
 #                         or a registered custom check
@@ -75,7 +74,6 @@ fm_supervision_status() {
   done
   if [ "$FM_SUP_IN_FLIGHT" -gt 0 ] \
     || [ -f "$state/x-watch.check.sh" ] \
-    || [ -f "$state/ocrbot-watch.check.sh" ] \
     || [ "$FM_SUP_SOURCES" -gt 0 ] \
     || [ "$FM_SUP_CHECKS" -gt 0 ]; then
     FM_SUP_NEEDED=true

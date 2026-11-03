@@ -30,6 +30,7 @@ family_for_basename() {
     fm-ocrbot-token.test.sh) printf '%s\n' pr-forge ;;
     fm-pr-check-security-fleet.test.sh) printf '%s\n' pr-forge ;;
     fm-pr-verdict.test.sh) printf '%s\n' pr-forge ;;
+    fm-procevent-ocrbot.test.sh) printf '%s\n' pr-forge ;;
     fm-signal-wait-lib.test.sh) printf '%s\n' watcher-wake-lock ;;
     fm-teardown-fleet.test.sh) printf '%s\n' pr-forge ;;
     fm-task-inbox-fleet.test.sh) printf '%s\n' watcher-wake-lock ;;
@@ -72,6 +73,7 @@ tests/fm-pool-disk.test.sh 35059
 tests/fm-pr-check-lint.test.sh 436
 tests/fm-pr-health.test.sh 59277
 tests/fm-pr-verdict.test.sh 525
+tests/fm-procevent-ocrbot.test.sh 41000
 tests/fm-project-capacity.test.sh 75779
 tests/fm-project-mode.test.sh 549
 tests/fm-promote.test.sh 5036

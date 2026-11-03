@@ -20,6 +20,8 @@ The review core - file selection via `ocr delegate preview`, rule groups via `oc
 ## Wake handling
 
 On an `ocr-pr <owner/repo>#<n> <head_sha>` `check:` wake, run one reviewer round.
+The poll runs as the process-event source `ocrbot-poll` (`bin/fm-procevent-ocrbot.sh`), so its `ocr-pr` rows arrive with one `procevent ocrbot ocrbot-poll <n>` row that the adapter has already acknowledged; that row needs nothing beyond the ordinary drain acknowledgement.
+On a `process-event source failed to start` wake naming `procevent:ocrbot-poll`, report the bot as not polling and run `bin/fm-procevent-ocrbot.sh arm` to read its refusal.
 
 1. Deduplicate the round before any dispatch.
    Skip the wake when the App already has a completed `ocr-review` check run on that head SHA, read with the ambient auth: `gh api "repos/<owner>/<repo>/commits/<head_sha>/check-runs?check_name=ocr-review"`.

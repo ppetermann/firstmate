@@ -1200,32 +1200,35 @@ EOF
 }
 
 # OCR review bot (opt-in): when the home carries a config/ocr-bot directory,
-# wire the bot's PR poll into the existing authenticated watcher dispatch.
-# Drops one idempotent, gitignored artifact:
-#   state/ocrbot-watch.check.sh - byte-static identity shim; the watcher
-#                                 validates its bytes and dispatches trusted
-#                                 bin/fm-ocrbot-poll.sh directly
-# The watcher polls it on its own FM_OCRBOT_CHECK_INTERVAL (default 60s), so
-# arming or disarming takes effect within a minute with no watcher restart. On opt-out (directory removed) it
-# removes any such artifact and says so only when it actually removed
-# something. Absent the directory AND the shim it is a complete no-op. The
-# poll itself stays inert until config/ocr-bot/repos lists repositories, so
-# arming the shim never makes GitHub calls by itself.
+# arm the bot's PR poll as the process-event source `ocrbot-poll`
+# (bin/fm-procevent-ocrbot.sh owns the poll, its cadence, and its wake rows).
+# Arming is idempotent: a live runner adopts an unchanged registration. On
+# opt-out (directory removed) or missing tools it retires the source and says
+# so only when one was registered. A legacy state/ocrbot-watch.check.sh shim
+# from the earlier watcher dispatch is removed in every case. Absent the
+# directory, the source, and the shim it is a complete no-op. The poll stays
+# inert until config/ocr-bot/repos lists repositories.
 ocrbot_setup() {
-  local dir shim shim_home shim_body missing tool
+  local dir shim missing tool
   dir="$CONFIG/ocr-bot"
   shim="$STATE/ocrbot-watch.check.sh"
 
-  if [ ! -d "$dir" ] || [ -L "$dir" ]; then
-    # Opt-out (or never opted in): drop any bot artifact; stay silent unless
-    # something was actually removed.
-    if x_mode_artifact_present "$shim"; then
-      if x_mode_remove_artifact "$shim"; then
-        echo "OCRBOT: OCR review bot off - removed the poll shim; the watcher stops polling on its next bot cycle"
-      else
-        echo "OCRBOT: OCR review bot off - failed to remove the poll shim"
-      fi
+  if x_mode_artifact_present "$shim"; then
+    x_mode_remove_artifact "$shim" \
+      || echo "OCRBOT: failed to remove the legacy poll shim state/ocrbot-watch.check.sh"
+  fi
+
+  ocrbot_retire() {  # <reason>
+    [ -e "$STATE/procevent/ocrbot-poll.source" ] || return 0
+    if "$SCRIPT_DIR/fm-procevent-ocrbot.sh" retire >/dev/null 2>&1; then
+      echo "OCRBOT: OCR review bot off - $1; retired the ocrbot-poll source"
+    else
+      echo "OCRBOT: OCR review bot off - $1; failed to retire the ocrbot-poll source"
     fi
+  }
+
+  if [ ! -d "$dir" ] || [ -L "$dir" ]; then
+    ocrbot_retire "config/ocr-bot removed"
     return 0
   fi
 
@@ -1237,39 +1240,15 @@ ocrbot_setup() {
     fi
   done
   if [ "$missing" -ne 0 ]; then
-    if x_mode_artifact_present "$shim"; then
-      if x_mode_remove_artifact "$shim"; then
-        echo "OCRBOT: OCR review bot off - missing OCR review bot dependencies; install them and rerun bootstrap"
-      else
-        echo "OCRBOT: OCR review bot off - failed to remove the poll shim after missing OCR review bot dependencies"
-      fi
-    fi
+    ocrbot_retire "missing OCR review bot dependencies; install them and rerun bootstrap"
     return 0
   fi
 
-  ocrbot_arm_failed() {
-    if x_mode_remove_artifact "$shim"; then
-      echo "OCRBOT: OCR review bot off - failed to arm the poll shim"
-    else
-      echo "OCRBOT: OCR review bot off - failed to arm the poll shim; a stale shim remains"
-    fi
-  }
-
-  mkdir -p "$STATE" "$CONFIG" 2>/dev/null || { ocrbot_arm_failed; return 0; }
-
-  case "$FM_HOME" in
-    /*) shim_home=$FM_HOME ;;
-    *)
-      shim_home=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) \
-        || { ocrbot_arm_failed; return 0; }
-      ;;
-  esac
-  shim_body=$(ocrbot_poll_shim_content "$shim_home" "$FM_ROOT")
-  x_mode_write_if_changed "$shim" "$shim_body" 700 || { ocrbot_arm_failed; return 0; }
-  ocrbot_poll_shim_valid "$shim" "$shim_home" "$FM_ROOT" \
-    || { ocrbot_arm_failed; return 0; }
-
-  echo "OCRBOT: OCR review bot poll armed via state/ocrbot-watch.check.sh"
+  if "$SCRIPT_DIR/fm-procevent-ocrbot.sh" arm >/dev/null 2>&1; then
+    echo "OCRBOT: OCR review bot poll armed as process-event source ocrbot-poll"
+  else
+    echo "OCRBOT: OCR review bot off - failed to arm the ocrbot-poll source"
+  fi
 }
 
 crew_dispatch_validate() {
@@ -1867,7 +1846,7 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   fi
   # x_mode_setup writes local Relay artifacts only and never leaves the machine.
   local_phase && x_mode_setup
-  # ocrbot_setup writes the local OCR review bot poll shim the same way.
+  # ocrbot_setup arms the local OCR review bot poll source.
   local_phase && ocrbot_setup
   # Adopt existing durable contribution links without making a network call.
   # Detection-only startup must never publish a check registration.

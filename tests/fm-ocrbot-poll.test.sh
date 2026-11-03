@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Behavior tests for the OCR review bot poll (bin/fm-ocrbot-poll.sh) and
-# bootstrap's shim activation for config/ocr-bot, plus the flip helper
-# (bin/fm-pr-flip.sh) and the watcher's separate bot-poll cadence.
+# Behavior tests for the OCR review bot poll (bin/fm-ocrbot-poll.sh) and the
+# flip helper (bin/fm-pr-flip.sh). The poll's scheduling, its wake rows, and
+# bootstrap's arming live in tests/fm-procevent-ocrbot.test.sh.
 #
 # The network is stubbed with a fakebin `gh` that models the live-verified
 # `gh api -i` wire shapes: a 200 dump (status line, CRLF header block, CRLF
@@ -344,90 +344,6 @@ test_poll_unparseable_listing_reports_once() {
 
 # ---------------------------------------------------------------------------
 
-test_bootstrap_arms_ocrbot_shim() {
-  local home out sum1 sum2 n
-  home="$TMP_ROOT/boot-on"; make_home "$home"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
-  assert_contains "$out" "OCRBOT: OCR review bot poll armed via state/ocrbot-watch.check.sh" \
-    "bootstrap must announce the armed bot poll"
-  assert_present "$home/state/ocrbot-watch.check.sh" "bootstrap must drop the check shim"
-  [ -x "$home/state/ocrbot-watch.check.sh" ] || fail "the check shim must be executable"
-  [ "$(path_mode "$home/state/ocrbot-watch.check.sh")" = 700 ] \
-    || fail "the check shim must be a private file"
-  assert_grep "fm-ocrbot-poll.sh" "$home/state/ocrbot-watch.check.sh" \
-    "the shim must exec the trusted poll script"
-  assert_absent "$home/config/x-mode.env" "arming the bot must not add a cadence override"
-  sum1=$(cat "$home/state/ocrbot-watch.check.sh" | shasum)
-  FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
-  sum2=$(cat "$home/state/ocrbot-watch.check.sh" | shasum)
-  [ "$sum1" = "$sum2" ] || fail "bootstrap ocrbot setup must be idempotent"
-  n=$(find "$home/state" -maxdepth 1 -name 'ocrbot-watch*' | wc -l | tr -d ' ')
-  [ "$n" = "1" ] || fail "bootstrap must not duplicate the shim (found $n)"
-  pass "bootstrap arms the OCR review bot shim from config/ocr-bot, idempotently"
-}
-
-test_bootstrap_relative_home_writes_absolute_shim() {
-  local root home out quoted_home
-  root="$TMP_ROOT/boot-relative"
-  mkdir -p "$root/home" "$root/cdpath/home"
-  home=$(cd "$root/home" && pwd -P)
-  mkdir -p "$home/config/ocr-bot"
-  printf 'ppetermann/maia\n' > "$home/config/ocr-bot/repos"
-  out=$(
-    cd "$root" || exit 1
-    CDPATH="$root/cdpath" FM_HOME=home "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
-  )
-  assert_contains "$out" "OCRBOT: OCR review bot poll armed" \
-    "relative-home bootstrap must announce the bot poll"
-  quoted_home=$(printf '%q' "$home")
-  assert_grep "export FM_HOME=$quoted_home" "$home/state/ocrbot-watch.check.sh" \
-    "relative FM_HOME leaked into the durable bot poll shim"
-  pass "bootstrap ignores CDPATH when writing absolute FM_HOME into the bot shim"
-}
-
-test_bootstrap_inert_without_config() {
-  local home out
-  home="$TMP_ROOT/boot-off"; mkdir -p "$home"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
-  assert_not_contains "$out" "OCRBOT:" "no config must say nothing about the bot"
-  assert_absent "$home/state/ocrbot-watch.check.sh" "no config -> no shim"
-  pass "bootstrap is inert without config/ocr-bot"
-}
-
-test_bootstrap_opt_out_removes_shim() {
-  local home out
-  home="$TMP_ROOT/boot-optout"; make_home "$home"
-  FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
-  assert_present "$home/state/ocrbot-watch.check.sh" "opt-in must create the shim first"
-  rm -rf "$home/config/ocr-bot"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
-  assert_contains "$out" "OCRBOT: OCR review bot off" "opt-out must be announced when it removed the shim"
-  assert_absent "$home/state/ocrbot-watch.check.sh" "opt-out must remove the shim"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
-  assert_not_contains "$out" "OCRBOT:" "steady-state off must be silent"
-  pass "bootstrap removes the bot shim on opt-out and is silent once off"
-}
-
-test_bootstrap_rejects_linked_shim_destination() {
-  local home target out
-  home="$TMP_ROOT/boot-linked"
-  mkdir -p "$home/config/ocr-bot" "$home/ghfix/ppetermann__maia" "$home/state"
-  printf 'ppetermann/maia\n' > "$home/config/ocr-bot/repos"
-  target="$home/external-shim"
-  printf 'external sentinel\n' > "$target"
-  chmod 0640 "$target"
-  ln -s "$target" "$home/state/ocrbot-watch.check.sh"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
-  assert_contains "$out" "OCRBOT: OCR review bot off - failed to arm the poll shim" \
-    "bootstrap must reject a linked shim destination"
-  assert_not_contains "$out" "OCRBOT: OCR review bot poll armed" \
-    "bootstrap must not announce arming after rejecting the destination"
-  [ "$(cat "$target")" = "external sentinel" ] || fail "bootstrap changed the linked shim target"
-  [ "$(path_mode "$target")" = 640 ] || fail "bootstrap changed the linked shim target mode"
-  assert_absent "$home/state/ocrbot-watch.check.sh" "bootstrap must remove the rejected shim link"
-  pass "bootstrap rejects a linked bot shim without touching its target"
-}
-
 # ---------------------------------------------------------------------------
 
 run_flip() {
@@ -496,24 +412,6 @@ test_flip_burst_keeps_every_round() {
   pass "fm-pr-flip keeps one review wake per PR when several flips land in one turn"
 }
 
-test_flip_and_poll_for_one_head_collapse() {
-  local home fakebin out rc
-  home="$TMP_ROOT/flip-poll-collapse"; make_home "$home"; arm_shim "$home"
-  set_listing "$home" 7:aaa111:false 9:ddd444:false
-  fakebin=$(make_fake_gh "$home")
-  out=$(run_watch "$home" "$fakebin" 10 FM_CHECK_INTERVAL=999999); rc=$?
-  expect_code 0 "$rc" "collapse watcher exit"
-  assert_contains "$out" "ocr-pr ppetermann/maia#9 ddd444" "the poll must wake for the ready PR"
-  # A flip racing the poll for the same PR head queues the same per-PR key.
-  pr_json 9 ddd444 false > "$home/ghfix/ppetermann__maia/pr-9"
-  run_flip "$home" "$fakebin" https://github.com/ppetermann/maia/pull/9 >/dev/null 2>&1; rc=$?
-  expect_code 0 "$rc" "collapse flip exit"
-  [ "$(drained_wakes "$home")" = "$(printf 'check|check: %s: ocr-pr ppetermann/maia#7 aaa111\ncheck|check: %s: ocr-pr ppetermann/maia#9 ddd444' \
-    "$home/state/ocrbot-watch.check.sh" "$home/state/ocrbot-watch.check.sh")" ] \
-    || fail "the poll must keep one wake per PR and a flip of the same head must collapse into it (got: $(drained_wakes "$home"))"
-  pass "the poll queues one wake per PR and a flip of the same head collapses into it"
-}
-
 test_flip_unregistered_repo_only_flips() {
   local home fakebin out rc
   home="$TMP_ROOT/flip-other"; make_home "$home"
@@ -550,78 +448,6 @@ test_flip_failures_queue_nothing() {
   pass "fm-pr-flip queues nothing when the flip or its read-back fails"
 }
 
-# Arm the bot shim directly from the library, so a watcher run sees exactly the
-# bytes bootstrap would write without running bootstrap's other steps.
-arm_shim() {
-  local home=$1 shim=$1/state/ocrbot-watch.check.sh
-  mkdir -p "$home/state"
-  ( . "$ROOT/bin/fm-ocrbot-lib.sh" && ocrbot_poll_shim_content "$home" "$ROOT" ) > "$shim"
-  chmod 700 "$shim"
-}
-
-run_watch() {
-  local home=$1 fakebin=$2 seconds=$3; shift 3
-  env PATH="$fakebin:$PATH" FM_HOME="$home" OCR_GH_STATE="$home/ghfix" OCR_GH_LOG="$home/gh.log" \
-    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_HEARTBEAT=999999 "$@" \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds "$seconds" 2>/dev/null
-}
-
-test_watcher_polls_bot_on_its_own_interval() {
-  local home fakebin out rc
-  home="$TMP_ROOT/watch-own"; make_home "$home"; arm_shim "$home"
-  set_listing "$home" 7:aaa111:false
-  fakebin=$(make_fake_gh "$home")
-  # The shared sweep ran just now and is not due again for a long time.
-  touch "$home/state/.last-check"
-  out=$(run_watch "$home" "$fakebin" 10 FM_CHECK_INTERVAL=999999); rc=$?
-  expect_code 0 "$rc" "own-interval watcher exit"
-  assert_contains "$out" "ocr-pr ppetermann/maia#7 aaa111" \
-    "the bot poll must run on its own interval while the shared sweep is not due"
-  assert_present "$home/state/.last-ocrbot-check" "the bot poll must track its own cadence marker"
-  pass "the watcher polls the OCR bot apart from the shared check sweep"
-}
-
-test_watcher_shared_sweep_skips_bot() {
-  local home fakebin rc
-  home="$TMP_ROOT/watch-skip"; make_home "$home"; arm_shim "$home"
-  set_listing "$home" 7:aaa111:false
-  fakebin=$(make_fake_gh "$home")
-  # The shared sweep is due (no .last-check), the bot's own cadence is not.
-  touch "$home/state/.last-ocrbot-check"
-  run_watch "$home" "$fakebin" 4 FM_CHECK_INTERVAL=999999 FM_OCRBOT_CHECK_INTERVAL=999999 >/dev/null; rc=$?
-  expect_code 124 "$rc" "skip watcher exit"
-  assert_present "$home/state/.last-check" "the shared sweep must still have run"
-  assert_absent "$home/gh.log" "the shared sweep must not run the bot poll"
-  pass "the shared check sweep leaves the OCR bot poll to its own interval"
-}
-
-test_watcher_bot_interval_capped_by_check_interval() {
-  local home fakebin out rc
-  home="$TMP_ROOT/watch-cap"; make_home "$home"; arm_shim "$home"
-  set_listing "$home" 7:aaa111:false
-  fakebin=$(make_fake_gh "$home")
-  touch "$home/state/.last-ocrbot-check" "$home/state/.last-check"
-  out=$(run_watch "$home" "$fakebin" 10 FM_CHECK_INTERVAL=2 FM_OCRBOT_CHECK_INTERVAL=999999); rc=$?
-  expect_code 0 "$rc" "capped watcher exit"
-  assert_contains "$out" "ocr-pr ppetermann/maia#7 aaa111" \
-    "the bot poll must never be slower than the shared sweep"
-  pass "the OCR bot interval is capped at the shared check interval"
-}
-
-test_watcher_rejects_tampered_bot_shim() {
-  local home fakebin out rc
-  home="$TMP_ROOT/watch-tampered"; make_home "$home"; arm_shim "$home"
-  printf '# tampered\n' >> "$home/state/ocrbot-watch.check.sh"
-  set_listing "$home" 7:aaa111:false
-  fakebin=$(make_fake_gh "$home")
-  out=$(run_watch "$home" "$fakebin" 10 FM_CHECK_INTERVAL=999999); rc=$?
-  expect_code 0 "$rc" "tampered-shim watcher exit"
-  assert_contains "$out" "rejected unauthenticated state check" \
-    "a shim that fails validation must be reported by the shared sweep"
-  assert_absent "$home/gh.log" "a shim that fails validation must never run the poll"
-  pass "the watcher rejects a tampered OCR bot shim instead of polling"
-}
-
 # ---------------------------------------------------------------------------
 
 test_poll_no_config_is_hard_noop
@@ -635,17 +461,7 @@ test_poll_multiple_repos_and_prs
 test_poll_closed_pr_leaves_seen_state
 test_poll_gh_failure_reports_once_and_recovers
 test_poll_unparseable_listing_reports_once
-test_bootstrap_arms_ocrbot_shim
-test_bootstrap_relative_home_writes_absolute_shim
-test_bootstrap_inert_without_config
-test_bootstrap_opt_out_removes_shim
-test_bootstrap_rejects_linked_shim_destination
 test_flip_queues_round_and_records_seen
 test_flip_unregistered_repo_only_flips
 test_flip_failures_queue_nothing
 test_flip_burst_keeps_every_round
-test_watcher_polls_bot_on_its_own_interval
-test_watcher_shared_sweep_skips_bot
-test_watcher_bot_interval_capped_by_check_interval
-test_watcher_rejects_tampered_bot_shim
-test_flip_and_poll_for_one_head_collapse

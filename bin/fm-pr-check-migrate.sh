@@ -4,9 +4,11 @@
 # Pending validated merged-poll retirements finish first. Canonical polls are
 # then rebuilt from validated metadata, remaining provenance-bound polls and
 # registered custom checks remain armed, and every other task poll is
-# quarantined for private review. A current X-mode or OCR review bot shim is
-# preserved by exact content, while the recognized older byte-static shim is
-# refreshed in place.
+# quarantined for private review. A current X-mode shim is preserved by exact
+# content, while the recognized older byte-static shim is refreshed in place.
+# A leftover state/ocrbot-watch.check.sh from the OCR review bot's earlier
+# watcher dispatch is quarantined like any other unregistered check; the bot
+# now polls as the process-event source ocrbot-poll.
 # Usage: fm-pr-check-migrate.sh [--checks-safe]
 set -u
 
@@ -38,8 +40,6 @@ fi
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh
 . "$SCRIPT_DIR/fm-x-lib.sh"
-# shellcheck source=bin/fm-ocrbot-lib.sh
-. "$SCRIPT_DIR/fm-ocrbot-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
 . "$SCRIPT_DIR/fm-check-lib.sh"
 
@@ -85,10 +85,6 @@ current_checks_authenticated() {
     [ -e "$check" ] || [ -L "$check" ] || continue
     if [ "$(basename "$check")" = x-watch.check.sh ] \
       && fmx_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
-      continue
-    fi
-    if [ "$(basename "$check")" = ocrbot-watch.check.sh ] \
-      && ocrbot_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
       continue
     fi
     id=$(basename "$check" .check.sh)
@@ -396,10 +392,6 @@ migration_needed() {
       && fmx_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
       continue
     fi
-    if [ "$(basename "$check")" = ocrbot-watch.check.sh ] \
-      && ocrbot_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
-      continue
-    fi
     id=$(basename "$check" .check.sh)
     fm_custom_check_registered "$STATE" "$id" && continue
     if ! fm_pr_poll_artifacts_valid "$STATE" "$id" "$TEMPLATE"; then
@@ -415,10 +407,6 @@ unsafe_checks_absent() {
     [ -e "$check" ] || [ -L "$check" ] || continue
     if [ "$(basename "$check")" = x-watch.check.sh ] \
       && fmx_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
-      continue
-    fi
-    if [ "$(basename "$check")" = ocrbot-watch.check.sh ] \
-      && ocrbot_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
       continue
     fi
     id=$(basename "$check" .check.sh)
@@ -1051,10 +1039,6 @@ if migration_needed; then
     [ -e "$check" ] || [ -L "$check" ] || continue
     if [ "$(basename "$check")" = x-watch.check.sh ] \
       && fmx_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
-      continue
-    fi
-    if [ "$(basename "$check")" = ocrbot-watch.check.sh ] \
-      && ocrbot_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
       continue
     fi
     id=$(basename "$check" .check.sh)

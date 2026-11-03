@@ -94,10 +94,11 @@ case "${SHA:-}" in ''|*[!A-Za-z0-9]*) not_queued "cannot parse the PR's head SHA
 
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
-# Key and payload match what bin/fm-watch.sh queues for the poll's own output.
-SHIM="$STATE/ocrbot-watch.check.sh"
+# Key and payload match what bin/fm-procevent-ocrbot.sh queues for the poll's
+# own output.
+LABEL=$(ocrbot_wake_label "$STATE")
 LINE=$(ocrbot_wake_line "$REPO" "$NUMBER" "$SHA")
-fm_wake_append check "$(ocrbot_wake_key "$SHIM" "$LINE")" "check: $SHIM: $LINE" || not_queued "cannot queue the review wake"
+fm_wake_append check "$(ocrbot_wake_key "$LABEL" "$LINE")" "check: $LABEL: $LINE" || not_queued "cannot queue the review wake"
 ocrbot_seen_upsert "$STATE" "$REPO" "$NUMBER" "$SHA" 0 \
   || echo "fm-pr-flip.sh: review queued, but the seen-state was not recorded; the poll may wake for this head once more" >&2
 echo "review queued: $LINE"
