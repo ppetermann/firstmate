@@ -1578,7 +1578,7 @@ test_interrupted_arm_stops_a_watcher_that_ignores_sigterm() {
     ln -s "$f" "$bindir/$(basename "$f")"
   done
   rm -f "$bindir/fm-watch.sh"
-  cat > "$bindir/fm-watch.sh" <<'SH'
+  fm_fakebin_write "$bindir/fm-watch.sh" <<'SH'
 #!/usr/bin/env bash
 trap '' TERM
 while :; do sleep 0.05; done

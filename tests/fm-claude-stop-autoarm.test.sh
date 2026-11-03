@@ -209,7 +209,7 @@ SH
       # Models the real arm: it forks the watcher as its own tracked child,
       # publishes the watch lock and beacon, and returns the wake reason while
       # that watcher keeps running.
-      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+      fm_fakebin_write "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$$" >> "$FM_HOME/state/arm-ran"
 bash -c 'printf "%s\n" "$$" > "$FM_HOME/state/watcher-pid"; exec sleep 120' &

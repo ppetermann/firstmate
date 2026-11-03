@@ -1165,7 +1165,7 @@ fm_lint_fixture_repo() {  # <tmp>: a minimal repo the real lint can run in
   local tmp=$1
   mkdir -p "$tmp/repo/bin/backends" "$tmp/repo/tests"
   cp "$LINT" "$tmp/repo/bin/fm-lint.sh"
-  cat > "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
+  fm_fakebin_write "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH

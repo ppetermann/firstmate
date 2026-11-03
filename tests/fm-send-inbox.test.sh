@@ -47,10 +47,10 @@ TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 # composer visibly holding text; FM_FAKE_TMUX_SEND_FAIL=1 fails send-keys;
 # FM_FAKE_TMUX_SWALLOW_ENTER=1 accepts the typed line and then leaves it in the
 # composer, the shape of a harness that never processed our Enter.
-make_stubs() {  # <dir> -> echoes fakebin dir
+make_stubs() { # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
-  cat > "$fb/tmux" <<'SH'
+  cat >"$fb/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
@@ -88,7 +88,7 @@ esac
 exit 0
 SH
   chmod +x "$fb/tmux"
-  cat > "$fb/sleep" <<'SH'
+  cat >"$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
@@ -96,7 +96,7 @@ SH
   printf '%s\n' "$fb"
 }
 
-setup_case() {  # <name> [harness] -> echoes case dir with home/state + t1 meta
+setup_case() { # <name> [harness] -> echoes case dir with home/state + t1 meta
   local name=$1 harness=${2:-claude} dir
   dir="$TMP_ROOT/$name"
   mkdir -p "$dir/home/state"
@@ -105,7 +105,7 @@ setup_case() {  # <name> [harness] -> echoes case dir with home/state + t1 meta
   printf '%s\n' "$dir"
 }
 
-run_send() {  # <case-dir> <err-file> [env...] -- <fm-send args...>
+run_send() { # <case-dir> <err-file> [env...] -- <fm-send args...>
   local dir=$1 err=$2
   shift 2
   local envs=()
@@ -114,14 +114,14 @@ run_send() {  # <case-dir> <err-file> [env...] -- <fm-send args...>
     shift
   done
   shift
-  : > "$dir/send.log"
+  : >"$dir/send.log"
   env PATH="$dir/fakebin:$PATH" \
     FM_ROOT_OVERRIDE="$dir/home" FM_HOME="$dir/home" FM_SEND_LOG="$dir/send.log" \
     FM_SEND_SETTLE=0 ${envs[@]+"${envs[@]}"} \
     "$SEND" "$@" >/dev/null 2>"$err"
 }
 
-record_body() {  # <record>
+record_body() { # <record>
   bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$2"
 }
 
@@ -138,7 +138,7 @@ test_text_steer_rides_inbox() {
   assert_contains "$typed" "Firstmate instruction waiting: list \"\$FM_TASK_INBOX\"/*.msg in your 't1.inbox' steering inbox" \
     "the doorbell should direct the worker to drain the inbox"
   case "$typed" in
-    *"please rebase onto main"*) fail "the payload must never be typed:"$'\n'"$typed" ;;
+  *"please rebase onto main"*) fail "the payload must never be typed:"$'\n'"$typed" ;;
   esac
   pass "fm-send inbox: the payload is recorded durably and only the doorbell is typed"
 }
@@ -193,7 +193,7 @@ test_multiline_steer_is_legal() {
   [ "$body" = $'first line\nsecond line\nthird: with punctuation' ] \
     || fail "the multi-line body did not round-trip:"$'\n'"$body"
   case "$(cat "$dir/send.log")" in
-    *"second line"*) fail "a payload line leaked onto the typed channel" ;;
+  *"second line"*) fail "a payload line leaked onto the typed channel" ;;
   esac
   pass "fm-send inbox: newlines are legal and the terminal can no longer truncate a steer"
 }
@@ -211,7 +211,7 @@ test_resend_enqueues_new_sequence() {
   assert_contains "$typed" "numeric order" \
     "a newer record's doorbell should preserve inbox sequence ordering"
   case "$typed" in
-    *"check the CI result"*) fail "a re-send typed the payload" ;;
+  *"check the CI result"*) fail "a re-send typed the payload" ;;
   esac
   pass "fm-send inbox: a re-send is a new durable record, never a retyped payload"
 }
@@ -332,7 +332,7 @@ test_harness_invocations_stay_typed() {
   run_send "$dir" "$err" -- t1 '$5/month is cheap' || fail "a claude \$-text send should succeed"
   [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "a non-codex \$-message should ride the inbox"
   case "$(cat "$dir/send.log")" in
-    *'$5/month'*) fail "a non-codex \$-message payload was typed" ;;
+  *'$5/month'*) fail "a non-codex \$-message payload was typed" ;;
   esac
   pass "fm-send planes: slash and codex \$skill invocations stay typed; plain \$-text rides the inbox"
 }
@@ -364,8 +364,8 @@ test_secondmate_marker_and_enqueue_delivery() {
     || fail "a secondmate steer should succeed"
   body=$(record_body _ "$dir/home/state/domain.inbox/001.msg")
   case "$body" in
-    "$FM_FROMFIRST_MARK"corr=*) : ;;
-    *) fail "the recorded body lost the from-firstmate marker/corr framing:"$'\n'"$body" ;;
+  "$FM_FROMFIRST_MARK"corr=*) : ;;
+  *) fail "the recorded body lost the from-firstmate marker/corr framing:"$'\n'"$body" ;;
   esac
   corr=$(printf '%s' "$body" | grep -oE 'corr=[a-f0-9]{16}' | head -1 | cut -d= -f2)
   [ -n "$corr" ] || fail "no corr token in the recorded body"
@@ -374,7 +374,7 @@ test_secondmate_marker_and_enqueue_delivery() {
   delivered=$(grep '^delivered_epoch=' "$pr_rec" | cut -d= -f2)
   [ -n "$delivered" ] || fail "enqueue IS delivery: delivered_epoch should be set at enqueue time:"$'\n'"$(cat "$pr_rec")"
   case "$(cat "$dir/send.log")" in
-    *"summarize fleet health"*) fail "the marked payload was typed" ;;
+  *"summarize fleet health"*) fail "the marked payload was typed" ;;
   esac
   pass "fm-send inbox: a secondmate steer records marker+corr in the body and is delivered at enqueue"
 }
@@ -411,8 +411,8 @@ SH
     || fail "the delivered steer was duplicated:"$'\n'"$(ls "$dir/home/state/domain.inbox")"
   body=$(record_body _ "$rec")
   case "$body" in
-    "$FM_FROMFIRST_MARK"corr=*) : ;;
-    *) fail "bookkeeping failure test lost the secondmate marker: $body" ;;
+  "$FM_FROMFIRST_MARK"corr=*) : ;;
+  *) fail "bookkeeping failure test lost the secondmate marker: $body" ;;
   esac
   assert_contains "$(cat "$err")" "reply-tracking-degraded" \
     "lost bookkeeping should surface as its own distinct degraded condition"
