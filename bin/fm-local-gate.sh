@@ -15,9 +15,18 @@
 # Exit codes: 0 gate passed, 1 gate failed (stderr names the failing step),
 # 2 usage error (bad arguments, unresolvable worktree or state directory,
 # worktree without a resolvable HEAD in the crew form).
-# Repo detection (worktree root): Cargo.toml -> cargo path; package.json ->
-# npm path; both -> cargo path wins with a printed note; neither -> gate
-# failure at repo-detect listing the markers that were looked for.
+# Repo detection (worktree root), first match wins:
+#   1. Cargo.toml -> cargo path (also when package.json is present, with a
+#      printed note).
+#   2. package.json -> pnpm path when pnpm-lock.yaml exists, else npm path.
+#   3. A Makefile (Makefile, makefile, GNUmakefile) defining a check, lint,
+#      or test target -> make path.
+#   4. pyproject.toml -> python path.
+#   5. Every file is documentation -> docs-only: no ladder, an explicit
+#      pass that still records the pass marker.
+#   6. Anything else, including an empty worktree or a Makefile with none of
+#      those targets -> gate failure at repo-detect listing the markers that
+#      were looked for. The gate never passes a repo it failed to recognise.
 # cargo path: the fmt rung runs host-side first (cargo fmt --all --
 # --check; skipped with a note when rustfmt is absent - rustfmt only
 # parses, never compiles, so it never needs the container); then, when a
@@ -29,6 +38,41 @@
 # npm path: install, then run every script present among check, typecheck,
 # and test (in that order) via npm run; absent scripts are skipped with a
 # printed note, present ones must pass.
+# pnpm path: pnpm install --frozen-lockfile (with modules-purge confirmation
+# off, so a node_modules left in another layout is rebuilt instead of
+# prompting), then the same check, typecheck, test script rule via pnpm run.
+# npm is never run on a pnpm repo: its installer crashes on pnpm's
+# node_modules layout.
+# make path: a Makefile target is a line starting "<name>:" (not ":=").
+# When pyproject.toml is also present the repo is Python: a Makefile that
+# declares VENV ?= gets VENV=<gate venv> on every make call and one that
+# declares PYTHON ?= gets PYTHON=<gate interpreter> (both below), and its
+# install target, if defined, is the install rung (make install) under the
+# Python clean-context rule below. Without pyproject.toml no install target
+# is run, because there it may mean installing onto the host. Then make
+# check when a check target exists - the repo's own CI-equivalent ladder, as
+# the Python repos' Makefiles declare it - otherwise make lint and make
+# test, each when defined. The gate does not execute .github/workflows
+# itself: those files mix in publish, container, and forge-only steps, so
+# the repo's own ladder target is the CI-equivalent entry point.
+# python path (pyproject.toml without a Makefile ladder): with uv.lock, uv
+# sync --locked builds the gate venv exactly from the lockfile; otherwise
+# the gate interpreter's -m venv creates it and pip install -e ".[dev]"
+# fills it when a dev extra is declared, else pip install -e .; then ruff
+# check . when ruff is configured (a [tool.ruff] table, ruff.toml, or
+# .ruff.toml), then python -m pytest, both from the gate venv. A missing
+# tool fails its step by name.
+# Gate venv: fm-local-gate-venv inside the worktree's own git dir (per
+# worktree, never committed, outside the source tree, never the worker's own
+# .venv); .venv in the worktree when it is not a git repository.
+# Gate interpreter: the python-version values the repo's .github/workflows
+# name, newest first as python3.<minor>, then python3; the first on PATH
+# that can build a venv (imports ensurepip and venv) wins, and none fails
+# python-venv naming every candidate tried.
+# docs-only: every file git tracks or would track (untracked files not
+# ignored count) is documentation - Markdown, reStructuredText, AsciiDoc,
+# plain text, images, PDF, license and notice files, git and editor config,
+# or anything under .github/. At least one such file must exist.
 # Clean-context discipline: the gate never trusts the worktree's installed
 # dependency state, because a worker re-checking its own tree grades its own
 # homework. For npm that means npm ci (which deletes node_modules and
@@ -40,7 +84,18 @@
 # gate install. npm install substitutes when npm ci is unsupported or no
 # package-lock.json/npm-shrinkwrap.json exists. The lockfile hash marker
 # lives inside the worktree's own git dir (per worktree, never committed);
-# without one, every npm run is a full install. For cargo, the repo's own
+# without one, every npm run is a full install. pnpm install
+# --frozen-lockfile is its own clean context: it relinks node_modules to
+# exactly the lockfile and prunes anything extraneous, so it runs every
+# time. Python follows the npm rule with its own marker over the dependency
+# inputs present (pyproject.toml, uv.lock, poetry.lock, setup.py, setup.cfg,
+# the Makefile, requirements*.txt, *constraints*.txt): on a first run or a
+# changed hash the gate venv is removed and the install rung runs, while an
+# unchanged hash with the gate venv present skips it with a note. A Makefile
+# that does not declare VENV ?= installs where it chooses, so make install
+# then runs every time. uv sync --locked runs every time, since it already
+# makes the gate venv match the
+# lockfile exactly. For cargo, the repo's own
 # target dir plus cargo's content fingerprinting is the documented clean
 # context, so no clean is forced.
 set -u
@@ -123,15 +178,15 @@ file_hash() {  # <file> -> content hash on stdout
   fi
 }
 
-# Absolute path of the per-worktree lockfile hash marker inside the git dir,
-# or nothing when the worktree is not a git repository (every npm run is then
-# a full install).
-gate_lock_marker_path() {
+# Absolute path of a per-worktree install hash marker inside the git dir, or
+# nothing when the worktree is not a git repository (every install is then a
+# full one).
+gate_marker_path() {  # <marker-name>
   local d
   d=$(git rev-parse --git-dir 2>/dev/null) || return 0
   case "$d" in
-    /*) printf '%s/fm-local-gate-lockhash\n' "$d" ;;
-    *) printf '%s/%s/fm-local-gate-lockhash\n' "$PWD" "$d" ;;
+    /*) printf '%s/%s\n' "$d" "$1" ;;
+    *) printf '%s/%s/%s\n' "$PWD" "$d" "$1" ;;
   esac
 }
 
@@ -160,7 +215,7 @@ npm_script_state() {  # <script-name>
 gate_npm_install() {
   local current_hash marker_path marker_hash
   current_hash=$(file_hash "$LOCKFILE") || fail_step npm-install
-  marker_path=$(gate_lock_marker_path)
+  marker_path=$(gate_marker_path fm-local-gate-lockhash)
   marker_hash=
   [ -z "$marker_path" ] || marker_hash=$(cat "$marker_path" 2>/dev/null)
   if [ -d node_modules ] && [ -n "$marker_path" ] && [ -n "$marker_hash" ] \
@@ -184,6 +239,172 @@ gate_npm_install() {
   [ -z "$marker_path" ] || printf '%s\n' "$current_hash" > "$marker_path"
 }
 
+# Run every script present among check, typecheck, and test via <tool> run.
+run_package_scripts() {  # <npm|pnpm>
+  local tool=$1 script_name present
+  for script_name in check typecheck test; do
+    npm_script_state "$script_name"
+    present=$?
+    case $present in
+      0) run_step "$tool-$script_name" "$tool" run "$script_name" ;;
+      1) echo "note: no \"$script_name\" script in package.json - skipping" ;;
+      *) fail_step "$tool-scripts" ;;
+    esac
+  done
+}
+
+make_has_target() {  # <target>
+  grep -Eq "^$1[[:space:]]*:([^=]|\$)" "$MAKEFILE"
+}
+
+# Content hash over every Python dependency input present, in a fixed order.
+python_deps_hash() {
+  local f out=
+  for f in pyproject.toml uv.lock poetry.lock setup.py setup.cfg "$MAKEFILE" \
+    requirements*.txt *constraints*.txt; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    out="$out$f=$(file_hash "$f") "
+  done
+  printf '%s\n' "$out"
+}
+
+# Python clean-context install decision per the header: remove the gate venv
+# and run the install command on a first run or changed inputs, skip
+# otherwise.
+python_clean_install() {  # <command> [args...]
+  local current_hash marker_path marker_hash
+  current_hash=$(python_deps_hash)
+  marker_path=$(gate_marker_path fm-local-gate-pyhash)
+  marker_hash=
+  [ -z "$marker_path" ] || marker_hash=$(cat "$marker_path" 2>/dev/null)
+  if [ -d "$GATE_VENV" ] && [ -n "$marker_path" ] && [ -n "$marker_hash" ] \
+    && [ "$marker_hash" = "$current_hash" ]; then
+    echo "note: Python dependency inputs unchanged since the last gate install and the gate venv present - skipping the reinstall (trusts the previous gate install)"
+    return 0
+  fi
+  if [ ! -d "$GATE_VENV" ]; then
+    echo "note: no gate venv yet - full clean install into $GATE_VENV"
+  elif [ -z "$marker_path" ] || [ -z "$marker_hash" ]; then
+    echo "note: first gate run on this worktree - rebuilding the gate venv for a full clean install"
+  else
+    echo "note: Python dependency inputs changed since the last gate install - rebuilding the gate venv for a full clean install"
+  fi
+  rm -rf -- "$GATE_VENV"
+  "$@"
+  [ -z "$marker_path" ] || printf '%s\n' "$current_hash" > "$marker_path"
+}
+
+# Python minor versions the repo's workflows name, newest first.
+workflow_python_versions() {
+  [ -d .github/workflows ] || return 0
+  find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) \
+    -exec grep -h 'python-version' {} + 2>/dev/null \
+    | grep -oE '3\.[0-9]+' | sort -t. -k2,2nr -u
+}
+
+# Sets GATE_PYTHON to the first candidate that can build a venv, or fails.
+select_gate_python() {
+  local v candidate tried=
+  for candidate in $(workflow_python_versions | sed 's/^/python/') python3; do
+    case " $tried " in *" $candidate "*) continue ;; esac
+    tried="${tried:+$tried }$candidate"
+    command -v "$candidate" >/dev/null 2>&1 || continue
+    if "$candidate" -c 'import ensurepip, venv' >/dev/null 2>&1; then
+      GATE_PYTHON=$candidate
+      v=$("$candidate" --version 2>&1)
+      echo "note: gate interpreter: $candidate (${v:-unknown version})"
+      return 0
+    fi
+  done
+  echo "error: no Python interpreter on PATH can build a venv (tried: $tried)" >&2
+  fail_step python-venv
+}
+
+# 0 yes, 1 no, 2 pyproject.toml unreadable or not valid TOML. Parses with
+# tomllib (python3 3.11+); an older or absent python3 falls back to a line scan for a
+# [tool.ruff] table or a dev = entry under [project.optional-dependencies].
+pyproject_has() {  # dev-extra|ruff
+  local rc
+  python3 -c '
+import sys
+try:
+    import tomllib
+except ImportError:
+    sys.exit(3)
+try:
+    with open("pyproject.toml", "rb") as f:
+        data = tomllib.load(f)
+except Exception:
+    sys.exit(2)
+if sys.argv[1] == "dev-extra":
+    extras = (data.get("project") or {}).get("optional-dependencies") or {}
+    sys.exit(0 if "dev" in extras else 1)
+sys.exit(0 if "ruff" in (data.get("tool") or {}) else 1)
+' "$1" 2>/dev/null
+  rc=$?
+  case $rc in 0|1|2) return "$rc" ;; esac
+  [ -r pyproject.toml ] || return 2
+  if [ "$1" = dev-extra ]; then
+    awk '
+      /^[[:space:]]*\[/ { in_extras = ($0 ~ /^[[:space:]]*\[project\.optional-dependencies\][[:space:]]*$/); next }
+      in_extras && /^[[:space:]]*"?dev"?[[:space:]]*=/ { found = 1 }
+      END { exit found ? 0 : 1 }
+    ' pyproject.toml
+  else
+    grep -Eq '^[[:space:]]*\[tool\.ruff([].])' pyproject.toml
+  fi
+}
+
+python_pip_install() {
+  local extra=.
+  pyproject_has dev-extra
+  case $? in
+    0) extra='.[dev]' ;;
+    1) echo "note: no dev extra declared in pyproject.toml - installing the project alone" ;;
+    *) fail_step python-config ;;
+  esac
+  run_step python-venv "$GATE_PYTHON" -m venv "$GATE_VENV"
+  run_step python-install "$GATE_VENV/bin/python" -m pip install -e "$extra"
+}
+
+is_doc_file() {  # <repo-relative path>
+  local base=${1##*/} rc=1
+  case "$1" in .github/*) return 0 ;; esac
+  shopt -s nocasematch
+  case "$base" in
+    requirements*.txt|*constraints*.txt|cmakelists.txt) rc=1 ;;
+    *.md|*.markdown|*.mdx|*.rst|*.adoc|*.asciidoc|*.txt|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.webp|*.ico|*.pdf) rc=0 ;;
+    license|license.*|licence|licence.*|copying|copying.*|notice|notice.*|authors|authors.*|codeowners) rc=0 ;;
+    .gitignore|.gitattributes|.gitmodules|.mailmap|.editorconfig|.markdownlint*) rc=0 ;;
+  esac
+  shopt -u nocasematch
+  return $rc
+}
+
+# 0 when the tree holds at least one file and every file is documentation;
+# otherwise 1 with the first non-documentation file in NON_DOC_FILE.
+NON_DOC_FILE=
+docs_only_tree() {
+  local f seen=0 list
+  if git rev-parse --git-dir >/dev/null 2>&1; then
+    list=$(git ls-files --cached --others --exclude-standard) || return 1
+  else
+    list=$(find . -path ./.git -prune -o -type f -print) || return 1
+  fi
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    f=${f#./}
+    if ! is_doc_file "$f"; then
+      NON_DOC_FILE=$f
+      return 1
+    fi
+    seen=1
+  done <<EOF
+$list
+EOF
+  [ "$seen" = 1 ]
+}
+
 cd -- "$WORKTREE" || {
   echo "error: cannot enter worktree: $WORKTREE" >&2
   exit 2
@@ -196,20 +417,44 @@ if [ -n "$PASS_MARKER" ] && ! git rev-parse HEAD >/dev/null 2>&1; then
   exit 2
 fi
 
-HAS_CARGO=0
-[ -f Cargo.toml ] && HAS_CARGO=1
-HAS_NPM=0
-[ -f package.json ] && HAS_NPM=1
+MAKEFILE=
+for candidate in GNUmakefile makefile Makefile; do
+  if [ -f "$candidate" ]; then
+    MAKEFILE=$candidate
+    break
+  fi
+done
 
-if [ "$HAS_CARGO" = 0 ] && [ "$HAS_NPM" = 0 ]; then
-  echo "error: no supported repo markers found in $WORKTREE (looked for Cargo.toml, package.json; found neither)" >&2
+REPO_KIND=
+if [ -f Cargo.toml ]; then
+  REPO_KIND=cargo
+  if [ -f package.json ]; then
+    echo "note: both Cargo.toml and package.json present - using the cargo path"
+  fi
+elif [ -f package.json ]; then
+  REPO_KIND=npm
+  [ ! -f pnpm-lock.yaml ] || REPO_KIND=pnpm
+elif [ -n "$MAKEFILE" ] && { make_has_target check || make_has_target lint || make_has_target test; }; then
+  REPO_KIND="make"
+elif [ -f pyproject.toml ]; then
+  REPO_KIND=python
+elif docs_only_tree; then
+  REPO_KIND=docs
+fi
+
+if [ -z "$REPO_KIND" ]; then
+  echo "error: no supported repo markers found in $WORKTREE (looked for Cargo.toml, package.json, a Makefile with a check, lint, or test target, pyproject.toml, or a documentation-only tree; found none)" >&2
+  [ -z "$MAKEFILE" ] || echo "note: $MAKEFILE defines none of the check, lint, or test targets" >&2
+  [ -z "$NON_DOC_FILE" ] || echo "note: not documentation-only: $NON_DOC_FILE" >&2
   fail_step repo-detect
 fi
 
-if [ "$HAS_CARGO" = 1 ]; then
-  if [ "$HAS_NPM" = 1 ]; then
-    echo "note: both Cargo.toml and package.json present - using the cargo path"
-  fi
+GATE_PYTHON=
+GATE_VENV=$(gate_marker_path fm-local-gate-venv)
+[ -n "$GATE_VENV" ] || GATE_VENV="$PWD/.venv"
+
+case $REPO_KIND in
+cargo)
   # fmt runs host-side even when a containerized helper exists: rustfmt only
   # parses (never compiles), and helpers may mount the worktree read-only.
   if cargo fmt --version >/dev/null 2>&1; then
@@ -235,7 +480,8 @@ if [ "$HAS_CARGO" = 1 ]; then
     run_step cargo-clippy cargo clippy --all-targets --locked -- -D warnings
     run_step cargo-test cargo test --locked
   fi
-elif [ "$HAS_NPM" = 1 ]; then
+  ;;
+npm)
   command -v npm >/dev/null 2>&1 || {
     echo "error: npm not found on PATH" >&2
     fail_step npm-install
@@ -256,16 +502,82 @@ elif [ "$HAS_NPM" = 1 ]; then
     echo "note: no package-lock.json or npm-shrinkwrap.json - running npm install"
     run_step npm-install npm install
   fi
-  for script_name in check typecheck test; do
-    npm_script_state "$script_name"
-    present=$?
-    case $present in
-      0) run_step "npm-$script_name" npm run "$script_name" ;;
-      1) echo "note: no \"$script_name\" script in package.json - skipping" ;;
-      *) fail_step npm-scripts ;;
-    esac
-  done
-fi
+  run_package_scripts npm
+  ;;
+pnpm)
+  echo "note: pnpm-lock.yaml present - using the pnpm path"
+  command -v pnpm >/dev/null 2>&1 || {
+    echo "error: pnpm not found on PATH" >&2
+    fail_step pnpm-install
+  }
+  command -v node >/dev/null 2>&1 || {
+    echo "error: node not found on PATH" >&2
+    fail_step pnpm-scripts
+  }
+  run_step pnpm-install pnpm install --frozen-lockfile --config.confirm-modules-purge=false
+  run_package_scripts pnpm
+  ;;
+make)
+  command -v make >/dev/null 2>&1 || {
+    echo "error: make not found on PATH" >&2
+    fail_step make-detect
+  }
+  MAKE_VARS=()
+  if [ -f pyproject.toml ]; then
+    if grep -Eq '^PYTHON[[:space:]]*\?=' "$MAKEFILE"; then
+      select_gate_python
+      MAKE_VARS+=("PYTHON=$GATE_PYTHON")
+    fi
+    if grep -Eq '^VENV[[:space:]]*\?=' "$MAKEFILE"; then
+      MAKE_VARS+=("VENV=$GATE_VENV")
+      if make_has_target install; then
+        python_clean_install run_step make-install make ${MAKE_VARS[@]+"${MAKE_VARS[@]}"} install
+      fi
+    elif make_has_target install; then
+      echo "note: $MAKEFILE does not declare VENV ?= - make install runs every time into the environment it chooses"
+      run_step make-install make ${MAKE_VARS[@]+"${MAKE_VARS[@]}"} install
+    fi
+    make_has_target install \
+      || echo "note: $MAKEFILE defines no install target - the ladder runs against the environment its own targets set up"
+  fi
+  if make_has_target check; then
+    run_step make-check make ${MAKE_VARS[@]+"${MAKE_VARS[@]}"} check
+  else
+    for target in lint test; do
+      if make_has_target "$target"; then
+        run_step "make-$target" make ${MAKE_VARS[@]+"${MAKE_VARS[@]}"} "$target"
+      else
+        echo "note: no \"$target\" target in $MAKEFILE - skipping"
+      fi
+    done
+  fi
+  ;;
+python)
+  if [ -f uv.lock ]; then
+    command -v uv >/dev/null 2>&1 || {
+      echo "error: uv.lock present but uv not found on PATH" >&2
+      fail_step uv-sync
+    }
+    run_step uv-sync env UV_PROJECT_ENVIRONMENT="$GATE_VENV" uv sync --locked
+  else
+    select_gate_python
+    python_clean_install python_pip_install
+  fi
+  pyproject_has ruff
+  ruff_state=$?
+  if [ "$ruff_state" = 2 ]; then
+    fail_step python-config
+  elif [ "$ruff_state" = 0 ] || [ -f ruff.toml ] || [ -f .ruff.toml ]; then
+    run_step python-lint "$GATE_VENV/bin/python" -m ruff check .
+  else
+    echo "note: ruff not configured - lint rung skipped"
+  fi
+  run_step python-test "$GATE_VENV/bin/python" -m pytest
+  ;;
+docs)
+  echo "note: documentation-only tree - no build, lint, or test ladder exists to run (explicit no-ladder pass)"
+  ;;
+esac
 
 if [ -n "$PASS_MARKER" ]; then
   HEAD_SHA=$(git rev-parse HEAD 2>/dev/null) || fail_step record-head
