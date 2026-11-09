@@ -21,7 +21,9 @@ such section is NOT on this flow yet - resolve it at registration
 (`project-management`) before dispatching ship work there.
 
 ## Phases
-0. Intake: mode+yolo from registry; one task = one PR; trigger audit when workflows in
+0. Intake: mode+yolo from registry; one task = one PR; a plan splitting one repo's work
+   into several PRs folds into one ship task unless it states a parallel reason (every PR
+   pays a full CI run, main-branch build and review round - what draft-and-flip avoids); trigger audit when workflows in
    scope (pull_request types incl. ready_for_review; every job guarded
    `!github.event.pull_request.draft`; concurrency group per ref with
    cancel-in-progress only for pull_request; publish lanes main+tags; paths-ignore
@@ -106,7 +108,8 @@ surface one line per repo in the digest. Billing API endpoints 404 for this toke
 In the same turn print `bin/fm-review-tally.sh summary --since <YYYY-MM>-01`: the CodeRabbit-only catch rate per PR is the number the retire-CodeRabbit decision reads, and the coverage line says whether recording lapsed.
 
 ## Checklists
-A intake: registry mode/yolo -> PR shape -> plan-first if sizeable -> trigger audit ->
+A intake: registry mode/yolo -> PR shape (one repo's multi-PR plan folded into one
+  ship task unless a parallel reason is stated) -> plan-first if sizeable -> trigger audit ->
   brief points at the project's Delivery section.
 B pre-push: ladder green (gate-pass head= matches) -> pushed once -> DRAFT opened ->
   merge watch AND PR-readiness watch armed (bin/fm-pr-draft-check.sh <id> <PR url>; readiness recipe in process-event-sources) -> zero Actions runs fired ->
